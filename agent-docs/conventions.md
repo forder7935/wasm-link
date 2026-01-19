@@ -8,7 +8,7 @@
 ## Error Handling
 - Prohibit `unwrap()` and `expect()` - use graceful error handling everywhere possible, propagating with `?` and structured types from `thiserror`.
 - Do not use `anyhow` (despite its presence in dependencies due to `wit_parser`).
-- Define custom error types using `thiserror` for structured error reporting. These should be specific to the operation you're making. If don't use global error types for the whole module. If a function can't produce some variant of the error type, then the error type should not be reused for that function. Either use a separate error or nesting if it makes sense.
+- Define custom error types using `thiserror` for structured error reporting. These should be specific to the operation you're making. Do not use global error types for the whole module. If a function can't produce some variant of the error type, then the error type should not be reused for that function. Either use a separate error or nesting if it makes sense.
 - Use the helper `PartialSuccess` and `PartialResult` types from @src/utils/partial_success.rs when applicable
 
 ## Immutability Rule of Thumb
