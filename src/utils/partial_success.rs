@@ -1,6 +1,6 @@
-/// Type aliases for operations that support partial success/failure patterns.
-/// These represent graceful error handling where some parts of an operation may fail
-/// while others succeed, allowing partial completion rather than total failure.
+//! Type aliases for operations that support partial success/failure patterns.
+//! These represent graceful error handling where some parts of an operation may fail
+//! while others succeed, allowing partial completion rather than total failure.
 
 /// Represents a successful operation where some parts failed but didn't prevent overall success.
 /// The Vec<E> contains errors from the failed parts that were handled gracefully.
