@@ -1,6 +1,6 @@
 # Agents Instructions
 
-Omni is a platform for building fully modular applications based around WebAssembly plugins.
+Wasm Compose is a framework for building fully modular applications based around WebAssembly plugins.
 
 ## Essentials
 - Package manager: `nix develop`
