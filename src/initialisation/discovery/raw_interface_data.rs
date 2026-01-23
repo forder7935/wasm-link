@@ -133,9 +133,9 @@ impl RawInterfaceData {
         #[cfg( feature = "test" )] {
             let bin_path = root_path.join( Self::MANIFEST_FILE );
             if bin_path.is_file() {
-                std::fs::read( Self::manifest_path( &root_path )).map_err( InterfaceParseError::Io )
+                std::fs::read( Self::manifest_path( root_path )).map_err( InterfaceParseError::Io )
             } else {
-                let text = std::fs::read_to_string( Self::manifest_path( &root_path )).map_err( InterfaceParseError::Io )?;
+                let text = std::fs::read_to_string( Self::manifest_path( root_path )).map_err( InterfaceParseError::Io )?;
                 let data: test_conversion::DeserialisableInterfaceManifest = toml::from_str( &text )
                     .map_err( InterfaceParseError::TomlManifestParseError )?;
                 let data: test_conversion::SerialisableInterfaceManifest = data.into();
@@ -305,12 +305,12 @@ mod test_conversion {
         pub version: DeserialisableVersion,
         #[capnp_conv( type = "enum" )] pub cardinality: crate::capnp::common::interface_capnp::InterfaceCardinality,
     }
-    impl Into<SerialisableInterfaceManifest> for DeserialisableInterfaceManifest {
-        fn into( self ) -> SerialisableInterfaceManifest {
-            SerialisableInterfaceManifest {
-                id: self.id,
-                version: self.version,
-                cardinality: self.cardinality.into(),
+    impl From<DeserialisableInterfaceManifest> for SerialisableInterfaceManifest {
+        fn from( deserialisable: DeserialisableInterfaceManifest ) -> Self {
+            Self {
+                id: deserialisable.id,
+                version: deserialisable.version,
+                cardinality: deserialisable.cardinality.into(),
             }
         }
     }

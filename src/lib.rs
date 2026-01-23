@@ -6,3 +6,4 @@ pub mod utils ;
 pub use initialisation::{ InterfaceId, PluginData, PluginId, Socket,
     InterfaceCardinality, initialise_plugin_tree,
     UnrecoverableStartupError, PreloadError };
+pub use exports::exports ;

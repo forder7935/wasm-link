@@ -1,8 +1,14 @@
-use omni_desktop_host::{ initialise_plugin_tree, UnrecoverableStartupError, PreloadError, InterfaceCardinality };
+use wasm_compose::{ initialise_plugin_tree, UnrecoverableStartupError, PreloadError, InterfaceCardinality, InterfaceId };
+use wasmtime::Engine ;
+use wasmtime::component::Linker ;
 
 #[test]
 fn cardinality_test_exactly_one_with_none() {
-    match initialise_plugin_tree( &test_data_path!( "cardinality", "exactly_one", "with_none" ), &0 ) {
+
+    let engine = Engine::default();
+    let linker = Linker::new( &engine );
+
+    match initialise_plugin_tree( &test_data_path!( "cardinality", "exactly_one", "with_none" ), &InterfaceId::new( 0 ), engine, &linker ) {
         Err(( UnrecoverableStartupError::PreloadError(
             PreloadError::FailedCardinalityRequirements( InterfaceCardinality::ExactlyOne, 0 )
         ), _ )) => {},
@@ -10,4 +16,5 @@ fn cardinality_test_exactly_one_with_none() {
         Err(( err, warnings )) => panic!( "Failed With Warnings: {}\n{:?}", err, warnings ),
         Ok( val ) => panic!( "Expected failure, got: {:#?}", val ),
     };
+
 }
