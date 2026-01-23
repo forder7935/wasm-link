@@ -81,16 +81,17 @@ pub fn discover_all( source: &Path, root_interface_id: &InterfaceId ) -> Result<
 }
 
 fn read_cache_header( source: &Path ) -> Result<Vec<PluginId>, DiscoveryFailure> {
-    if !cfg!( feature = "test" ) {
+    #[cfg( not( feature = "test" ))] {
         Ok( vec![
-            String::from( "foo" ),
-            String::from( "bar" ),
+            PluginId::new( "foo".to_string() ),
+            PluginId::new( "bar".to_string() ),
         ])
-    } else {
+    }
+    #[cfg( feature = "test" )] {
         Ok( std::fs::read_dir( source.join( PLUGINS_DIR )).map_err( DiscoveryFailure::Io )?
             .map(| entry | entry.expect( "failed to read dir entry" ))
             .filter(| entry | entry.file_type().expect( "failed to read dir entry file type" ).is_dir() )
-            .map(| entry | entry.file_name().into_string().expect( "dir name is not valid PluginId" ) )
+            .map(| entry | PluginId::new( entry.file_name().into_string().expect( "dir name is not valid PluginId" ) ))
             .collect()
         )
     }

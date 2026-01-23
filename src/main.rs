@@ -1,20 +1,24 @@
 use std::path::PathBuf ;
 use std::sync::Arc ;
 use pipe_trait::Pipe ;
+use wasmtime::Engine ;
 
-use omni_desktop_host::{ InterfaceId, initialise_plugin_tree };
-use omni_desktop_host::utils::{ deconstruct_partial_result, produce_warning };
+use wasm_compose::{ InterfaceId, initialise_plugin_tree };
+use wasm_compose::utils::{ deconstruct_partial_result, produce_warning };
+use wasmtime::component::Linker ;
 
 
 
 const SOURCE_DIR: &str = "./appdata" ;
-const ROOT_SOCKET_ID: InterfaceId = 0x_00_00_00_00_u64 ;
+const ROOT_SOCKET_ID: InterfaceId = InterfaceId::new( 0x_00_00_00_00_u64 );
 const ROOT_SOCKET_INTERFACE: &str = "root:startup/root" ;
 const STARTUP_FUNCTION: &str = "startup" ;
 
 fn main() {
 
-    let ( init_result, init_errors ) = initialise_plugin_tree( &PathBuf::from( SOURCE_DIR ), &ROOT_SOCKET_ID )
+    let engine = Engine::default();
+    let linker = Linker::new( &engine );
+    let ( init_result, init_errors ) = initialise_plugin_tree( &PathBuf::from( SOURCE_DIR ), &ROOT_SOCKET_ID, engine, &linker )
         .pipe( deconstruct_partial_result );
 
     init_errors.into_iter().for_each( produce_warning );

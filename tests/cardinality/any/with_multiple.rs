@@ -1,12 +1,16 @@
 use pipe_trait::Pipe ;
 
-use omni_desktop_host::initialise_plugin_tree ;
-use omni_desktop_host::utils::deconstruct_partial_result ;
+use wasm_compose::{ initialise_plugin_tree, InterfaceId };
+use wasm_compose::utils::deconstruct_partial_result ;
+use wasmtime::Engine ;
+use wasmtime::component::Linker ;
 
 #[test]
 fn cardinality_test_any_with_multiple() {
 
-    let ( result, warnings ) = initialise_plugin_tree( &test_data_path!( "cardinality", "any", "with_multiple" ), &0 )
+    let engine = Engine::default();
+    let linker = Linker::new( &engine );
+    let ( result, warnings ) = initialise_plugin_tree( &test_data_path!( "cardinality", "any", "with_multiple" ), &InterfaceId::new( 0 ), engine, &linker )
         .pipe( deconstruct_partial_result );
 
     match result {
