@@ -1,6 +1,7 @@
 use std::path::Path ;
 use thiserror::Error ;
 use wasmtime::Engine ;
+use wasmtime::component::Linker ;
 use pipe_trait::Pipe ;
 
 mod discovery ;
@@ -30,18 +31,19 @@ pub enum RecoverableStartupError {
     #[error( "Preload Error:" )] PreloadError( #[from] PreloadError ),
 }
 
-pub fn initialise_plugin_tree( source: &Path, root_interface_id: &InterfaceId ) -> PartialResult<PluginTree, UnrecoverableStartupError, RecoverableStartupError> {
+pub fn initialise_plugin_tree(
+    source: &Path,
+    root_interface_id: &InterfaceId,
+    engine: Engine,
+    linker: &Linker<PluginContext>
+) -> PartialResult<PluginTree, UnrecoverableStartupError, RecoverableStartupError> {
 
     let ( socket_map, discovery_errors ) = discover_all( source, root_interface_id ).map_err(| err | ( err.into(), vec![] ))?;
 
-    let engine = Engine::default();
-    let ( linker, linker_errors ) = crate::exports::exports( &engine );
-
-    let ( preload_result, preload_errors ) = PluginTree::new( *root_interface_id, socket_map, engine, &linker )
+    let ( preload_result, preload_errors ) = PluginTree::new( *root_interface_id, socket_map, engine, linker )
         .pipe( deconstruct_partial_result );
 
     let errors = discovery_errors.into_iter().map( Into::into )
-        .chain( linker_errors.into_iter().map( RecoverableStartupError::LinkerError ))
         .chain( preload_errors.into_iter().map( Into::into ))
         .collect();
 

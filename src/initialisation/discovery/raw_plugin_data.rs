@@ -104,7 +104,7 @@ impl RawPluginData {
         let manifest = self.get_manifest_data()?;
         let reader = serialize::read_message( Cursor::new( &manifest ), ReaderOptions::new())?;
         let root = reader.get_root::<plugin_manifest::Reader>()?;
-        Ok( root.get_plug()?.get_id() )
+        Ok( root.get_plug()?.into() )
     }
 
     #[inline] pub fn get_sockets( &mut self ) -> Result<Vec<InterfaceId>, PluginManifestReadError> {

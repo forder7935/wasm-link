@@ -1,5 +1,5 @@
 [package]
-name = "omni_desktop_host"
+name = "wasm_compose"
 version = "0.1.0"
 edition = "2021"
 
