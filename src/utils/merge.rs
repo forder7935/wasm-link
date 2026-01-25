@@ -16,3 +16,16 @@ impl<T> Merge<T> for Vec<T> {
         self
     }
 }
+
+use std::collections::HashSet ;
+use std::hash::Hash ;
+impl<T: Eq + Hash> Merge<T> for HashSet<T> {
+    fn merge( mut self, value: T ) -> Self {
+        self.insert( value );
+        self
+    }
+    fn merge_all( mut self, values: impl IntoIterator<Item = T> ) -> Self {
+        values.into_iter().for_each(| value | { self.insert( value ); });
+        self
+    }
+}

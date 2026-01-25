@@ -3,6 +3,7 @@ use std::sync::{ RwLock, RwLockReadGuard, PoisonError };
 use wasmtime::component::Val ;
 
 use crate::PluginId ;
+use super::PluginData ;
 use super::PluginInstance ;
 
 
@@ -16,13 +17,13 @@ pub enum Socket<T> {
 }
 
 impl<T> Socket<T> {
-    pub fn map<N>( &self, mut map: impl FnMut(&T) -> N ) -> Socket<N> {
+    pub fn map<N>( &self, mut map: impl FnMut( &T ) -> N ) -> Socket<N> {
         match self {
             Self::AtMostOne( Option::None ) => Socket::AtMostOne( Option::None ),
             Self::AtMostOne( Some( t )) => Socket::AtMostOne( Some( map( t ))),
             Self::ExactlyOne( t ) => Socket::ExactlyOne( map( t )),
-            Self::AtLeastOne( vec ) => Socket::AtLeastOne( vec.iter().map(|( id, item )| ( id.clone(), map( item ) )).collect() ),
-            Self::Any( vec ) => Socket::Any( vec.iter().map(|( id, item )| ( id.clone(), map( item ) )).collect() ),
+            Self::AtLeastOne( vec ) => Socket::AtLeastOne( vec.iter().map(|( id, item ): ( &PluginId, _ )| ( id.clone(), map( &item ) )).collect() ),
+            Self::Any( vec ) => Socket::Any( vec.iter().map(|( id, item ): ( &PluginId, _ )| ( id.clone(), map( &item ) )).collect() ),
         }
     }
     pub fn map_mut<N>( self, mut map: impl FnMut(T) -> N ) -> Socket<N> {
@@ -35,8 +36,8 @@ impl<T> Socket<T> {
         }
     }
 }
-impl Socket<RwLock<PluginInstance>> {
-    pub fn get( &self, id: &PluginId ) -> Result<Option<&RwLock<PluginInstance>>,PoisonError<RwLockReadGuard<'_, PluginInstance>>> {
+impl<T: PluginData> Socket<RwLock<PluginInstance<T>>> {
+    pub fn get( &self, id: &PluginId ) -> Result<Option<&RwLock<PluginInstance<T>>>,PoisonError<RwLockReadGuard<'_, PluginInstance<T>>>> {
         Ok( match self {
             Self::AtMostOne( Option::None ) => None,
             Self::AtMostOne( Some( plugin )) | Self::ExactlyOne( plugin ) => {

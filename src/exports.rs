@@ -1,7 +1,7 @@
 use wasmtime::component::Linker ;
 use wasmtime::Engine ;
 
-use crate::initialisation::PluginContext ;
+use crate::{ PluginContext, PluginData };
 
 
 
@@ -20,7 +20,7 @@ macro_rules! declare_exports {
     };
 }
 
-pub fn exports( engine: &Engine ) -> ( Linker<PluginContext>, Vec<wasmtime::Error> ) {
+pub fn exports<T: PluginData>( engine: &Engine ) -> ( Linker<PluginContext<T>>, Vec<wasmtime::Error> ) {
 
     let linker = Linker::new( engine );
     let linker_errors = declare_exports!( linker, []);

@@ -1,55 +1,65 @@
-use std::path::Path ;
-use thiserror::Error ;
+use std::collections::HashMap ;
+use std::sync::{ Arc, RwLock };
 use wasmtime::Engine ;
 use wasmtime::component::Linker ;
-use pipe_trait::Pipe ;
 
 mod discovery ;
 mod loading ;
 mod types ;
 
-pub use types::{ PluginId, InterfaceId };
-pub use discovery::{ RawPluginData as PluginData, InterfaceCardinality, DiscoveryError, DiscoveryFailure };
-pub use loading::{ PluginTree, PluginContext, Socket, PreloadError };
-use discovery::{ RawPluginData, RawInterfaceData, RawSocketMap, FunctionData, FunctionReturnType,
-    InterfaceManifestReadError, PluginManifestReadError, InterfaceParseError, discover_all };
-
-use crate::utils::{ PartialResult, deconstruct_partial_result };
-
+pub use types::{ InterfaceId, PluginId };
+pub use discovery::{ InterfaceData, PluginData, InterfaceCardinality, FunctionData, FunctionReturnType };
+pub use loading::{ Socket, PluginContext, PreloadError };
+use crate::utils::{ PartialSuccess, PartialResult };
+use discovery::discover_all ;
+use loading::{ preload_plugin_tree, PluginInstance };
 
 
-#[derive( Error, Debug )]
-pub enum UnrecoverableStartupError {
-    #[error( "Discovery Failure: {0}" )] DiscoveryError( #[from] DiscoveryFailure ),
-    #[error( "Plugin Error: {0}" )] PreloadError( #[from] PreloadError ),
+
+pub struct PluginTreeHead<I: InterfaceData, P: PluginData + 'static> {
+    _interface: Arc<I>,
+    socket: Arc<Socket<RwLock<PluginInstance<P>>>>,
 }
 
-#[derive( Error, Debug )]
-pub enum RecoverableStartupError {
-    #[error( "Discovery Error: {0}" )] DiscoveryError( #[from] DiscoveryError ),
-    #[error( "Linker Error: {0}" )] LinkerError( wasmtime::Error ),
-    #[error( "Preload Error:" )] PreloadError( #[from] PreloadError ),
+impl<I: InterfaceData, P: PluginData> PluginTreeHead<I, P> { }
+
+pub struct PluginTree<I: InterfaceData, P: PluginData> {
+    root_interface_id: InterfaceId,
+    socket_map: HashMap<InterfaceId, ( I, Vec<P> )>,
 }
+impl<I: InterfaceData, P: PluginData> PluginTree<I, P> {
+    
+    pub fn new<E, IE, PE>(
+        plugins: Vec<P>,
+        root_interface_id: InterfaceId,
+    ) -> PartialSuccess<Self, E>
+    where 
+        IE: std::error::Error,
+        PE: std::error::Error,
+        I: InterfaceData<Error = IE> + Sized,
+        P: PluginData<Error = PE> + Sized,
+        E: From<IE> + From<PE>,
+    {
+        let ( socket_map, errors ) = discover_all::<I, _, _, _, _>( plugins, &root_interface_id );
+        ( Self { root_interface_id, socket_map }, errors )
+    }
 
-pub fn initialise_plugin_tree(
-    source: &Path,
-    root_interface_id: &InterfaceId,
-    engine: Engine,
-    linker: &Linker<PluginContext>
-) -> PartialResult<PluginTree, UnrecoverableStartupError, RecoverableStartupError> {
-
-    let ( socket_map, discovery_errors ) = discover_all( source, root_interface_id ).map_err(| err | ( err.into(), vec![] ))?;
-
-    let ( preload_result, preload_errors ) = PluginTree::new( *root_interface_id, socket_map, engine, linker )
-        .pipe( deconstruct_partial_result );
-
-    let errors = discovery_errors.into_iter().map( Into::into )
-        .chain( preload_errors.into_iter().map( Into::into ))
-        .collect();
-
-    match preload_result {
-        Ok( plugin_tree ) => Ok(( plugin_tree, errors )),
-        Err( preload_failure ) => Err(( preload_failure.into(), errors )),
+    pub fn load<IE: std::error::Error, PE: std::error::Error>(
+        self,
+        engine: Engine,
+        exports: &Linker<PluginContext<P>>,
+    ) -> PartialResult<PluginTreeHead<I, P>, PreloadError<IE, PE>, PreloadError<IE, PE>>
+    where 
+        IE: std::error::Error,
+        PE: std::error::Error,
+        I: InterfaceData<Error = IE> + Sized,
+        P: PluginData<Error = PE> + Sized + Send + Sync,
+    {
+        match preload_plugin_tree( self.socket_map, &engine, exports, self.root_interface_id ) {
+            Ok((( _interface, socket ), errors )) => Ok(( PluginTreeHead { _interface, socket }, errors )),
+            Err(( err, errors )) => Err(( err , errors )),
+        }
     }
 
 }
+

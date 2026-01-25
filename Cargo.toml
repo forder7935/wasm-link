@@ -21,6 +21,3 @@ serde = { version = "1.0", features = ["derive"] }
 
 [build-dependencies]
 capnpc = "0.20"
-
-[features]
-test = []

@@ -6,13 +6,16 @@ use wasmtime::component::Linker ;
 
 use crate::InterfaceId ;
 use crate::utils::PartialResult ;
-use super::{ RawInterfaceData, RawPluginData, InterfaceCardinality, InterfaceManifestReadError, PluginManifestReadError, RawSocketMap };
+use super::{ InterfaceData, PluginData, InterfaceCardinality };
 use super::{ PluginContext, preload_socket, SocketState, LoadedSocket };
 
 
 
 #[derive( Error, Debug )]
-pub enum PreloadError {
+pub enum PreloadError<
+    InterfaceError: std::error::Error,
+    PluginError: std::error::Error,
+> {
     
     #[error( "Invalid socket: {0}" )]
     InvalidSocket( InterfaceId ),
@@ -23,14 +26,17 @@ pub enum PreloadError {
     #[error( "Failed to meet cardinality requirements: {0}, found {1}" )]
     FailedCardinalityRequirements( InterfaceCardinality, usize ),
     
-    #[error( "Corrupted plugin manifest: {0}" )]
-    CorruptedPluginManifest( PluginManifestReadError ),
-    
     #[error( "Corrupted interface manifest: {0}" )]
-    CorruptedInterfaceManifest( InterfaceManifestReadError ),
+    CorruptedInterfaceManifest( InterfaceError ),
 
+    #[error( "Corrupted plugin manifest: {0}" )]
+    CorruptedPluginManifest( PluginError ),
+    
     #[error( "Failed to load component: {0}" )]
     FailedToLoadComponent( wasmtime::Error ),
+
+    #[error( "Failed to read WASM data: {0}" )]
+    FailedToReadWasm( std::io::Error ),
 
     #[error( "Failed to link root interface: {0}" )]
     FailedToLinkRootInterface( wasmtime::Error ),
@@ -48,34 +54,31 @@ pub enum PreloadError {
 /// Convinience abstraction semantically equivalent to:
 /// `( SocketMap, PreloadResult<T, PreloadError, PreloadError> )`
 #[derive(Debug)]
-pub(super) struct PreloadResult<T> {
-    pub socket_map: HashMap<InterfaceId, SocketState>,
-    pub result: Result<T, PreloadError>,
-    pub errors: Vec<PreloadError>,
+pub(super) struct PreloadResult<T, I: InterfaceData, P: PluginData + 'static, IE: std::error::Error, PE: std::error::Error> {
+    pub socket_map: HashMap<InterfaceId, SocketState<I, P>>,
+    pub result: Result<T, PreloadError<IE, PE>>,
+    pub errors: Vec<PreloadError<IE, PE>>,
 }
 
-#[inline] pub(super) fn preload_plugin_tree(
-    socket_map: RawSocketMap,
+#[inline] pub(crate) fn preload_plugin_tree<I, P, IE, PE>(
+    socket_map: HashMap<InterfaceId, ( I, Vec<P> )>,
     engine: &Engine,
-    default_linker: &Linker<PluginContext>,
+    default_linker: &Linker<PluginContext<P>>,
     root: InterfaceId,
-) -> PartialResult<( Arc<RawInterfaceData>, Arc<LoadedSocket> ), PreloadError, PreloadError> {
-    match preload_socket(
-        wrap_unprocessed( socket_map ),
-        engine,
-        default_linker,
-        root,
-    ) {
+) -> PartialResult<( Arc<I>, Arc<LoadedSocket<P>> ), PreloadError<IE, PE>, PreloadError<IE, PE>>
+where 
+    IE: std::error::Error,
+    PE: std::error::Error,
+    I: InterfaceData<Error = IE>,
+    P: PluginData<Error = PE> + Send + Sync,
+{
+    let socket_map = socket_map.into_iter()
+        .map(|( socket_id, ( interface, plugins ))| ( socket_id, SocketState::Unprocessed( interface, plugins )))
+        .collect();
+
+    match preload_socket( socket_map, engine, default_linker, root ) {
         PreloadResult { socket_map: _, result: Ok(( interface, socket )), errors } => Ok((( interface, socket ), errors )),
         PreloadResult { socket_map: _, result: Err( err ), errors } => Err(( err, errors ))
     }
 
-}
-
-#[inline( always )] fn wrap_unprocessed(
-    socket_map: HashMap<InterfaceId, ( RawInterfaceData, Vec<RawPluginData> )>,
-) -> HashMap<InterfaceId, SocketState> {
-    socket_map.into_iter()
-        .map(|( socket_id, ( interface, plugins ))| ( socket_id, SocketState::Unprocessed( interface, plugins )))
-        .collect()
 }

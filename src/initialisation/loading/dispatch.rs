@@ -5,14 +5,14 @@ use wasmtime::component::Val ;
 
 use crate::PluginId ;
 use super::{ FunctionData, FunctionReturnType };
-use super::{ PluginTree, Socket, PluginInstance, PluginContext, ResourceWrapper, InterfaceParseError, ResourceCreationError, ResourceReceiveError };
+use super::{ InterfaceData, PluginData, PluginTreeHead, Socket, PluginInstance, PluginContext, ResourceWrapper, ResourceCreationError, ResourceReceiveError };
 
 
 
 #[derive( Error, Debug )]
-pub enum DispatchError {
+pub enum DispatchError<InterfaceError: std::error::Error> {
     #[error( "Deadlock" )] Deadlock,
-    #[error( "Wit parser error: {0}")] WitParserError( #[from] InterfaceParseError ),
+    #[error( "Wit parser error: {0}")] WitParserError( InterfaceError ),
     #[error( "Invalid Interface: {0}" )] InvalidInterface( String ),
     #[error( "Invalid Function: {0}" )] InvalidFunction( String ),
     #[error( "Missing Response" )] MissingResponse,
@@ -21,8 +21,8 @@ pub enum DispatchError {
     #[error( "Resource Create Error: {0}" )] ResourceCreationError( #[from] ResourceCreationError ),
     #[error( "Resource Receive Error: {0}" )] ResourceReceiveError( #[from] ResourceReceiveError ),
 }
-impl From<DispatchError> for Val {
-    fn from( error: DispatchError ) -> Val { match error {
+impl<T: std::error::Error> From<DispatchError<T>> for Val {
+    fn from( error: DispatchError<T> ) -> Val { match error {
         DispatchError::Deadlock => Val::Variant( "deadlock".to_string(), None ),
         DispatchError::WitParserError( err ) => Val::Variant( "wit-parser-error".to_string(), Some( Box::new( Val::String( err.to_string() )))),
         DispatchError::InvalidInterface( package ) => Val::Variant( "invalid-interface".to_string(), Some( Box::new( Val::String( package )))),
@@ -37,68 +37,72 @@ impl From<DispatchError> for Val {
 
 
 
-impl PluginTree {
-    pub fn dispatch_function_on_root(
+impl<I: InterfaceData, P: PluginData> PluginTreeHead<I, P> {
+    pub fn dispatch_function_on_root<IE>(
         &self,
         interface_path: &str,
         function: &str,
         has_return: bool,
         data: &[Val],
-    ) -> Socket<Result<Val, DispatchError>> {
-        self.root_socket.dispatch_function( interface_path, function, has_return, data )
+    ) -> Socket<Result<Val, DispatchError<IE>>>
+    where
+        IE: std::error::Error,
+        I: InterfaceData<Error = IE>,
+    {
+        self.socket.dispatch_function( interface_path, function, has_return, data )
     }
 }
 
-impl Socket<RwLock<PluginInstance>> {
+impl<T: PluginData> Socket<RwLock<PluginInstance<T>>> {
 
-    pub fn dispatch_function(
+    pub fn dispatch_function<IE: std::error::Error>(
         &self,
         interface_path: &str,
         function: &str,
         has_return: bool,
         data: &[Val],
-    ) -> Socket<Result<Val, DispatchError>> {
+    ) -> Socket<Result<Val, DispatchError<IE>>> {
         self.map(| plugin | plugin
             .write().map_err(|_| DispatchError::Deadlock )
             .and_then(| mut lock | lock.dispatch( interface_path, function, has_return, data ))
         )
     }
 
-    pub fn dispatch_function_all(
+    pub fn dispatch_function_all<E: std::error::Error>(
         &self,
-        mut ctx: StoreContextMut<PluginContext>,
+        mut ctx: StoreContextMut<PluginContext<T>>,
         interface_path: &str,
         function: &FunctionData,
         data: &[Val],
     ) -> Val {
         debug_assert!( !function.is_method() );
-        self.map(| plugin | Val::Result( match Self::dispatch_function_of( &mut ctx, plugin, interface_path, function, data ) {
+        self.map(| plugin | Val::Result( match Self::dispatch_function_of::<E>( &mut ctx, plugin, interface_path, function, data ) {
             Ok( val ) => Ok( Some( Box::new( val ))),
             Err( err ) => Err( Some( Box::new( err.into() ))),
         })).into()
     }
 
-    pub fn dispatch_function_method(
+    pub fn dispatch_function_method<E: std::error::Error>(
         &self,
-        ctx: StoreContextMut<PluginContext>,
+        ctx: StoreContextMut<PluginContext<T>>,
         interface_path: &str,
         function: &FunctionData,
         data: &[Val],
     ) -> Val {
         debug_assert!( function.is_method() );
-        Val::Result( match Self::route_method( self, ctx, interface_path, function, data ) {
+        Val::Result( match Self::route_method::<E>( self, ctx, interface_path, function, data ) {
             Ok( val ) => Ok( Some( Box::new( val ))),
             Err( err ) => Err( Some( Box::new( err.into() ))),
         })
     }
 
-    #[inline] fn dispatch_function_of(
-        ctx: &mut StoreContextMut<PluginContext>,
-        plugin: &RwLock<PluginInstance>,
+    #[inline] fn dispatch_function_of<E: std::error::Error>(
+        ctx: &mut StoreContextMut<PluginContext<T>>,
+        plugin: &RwLock<PluginInstance<T>>,
         interface_path: &str,
         function: &FunctionData,
         data: &[Val],
-    ) -> Result<Val, DispatchError> {
+    ) -> Result<Val, DispatchError<E>> {
 
         let mut lock = plugin.write().map_err(|_| DispatchError::Deadlock )?;
         let result = lock.dispatch( interface_path, function.name(), function.has_return(), data )?;
@@ -136,13 +140,13 @@ impl Socket<RwLock<PluginInstance>> {
         })
     }
 
-    #[inline] fn route_method(
+    #[inline] fn route_method<E: std::error::Error>(
         &self,
-        mut ctx: StoreContextMut<PluginContext>,
+        mut ctx: StoreContextMut<PluginContext<T>>,
         interface_path: &str,
         function: &FunctionData,
         data: &[Val],
-    ) -> Result<Val, DispatchError> {
+    ) -> Result<Val, DispatchError<E>> {
 
         let handle = match data.first() {
             Some( Val::Resource( handle )) => Ok( handle ),
@@ -163,17 +167,17 @@ impl Socket<RwLock<PluginInstance>> {
 
 }
 
-impl PluginInstance {
+impl<T: PluginData> PluginInstance<T> {
 
     const PLACEHOLDER_VAL: Val = Val::Tuple( vec![] );
 
-    fn dispatch(
+    fn dispatch<E: std::error::Error>(
         &mut self,
         interface_path: &str,
         function: &str,
         returns: bool,
         data: &[Val],
-    ) -> Result<Val, DispatchError> {
+    ) -> Result<Val, DispatchError<E>> {
         
         let mut buffer = match returns {
             true => vec![ Self::PLACEHOLDER_VAL ],

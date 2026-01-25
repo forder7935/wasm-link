@@ -10,10 +10,3 @@ pub type PartialSuccess<T, E> = ( T, Vec<E> );
 /// Ok: Core success data plus errors from partial failures that allowed completion.
 /// Err: Primary failure cause plus errors that likely contributed to the overall failure.
 pub type PartialResult<T, F, E> = Result<( T, Vec<E> ), ( F, Vec<E> )>;
-
-pub fn deconstruct_partial_result<T, F, E>( result: PartialResult<T, F, E> ) -> ( Result<T, F>, Vec<E> ) {
-    match result {
-        Ok(( value, errors )) => ( Ok( value ), errors ),
-        Err(( failure, errors )) => ( Err( failure ), errors ),
-    }
-}

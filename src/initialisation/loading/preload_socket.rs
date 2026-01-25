@@ -1,35 +1,42 @@
 use std::collections::HashMap ;
 use std::sync::{ Arc, RwLock };
 use pipe_trait::Pipe;
+use itertools::Itertools ;
 use wasmtime::Engine;
 use wasmtime::component::Linker ;
 
 use crate::utils::{ MapScanTrait, Merge };
 use crate::InterfaceId ;
-use super::{ RawInterfaceData, RawPluginData, InterfaceCardinality };
+use super::{ InterfaceData, PluginData, InterfaceCardinality };
 use super::{ Socket, PluginInstance, PluginContext, PreloadResult, preload_plugin, PreloadError };
 
 
 
-pub type LoadedSocket = Socket<RwLock<PluginInstance>> ;
+pub type LoadedSocket<P> = Socket<RwLock<PluginInstance<P>>> ;
 
 #[derive( Debug, Default )]
-pub(super) enum SocketState {
-    Unprocessed( RawInterfaceData, Vec<RawPluginData> ),
-    Preloaded( Arc<RawInterfaceData>, Arc<LoadedSocket> ),
+pub(super) enum SocketState<I: InterfaceData, P: PluginData + 'static> {
+    Unprocessed( I, Vec<P> ),
+    Preloaded( Arc<I>, Arc<LoadedSocket<P>> ),
     Failed,
     #[default] Borrowed,
 }
-impl From<( RawInterfaceData, Vec<RawPluginData> )> for SocketState {
-    fn from(( interface, plugins ): ( RawInterfaceData, Vec<RawPluginData> ) ) -> Self { Self::Unprocessed( interface, plugins )}
+impl<I: InterfaceData, P: PluginData> From<( I, Vec<P> )> for SocketState<I, P> {
+    fn from(( interface, plugins ): ( I, Vec<P> )) -> Self { Self::Unprocessed( interface, plugins )}
 }
 
-pub(super) fn preload_socket(
-    mut socket_map: HashMap<InterfaceId, SocketState>,
+pub(super) fn preload_socket<I, P, IE, PE>(
+    mut socket_map: HashMap<InterfaceId, SocketState<I, P>>,
     engine: &Engine,
-    default_linker: &Linker<PluginContext>,
+    default_linker: &Linker<PluginContext<P>>,
     socket_id: InterfaceId
-) -> PreloadResult<( Arc<RawInterfaceData>, Arc<LoadedSocket> )> {
+) -> PreloadResult<( Arc<I>, Arc<LoadedSocket<P>> ), I, P, IE, PE> 
+where
+    IE: std::error::Error,
+    PE: std::error::Error,
+    I: InterfaceData<Error = IE>,
+    P: PluginData<Error = PE> + Send + Sync,
+{
 
     // NOTE: do not forget to add the entry back if it's already preloaded
     let socket_plugins = match socket_map.insert( socket_id, SocketState::Borrowed ) {
@@ -68,13 +75,19 @@ pub(super) fn preload_socket(
 
 }
 
-#[inline] fn preload_socket_unprocessed(
-    socket_map: HashMap<InterfaceId, SocketState>,
-    interface: RawInterfaceData,
-    plugins: Vec<RawPluginData>,
+#[inline] fn preload_socket_unprocessed<I, P, IE, PE>(
+    socket_map: HashMap<InterfaceId, SocketState<I, P>>,
+    interface: I,
+    plugins: Vec<P>,
     engine: &Engine,
-    default_linker: &Linker<PluginContext>,
-) -> PreloadResult<( RawInterfaceData, Socket<PluginInstance> )> {
+    default_linker: &Linker<PluginContext<P>>,
+) -> PreloadResult<( I, Socket<PluginInstance<P>> ), I, P, IE, PE>
+where
+    IE: std::error::Error,
+    PE: std::error::Error,
+    I: InterfaceData<Error = IE>,
+    P: PluginData<Error = PE> + Send + Sync,
+{
     
     let cardinality = match interface.get_cardinality() {
         Ok( cardinality ) => cardinality,
@@ -102,20 +115,31 @@ pub(super) fn preload_socket(
                 Err( err ) => PreloadResult { socket_map, result: Err( err ), errors },
             }),
         InterfaceCardinality::Any => preload_any( socket_map, engine, default_linker, plugins )
-            .pipe(|( socket_map, plugins, errors )| PreloadResult {
-                socket_map,
-                result: Ok(( interface, Socket::AtLeastOne( plugins.into_iter().map(| plugin | ( plugin.id().clone(), plugin )).collect() ) )),
-                errors,
+            .pipe(|( socket_map, plugins, errors )| {
+                let ( plugins, new_errors ) = plugins.into_iter()
+                    .map(| plugin | Ok::<_, PreloadError<IE, PE>>(( plugin.id().clone(), plugin )))
+                    .partition_result::<_, Vec<_>, _, _>();
+                PreloadResult {
+                    socket_map,
+                    result: Ok(( interface, Socket::AtLeastOne( plugins ) )),
+                    errors: errors.merge_all( new_errors ),
+                }
             }),
     }
 }
 
-#[inline] fn preload_most_one(
-    socket_map: HashMap<InterfaceId, SocketState>,
+#[inline] fn preload_most_one<I, P, IE, PE>(
+    socket_map: HashMap<InterfaceId, SocketState<I, P>>,
     engine: &Engine,
-    default_linker: &Linker<PluginContext>,
-    mut plugins: Vec<RawPluginData>,
-) -> PreloadResult<Option<PluginInstance>> {
+    default_linker: &Linker<PluginContext<P>>,
+    mut plugins: Vec<P>,
+) -> PreloadResult<Option<PluginInstance<P>>, I, P, IE, PE>
+where
+    IE: std::error::Error,
+    PE: std::error::Error,
+    I: InterfaceData<Error = IE>,
+    P: PluginData<Error = PE> + Send + Sync,
+{
     match plugins.pop() {
         Option::None => PreloadResult { socket_map, result: Ok( None ), errors: Vec::with_capacity( 0 ) },
         Some( plugin ) => match plugins.pop() {
@@ -132,12 +156,18 @@ pub(super) fn preload_socket(
     }
 }
 
-#[inline] fn preload_exact_one(
-    socket_map: HashMap<InterfaceId, SocketState>,
+#[inline] fn preload_exact_one<I, P, IE, PE>(
+    socket_map: HashMap<InterfaceId, SocketState<I, P>>,
     engine: &Engine,
-    default_linker: &Linker<PluginContext>,
-    mut plugins: Vec<RawPluginData>,
-) -> PreloadResult<PluginInstance> {
+    default_linker: &Linker<PluginContext<P>>,
+    mut plugins: Vec<P>,
+) -> PreloadResult<PluginInstance<P>, I, P, IE, PE>
+where
+    IE: std::error::Error,
+    PE: std::error::Error,
+    I: InterfaceData<Error = IE>,
+    P: PluginData<Error = PE> + Send + Sync,
+{
 
     match plugins.pop() {
         Option::None => PreloadResult {
@@ -157,12 +187,18 @@ pub(super) fn preload_socket(
 
 }
 
-#[inline] fn preload_at_least_one(
-    socket_map: HashMap<InterfaceId, SocketState>,
+#[inline] fn preload_at_least_one<I, P, IE, PE>(
+    socket_map: HashMap<InterfaceId, SocketState<I, P>>,
     engine: &Engine,
-    default_linker: &Linker<PluginContext>,
-    plugins: Vec<RawPluginData>,
-) -> PreloadResult<Vec<PluginInstance>> {
+    default_linker: &Linker<PluginContext<P>>,
+    plugins: Vec<P>,
+) -> PreloadResult<Vec<PluginInstance<P>>, I, P, IE, PE>
+where
+    IE: std::error::Error,
+    PE: std::error::Error,
+    I: InterfaceData<Error = IE>,
+    P: PluginData<Error = PE> + Send + Sync,
+{
 
     if plugins.is_empty() { return PreloadResult {
         socket_map,
@@ -182,16 +218,21 @@ pub(super) fn preload_socket(
 
 }
 
-#[inline] fn preload_any(
-    socket_map: HashMap<InterfaceId, SocketState>,
+#[inline] fn preload_any<I, P, IE, PE>(
+    socket_map: HashMap<InterfaceId, SocketState<I, P>>,
     engine: &Engine,
-    default_linker: &Linker<PluginContext>,
-    plugins: Vec<RawPluginData>,
+    default_linker: &Linker<PluginContext<P>>,
+    plugins: Vec<P>,
 ) -> (
-    HashMap<InterfaceId, SocketState>,
-    Vec<PluginInstance>,
-    Vec<PreloadError>,
-) {
+    HashMap<InterfaceId, SocketState<I, P>>,
+    Vec<PluginInstance<P>>,
+    Vec<PreloadError<IE, PE>>,
+) where
+    IE: std::error::Error,
+    PE: std::error::Error,
+    I: InterfaceData<Error = IE>,
+    P: PluginData<Error = PE> + Send + Sync,
+{
 
     let (( plugins, errors ), socket_map ) = plugins.into_iter().map_scan(
         socket_map,
