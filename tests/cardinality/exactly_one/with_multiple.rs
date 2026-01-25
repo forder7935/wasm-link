@@ -13,7 +13,7 @@ fn cardinality_test_exactly_one_with_multiple() {
         PluginDir::new( PluginId::new( "startup".into() )).unwrap(),
         PluginDir::new( PluginId::new( "startup2".into() )).unwrap(),
     ];
-    let ( tree, warnings ) = PluginTree::<InterfaceDir, _>::new::<FixtureError, _, _>( plugins, InterfaceId::new( 0x_00_00_00_00_u64 ));
+    let ( tree, warnings ) = PluginTree::<InterfaceDir, _>::new::<FixtureError>( plugins, InterfaceId::new( 0x_00_00_00_00_u64 ));
     assert_no_warnings!( warnings );
 
     match tree.load( &engine, &linker ) {

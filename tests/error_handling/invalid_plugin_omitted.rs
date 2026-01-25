@@ -13,7 +13,7 @@ fn error_handling_test_invalid_plugin_omitted() {
         PluginDir::new( PluginId::new( "invalid".into() )).unwrap(),
         PluginDir::new( PluginId::new( "valid".into() )).unwrap(),
     ];
-    let ( tree, warnings ) = PluginTree::<InterfaceDir, _>::new::<FixtureError, _, _>( plugins, InterfaceId::new( 0x_00_00_00_00_u64 ));
+    let ( tree, warnings ) = PluginTree::<InterfaceDir, _>::new::<FixtureError>( plugins, InterfaceId::new( 0x_00_00_00_00_u64 ));
     assert_no_warnings!( warnings );
 
     if let Err(( err, warnings )) = tree.load( &engine, &linker ) {

@@ -10,7 +10,7 @@ fn dispatch_test_single_plugin_expect_primitive() {
     let linker = Linker::new( &engine );
 
     let plugins = vec![ PluginDir::new( PluginId::new( "get-value".into() )).unwrap() ];
-    let ( tree, warnings ) = PluginTree::<InterfaceDir, _>::new::<FixtureError, _, _>( plugins, InterfaceId::new( 0x_00_00_00_00_u64 ));
+    let ( tree, warnings ) = PluginTree::<InterfaceDir, _>::new::<FixtureError>( plugins, InterfaceId::new( 0x_00_00_00_00_u64 ));
     assert_no_warnings!( warnings );
 
     let ( tree, warnings ) = tree.load( &engine, &linker ).unwrap();

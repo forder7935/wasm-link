@@ -1,23 +1,10 @@
 
-use crate::capnp::common::plugin_capnp::plugin_id ;
-
-
 
 #[derive( Eq, Hash, PartialEq, Debug, Clone )]
 pub struct PluginId( String );
 
 impl PluginId {
     pub const fn new( id: String ) -> Self { Self( id ) }
-}
-
-impl<'a> TryFrom<plugin_id::Reader<'a>> for PluginId {
-
-    type Error = capnp::Error ;
-
-    fn try_from( reader: plugin_id::Reader<'a> ) -> Result<Self, Self::Error> {
-        Ok( Self( reader.get_id()?.to_string()? ))
-    }
-
 }
 
 impl std::fmt::Display for PluginId {

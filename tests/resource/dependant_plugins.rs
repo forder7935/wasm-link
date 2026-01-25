@@ -13,7 +13,7 @@ fn resource_test_wrapper() {
         PluginDir::new( PluginId::new( "consumer".into() )).unwrap(),
         PluginDir::new( PluginId::new( "counter".into() )).unwrap(),
     ];
-    let ( tree, warnings ) = PluginTree::<InterfaceDir, _>::new::<FixtureError, _, _>( plugins, InterfaceId::new( 0x_00_00_00_00_u64 ));
+    let ( tree, warnings ) = PluginTree::<InterfaceDir, _>::new::<FixtureError>( plugins, InterfaceId::new( 0x_00_00_00_00_u64 ));
     assert_no_warnings!( warnings );
 
     let ( tree, warnings ) = tree.load( &engine, &linker ).unwrap();
