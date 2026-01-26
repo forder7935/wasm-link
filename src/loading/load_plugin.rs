@@ -31,7 +31,7 @@ where
         LoadResult { socket_map, result: Err( err ), errors } => return LoadResult { socket_map, result: Err( err ), errors },
     };
 
-    let linker: Linker<_> = match sockets.into_iter().try_fold(
+    let linker: Linker<_> = match sockets.iter().try_fold(
         default_linker.clone(),
         | linker, ( interface, socket )| link_socket( linker, interface, socket ),
     ) {
@@ -96,8 +96,8 @@ where
 
 #[inline] fn link_socket<I, P>(
     mut linker: Linker<P>,
-    interface: Arc<I>,
-    socket: Arc<Socket<RwLock<PluginInstance<P>>>>,
+    interface: &Arc<I>,
+    socket: &Arc<Socket<RwLock<PluginInstance<P>>>>,
 ) -> Result<Linker<P>, LoadError<I, P>>
 where
     I: InterfaceData,
@@ -118,7 +118,7 @@ where
 
             let function_clone: FunctionData = function.clone();
             let interface_ident_clone = interface_ident.clone();
-            let socket_arc_clone = Arc::clone( &socket );
+            let socket_arc_clone = Arc::clone( socket );
 
             macro_rules! link {( $dispatch: expr ) => {
                 linker_instance.func_new( function.name(), move | ctx, _ty, args, results | Ok(
@@ -133,7 +133,7 @@ where
 
         })?,
         Err( err ) => return Err( LoadError::CorruptedInterfaceManifest( err )),
-    };
+    }
 
     match interface.get_resources() {
         Ok( resources ) => resources.into_iter().try_for_each(| resource | linker_instance
@@ -141,7 +141,7 @@ where
             .map_err(| err | LoadError::FailedToLink( resource.clone(), err ))
         )?,
         Err( err ) => return Err( LoadError::CorruptedInterfaceManifest( err )),
-    };
+    }
 
     Ok( linker )
 

@@ -1,7 +1,7 @@
 
 /// Maps iterator elements, passing a single value through. Each iteration should
 /// return a new element as well as the updated passthrough. The iterator can then
-/// be consumed using one of the custom MapScan methods to extract the passthrough
+/// be consumed using one of the custom `MapScan` methods to extract the passthrough
 pub trait MapScanTrait: Iterator + Sized {
     fn map_scan<P, F, R>( self, init: P, f: F ) -> MapScan<Self, P, F>
     where
@@ -60,9 +60,9 @@ where
         let mapped = unsafe {
             // UNSAFE: takes self.state, maps it and replaces it with the new value
             // NOTE: UB on self.f panic but who cares about the panic path anyways
-            let old_state = std::ptr::read( &self.state );
+            let old_state = std::ptr::read( &raw const self.state );
             let ( mapped, new_state ) = ( self.f )( item, old_state );
-            std::ptr::write( &mut self.state, new_state );
+            std::ptr::write( &raw mut self.state, new_state );
             mapped
         };
         Some( mapped )

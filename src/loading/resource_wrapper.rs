@@ -1,4 +1,4 @@
-use std::sync::{ Arc, Mutex };
+use std::sync::{ Arc, LazyLock, Mutex };
 use thiserror::Error ;
 use wasmtime::component::{ Resource, ResourceAny, ResourceTable, Val };
 use wasmtime::{ AsContextMut, StoreContextMut };
@@ -8,9 +8,7 @@ use super::PluginData ;
 
 
 
-lazy_static::lazy_static! {
-    static ref RESOURCE_TABLE: Mutex<ResourceTable> = Mutex::new( ResourceTable::new());
-}
+static RESOURCE_TABLE: LazyLock<Mutex<ResourceTable>> = LazyLock::new(|| Mutex::new( ResourceTable::new()));
 
 pub(super) struct ResourceWrapper {
     pub plugin_id: PluginId,

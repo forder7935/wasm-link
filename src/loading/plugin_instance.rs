@@ -19,7 +19,7 @@ impl<T: PluginData + std::fmt::Debug> std::fmt::Debug for PluginInstance<T> {
             .field( "id", &self.id )
             .field( "data", &self.store.data() )
             .field( "store", &self.store )
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 

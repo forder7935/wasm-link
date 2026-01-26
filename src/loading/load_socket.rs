@@ -37,10 +37,8 @@ where
 {
 
     // NOTE: do not forget to add the entry back if it's already loaded
-    let socket_plugins = match socket_map.insert( socket_id, SocketState::Borrowed ) {
-        Some( plugins ) => plugins,
-        // REDUNDANT: all requested sockets should have been handled in discovery
-        Option::None => return LoadResult { socket_map, result: Err( LoadError::InvalidSocket( socket_id )), errors: Vec::with_capacity( 0 )},
+    let Some( socket_plugins ) = socket_map.insert( socket_id, SocketState::Borrowed ) else {
+        return LoadResult { socket_map, result: Err( LoadError::InvalidSocket( socket_id )), errors: Vec::with_capacity( 0 )};
     };
 
     match socket_plugins {
@@ -194,7 +192,7 @@ where
         socket_map,
         result: Err( LoadError::FailedCardinalityRequirements( InterfaceCardinality::AtLeastOne, 0 )),
         errors: Vec::with_capacity( 0 ),
-    }};
+    }}
 
     let ( socket_map, plugins, errors ) = load_any( socket_map, engine, default_linker, plugins );
 
@@ -202,7 +200,7 @@ where
         socket_map,
         result: Err( LoadError::FailedCardinalityRequirements( InterfaceCardinality::AtLeastOne, 0 )),
         errors,
-    }};
+    }}
 
     LoadResult { socket_map, result: Ok( plugins ), errors }
 
