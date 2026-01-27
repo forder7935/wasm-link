@@ -26,7 +26,7 @@ use crate::utils::{ Merge, PartialSuccess, PartialResult };
 ///     MyPluginData::new( "auth-provider" ),
 ///     MyPluginData::new( "logger" ),
 /// ];
-/// let ( tree, discovery_errors ) = PluginTree::<MyInterfaceData, _>::new::<MyError>(
+/// let ( tree, init_errors ) = PluginTree::<MyInterfaceData, _>::new::<MyError>(
 ///     plugins,
 ///     InterfaceId::new( 0 ),
 /// );

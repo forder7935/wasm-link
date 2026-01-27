@@ -63,7 +63,7 @@ impl<I: InterfaceData, P: PluginData> std::fmt::Debug for LoadError<I, P> {
             Self::FailedToReadWasm( e ) => f.debug_tuple( "FailedToReadWasm" ).field( e ).finish(),
             Self::FailedToLinkInterface( e ) => f.debug_tuple( "FailedToLinkInterface" ).field( e ).finish(),
             Self::FailedToLink( name, e ) => f.debug_tuple( "FailedToLink" ).field( name ).field( e ).finish(),
-            Self::AlreadyHandled => f.debug_struct( "AlreadyHandled" ).finish(),
+            Self::AlreadyHandled => f.debug_tuple( "AlreadyHandled" ).finish(),
         }
     }
 }
@@ -77,7 +77,7 @@ pub enum DispatchError<InterfaceError: std::error::Error> {
     #[error( "Invalid Function: {0}" )] InvalidFunction( String ),
     #[error( "Missing Response" )] MissingResponse,
     #[error( "Runtime Exception" )] RuntimeException( wasmtime::Error ),
-    #[error( "Invalid Argument LIst" )] InvalidArgumentList,
+    #[error( "Invalid Argument List" )] InvalidArgumentList,
     #[error( "Resource Create Error: {0}" )] ResourceCreationError( #[from] ResourceCreationError ),
     #[error( "Resource Receive Error: {0}" )] ResourceReceiveError( #[from] ResourceReceiveError ),
 }
