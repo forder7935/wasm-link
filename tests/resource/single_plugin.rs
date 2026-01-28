@@ -1,7 +1,7 @@
 use wasm_compose::{ Engine, Linker, PluginTree, InterfaceId, PluginId, Val };
 
 bind_fixtures!( "resource", "single_plugin" );
-use fixtures::{ InterfaceDir, PluginDir, FixtureError };
+use fixtures::{ InterfaceDir, PluginDir };
 
 #[test]
 fn resource_test_method_call() {
@@ -9,8 +9,9 @@ fn resource_test_method_call() {
     let engine = Engine::default();
     let linker = Linker::new( &engine );
 
+    let interfaces = vec![ InterfaceDir::new( InterfaceId::new( 0 )).unwrap() ];
     let plugins = vec![ PluginDir::new( PluginId::new( "counter".into() )).unwrap() ];
-    let ( tree, warnings ) = PluginTree::<InterfaceDir, _>::new::<FixtureError>( plugins, InterfaceId::new( 0x_00_00_00_00_u64 ));
+    let ( tree, warnings ) = PluginTree::new( InterfaceId::new( 0x_00_00_00_00_u64 ), interfaces, plugins );
     assert_no_warnings!( warnings );
 
     let ( tree, warnings ) = tree.load( &engine, &linker ).unwrap();

@@ -1,5 +1,6 @@
 use std::collections::HashMap ;
 use itertools::Itertools ;
+use thiserror::Error ;
 use wasmtime::Engine ;
 use wasmtime::component::Linker ;
 
@@ -7,7 +8,28 @@ use crate::interface::{ InterfaceId, InterfaceData };
 use crate::plugin::PluginData ;
 use crate::plugin_tree_head::PluginTreeHead ;
 use crate::loading::{ LoadError, load_plugin_tree };
-use crate::utils::{ Merge, PartialSuccess, PartialResult };
+use crate::utils::{ PartialSuccess, PartialResult, Merge };
+
+
+
+/// Error that can occur during plugin tree construction.
+#[derive( Debug, Error )]
+pub enum PluginTreeError<P: PluginData> {
+    /// Failed to read plugin metadata.
+    PluginDataError( P::Error ),
+    /// Some plugins expected an interface as a plug but it was not provided.
+    MissingInterface { interface_id: InterfaceId, plugins: Vec<P> },
+}
+
+impl<P: PluginData> std::fmt::Display for PluginTreeError<P> {
+    fn fmt( &self, f: &mut std::fmt::Formatter<'_> ) -> std::fmt::Result {
+        match self {
+            Self::PluginDataError( e ) => write!( f, "Plugin data error: {}", e ),
+            Self::MissingInterface { interface_id, plugins } =>
+                write!( f, "Missing interface {} required by {} plugins", interface_id, plugins.len())
+        }
+    }
+}
 
 
 
@@ -22,13 +44,15 @@ use crate::utils::{ Merge, PartialSuccess, PartialResult };
 ///
 /// # Example
 /// ```ignore
+/// let interfaces = vec![ MyInterfaceData::new( InterfaceId::new( 0 )) ];
 /// let plugins = vec![
 ///     MyPluginData::new( "auth-provider" ),
 ///     MyPluginData::new( "logger" ),
 /// ];
-/// let ( tree, discovery_errors ) = PluginTree::<MyInterfaceData, _>::new::<MyError>(
-///     plugins,
+/// let ( tree, errors ) = PluginTree::new(
 ///     InterfaceId::new( 0 ),
+///     interfaces,
+///     plugins,
 /// );
 /// ```
 pub struct PluginTree<I: InterfaceData, P: PluginData> {
@@ -38,33 +62,85 @@ pub struct PluginTree<I: InterfaceData, P: PluginData> {
 
 impl<I: InterfaceData, P: PluginData> PluginTree<I, P> {
 
-    /// Builds a plugin dependency graph from the given plugins.
+    /// Builds a plugin dependency graph from the given interfaces and plugins.
     ///
-    /// Plugins are grouped by the interface they implement. The `root_interface_id`
-    /// specifies the entry point of the tree - the interface whose plugins will be
-    /// directly accessible via [`PluginTreeHead::dispatch`] after loading.
+    /// Plugins are grouped by the interface they implement ( via `get_plug()` ).
+    /// Interfaces are indexed by their `id()` method.
     ///
-    /// The error type `E` must be convertible from both `I::Error` and `P::Error`,
-    /// allowing unified error handling across interface and plugin metadata access.
-    pub fn new<E>(
-        plugins: Vec<P>,
+    /// The `root_interface_id` specifies the entry point of the tree - the interface
+    /// whose plugins will be directly accessible via [`PluginTreeHead::dispatch`] after loading.
+    ///
+    /// Does not validate all interfaces required for linking are present.
+    /// Does not validate cardinality requirements.
+    ///
+    /// # Partial Success
+    /// Attepmts to construct a tree for all plugins it received valid data for. Returns a list
+    /// of errors alongside the loaded `PluginTree` is any of the following occurs:
+    /// - An Interface mentioned in a plugin's plug is not passed in
+    /// - Calling [`PluginData::get_plug`] returns an error
+    ///
+    /// # Panics
+    /// Panics if an interface with id `root_interface_id` is not present in `interfaces`.
+    pub fn new(
         root_interface_id: InterfaceId,
-    ) -> PartialSuccess<Self, E>
-    where
-        E: From<I::Error> + From<P::Error>,
-    {
+        interfaces: impl IntoIterator<Item = I>,
+        plugins: impl IntoIterator<Item = P>,
+    ) -> PartialSuccess<Self, PluginTreeError<P>> {
+
+        let interface_map = interfaces.into_iter()
+            .map(| i | ( i.id(), i ))
+            .collect::<HashMap<_, _ >>();
+
+        assert!(
+            interface_map.contains_key( &root_interface_id ),
+            "Root interface {} must be provided in interfaces list",
+            root_interface_id,
+        );
+
         let ( entries, plugin_errors ) = plugins.into_iter()
-            .map(| handle | Result::<_, E>::Ok(( *handle.get_plug()?, handle )))
+            .map(| plugin | Ok(( *plugin.get_plug().map_err( PluginTreeError::PluginDataError )?, plugin )))
             .partition_result::<Vec<_>, Vec<_>, _, _>();
 
-        let mut plugin_group_map = entries.into_iter().into_group_map();
-        plugin_group_map.entry( root_interface_id ).or_default();
+        let plugin_groups = entries.into_iter().into_group_map();
+        let mut interface_map = interface_map ;
 
-        let ( socket_map, interface_errors ) = plugin_group_map.into_iter()
-            .map(|( id, plugins )| Ok(( id, ( I::new( id )?, plugins ))))
-            .partition_result::<HashMap<_, _>, Vec<_>, _, _>();
+        let ( socket_entries, missing_errors ) = plugin_groups.into_iter()
+            .map(|( id, plugins )| match interface_map.remove( &id ) {
+                Some( interface ) => Ok(( id, ( interface, plugins ))),
+                None => Err( PluginTreeError::MissingInterface { interface_id: id, plugins }),
+            })
+            .partition_result::<Vec<_>, Vec<_>, _, _>();
 
-        ( Self { root_interface_id, socket_map }, plugin_errors.merge_all( interface_errors ) )
+        // Include remaining interfaces with no plugins. Does not overwrite any
+        // entries since interfaces for sockets that had plugins on them were
+        // already removed from the map.
+        let socket_map = socket_entries.into_iter()
+            .chain( interface_map.into_iter().map(|( id, interface )| ( id, ( interface, Vec::new() ))))
+            .collect::<HashMap<_, _>>();
+
+        ( Self { root_interface_id, socket_map }, plugin_errors.merge_all( missing_errors ))
+
+    }
+
+    /// Creates a plugin tree directly from a pre-built socket map.
+    ///
+    /// Does not validate all interfaces required for linking are present.
+    /// Does not validate cardinality requirements.
+    ///
+    /// # Panics
+    /// Panics if an interface with id `root_interface_id` is not present in `interfaces`.
+    pub fn from_socket_map(
+        root_interface_id: InterfaceId,
+        socket_map: HashMap<InterfaceId, ( I, Vec<P> )>,
+    ) -> Self {
+
+        assert!(
+            socket_map.contains_key( &root_interface_id ),
+            "Root interface {} must be provided in interfaces list",
+            root_interface_id,
+        );
+
+        Self { root_interface_id, socket_map }
     }
 
     /// Compiles and links all plugins in the tree, returning a loaded tree head.
