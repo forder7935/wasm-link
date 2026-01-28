@@ -23,12 +23,8 @@ pub trait InterfaceData: Sized {
     type FunctionIter<'a>: IntoIterator<Item = &'a FunctionData> where Self: 'a ;
     type ResourceIter<'a>: IntoIterator<Item = &'a String> where Self: 'a ;
 
-    /// Loads interface metadata for the given ID from the underlying data source.
-    ///
-    /// # Errors
-    /// Constructor may fail when an interface of the given id cannot be constructed
-    /// or any other reason determined by the consumer
-    fn new( id: InterfaceId ) -> Result<Self, Self::Error> ;
+    /// Returns the unique identifier for this interface.
+    fn id( &self ) -> InterfaceId ;
 
     /// Returns how many plugins may/must implement this interface.
     ///

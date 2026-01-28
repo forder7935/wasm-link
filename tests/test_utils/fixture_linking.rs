@@ -16,23 +16,24 @@ macro_rules! bind_fixtures {
 
         #[derive( Debug )]
         pub struct InterfaceDir {
-            _id: wasm_compose::InterfaceId,
+            id: wasm_compose::InterfaceId,
             cardinality: wasm_compose::InterfaceCardinality,
             wit_data: InterfaceWitData,
         }
 
         impl InterfaceDir {
-            fn new( id: wasm_compose::InterfaceId ) -> Result<Self, FixtureError> {
-                
+
+            pub fn new( id: wasm_compose::InterfaceId ) -> Result<Self, FixtureError> {
+
                 let root_path = Self::path( id );
                 let manifest_path = root_path.join( "manifest.toml" );
                 let manifest_data: InterfaceManifestData = toml::from_str( &std::fs::read_to_string( manifest_path )?)?;
                 let cardinality = manifest_data.cardinality.into();
                 debug_assert!( wasm_compose::InterfaceId::new( manifest_data.id ) == id );
-                
+
                 let wit_data = parse_wit( &root_path )?;
 
-                Ok( Self { _id: id, cardinality, wit_data })
+                Ok( Self { id, cardinality, wit_data })
 
             }
 
@@ -51,7 +52,7 @@ macro_rules! bind_fixtures {
             type FunctionIter<'a> = Vec<&'a wasm_compose::FunctionData>;
             type ResourceIter<'a> = &'a [String];
 
-            fn new( id: wasm_compose::InterfaceId ) -> Result<Self, Self::Error> { Self::new( id ) }
+            fn id( &self ) -> wasm_compose::InterfaceId { self.id }
 
             fn get_package_name( &self ) -> Result<&str, Self::Error> { Ok( &self.wit_data.package ) }
             fn get_cardinality( &self ) -> Result<&wasm_compose::InterfaceCardinality, Self::Error> { Ok( &self.cardinality ) }

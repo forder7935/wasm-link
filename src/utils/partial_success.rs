@@ -3,7 +3,7 @@
 //! while others succeed, allowing partial completion rather than total failure.
 
 /// Represents a successful operation where some parts failed but didn't prevent overall success.
-/// The Vec<E> contains errors from the failed parts that were handled gracefully.
+/// The `Vec<E>` contains errors from the failed parts that were handled gracefully.
 pub type PartialSuccess<T, E> = ( T, Vec<E> );
 
 /// Represents an operation that may partially succeed or fail.
