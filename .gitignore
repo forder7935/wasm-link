@@ -1,4 +1,5 @@
 /target
 /appdata
+/.claude
 Cargo.lock
 flake.lock

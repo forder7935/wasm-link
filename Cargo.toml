@@ -5,22 +5,19 @@ edition = "2021"
 
 [dependencies]
 wasmtime = "40.0"
-wasmtime-wasi = "40.0"
-capnp = "0.20"
-capnp_conv = "0.3"
 thiserror = "1.0"
 itertools = "0.14.0"
-paste = "1.0"
-lazy_static = "1.5.0"
 wit-parser = "0.244.0"
 anyhow = "1.0.100" #required because of wit-parser
 pipe-trait = "0.4.0"
-regex = "1.12.2"
+
+[dev-dependencies]
 toml = "0.8"
 serde = { version = "1.0", features = ["derive"] }
 
-[build-dependencies]
-capnpc = "0.20"
-
-[features]
-test = []
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+uninlined_format_args = "allow"
+match_bool = "allow"
+unnested_or_patterns = "allow"
+must_use_candidate = "allow"

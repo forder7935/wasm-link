@@ -1,7 +1,7 @@
 
 /// Maps iterator elements, passing a single value through. Each iteration should
 /// return a new element as well as the updated passthrough. The iterator can then
-/// be consumed using one of the custom MapScan methods to extract the passthrough
+/// be consumed using one of the custom `MapScan` methods to extract the passthrough
 pub trait MapScanTrait: Iterator + Sized {
     fn map_scan<P, F, R>( self, init: P, f: F ) -> MapScan<Self, P, F>
     where
@@ -57,12 +57,18 @@ where
 
     fn next( &mut self ) -> Option<Self::Item> {
         let item = self.iter.next()?;
+        // SAFETY: Takes self.state by value, passes it to f, and writes the returned
+        // state back. This avoids requiring P: Default (which Option<P>::take would need).
+        //
+        // UB if self.f panics: state will be left uninitialized and dropped. This is
+        // acceptable because (1) panic paths rarely matter, (2) the unsafe block makes
+        // the invariant explicit rather than hiding it behind .unwrap()/.expect() calls
+        // that could silently break if implementation changes, and (3) this only affects
+        // code using panic::catch_unwind, which is uncommon.
         let mapped = unsafe {
-            // UNSAFE: takes self.state, maps it and replaces it with the new value
-            // NOTE: UB on self.f panic but who cares about the panic path anyways
-            let old_state = std::ptr::read( &self.state );
+            let old_state = std::ptr::read( &raw const self.state );
             let ( mapped, new_state ) = ( self.f )( item, old_state );
-            std::ptr::write( &mut self.state, new_state );
+            std::ptr::write( &raw mut self.state, new_state );
             mapped
         };
         Some( mapped )

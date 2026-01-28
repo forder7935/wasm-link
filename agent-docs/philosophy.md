@@ -14,7 +14,6 @@ Omni is a platform for building fully modular applications based around WebAssem
 ### Design Rationale
 - **WebAssembly**: Easy language-agnostic low-overhead sandboxing.
 - **WIT**: Standardized IDL designed for the WebAssembly Component Model.
-- **Cap'n Proto**: Provides efficient, zero-copy serialization ideal for network transmission and storing of plugin manifests.
 
 ### Plugin System
 Plugins connect via abstract interfaces defined in the WIT format. These are not tied to any specific plugin, instead, each plugin defines a 'plug' pointing to an interface it implements, and optionally, a list of 'sockets', pointing to interfaces it expects to call into.

@@ -28,7 +28,6 @@ nix develop
 Running this project will require installing the following:
 
 - [Rust toolchain](https://www.rust-lang.org/learn/get-started/)
-- [Cap'n Proto](https://capnproto.org/install.html).
 
 ## Technical Details
 
@@ -36,7 +35,6 @@ Running this project will require installing the following:
 
 - **WebAssembly**: Easy language-agnostic low-overhead sandboxing.
 - **WIT**: Standardized [IDL](https://en.wikipedia.org/wiki/Interface_description_language) designed for the WebAssembly Component Model.
-- **Cap'n Proto**: Provides efficient, zero-copy serialization ideal for network transmission and storing of plugin manifests.
 
 ### Plugin System
 
@@ -48,14 +46,14 @@ Host interfaces have their respective [WIT](https://github.com/WebAssembly/compo
 
 ## Running Tests
 
-For maintainability purposes, tests use TOML files for manifest declarations and WAT files for the plugin code where viable. These are not supported by default but are instead locked behind the `test` feature. To run tests, use the command bellow:
+For maintainability purposes, tests use TOML files for manifest declarations and WAT files for the plugin code where viable. To run tests:
 
 ```bash
-cargo test --features test
+cargo test
 ```
 
 or when running specific suites use:
 
 ```bash
-cargo test --features test --test <suite>
+cargo test --test <suite>
 ```

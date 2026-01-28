@@ -1,6 +1,7 @@
-use wasm_compose::{ initialise_plugin_tree, InterfaceId };
-use wasmtime::Engine ;
-use wasmtime::component::{ Linker, Val };
+use wasm_compose::{ Engine, Linker, PluginTree, InterfaceId, PluginId, Val };
+
+bind_fixtures!( "resource", "dependant_plugins" );
+use fixtures::{ InterfaceDir, PluginDir, FixtureError };
 
 #[test]
 fn resource_test_wrapper() {
@@ -8,10 +9,17 @@ fn resource_test_wrapper() {
     let engine = Engine::default();
     let linker = Linker::new( &engine );
 
-    let ( tree, warnings ) = initialise_plugin_tree( &test_data_path!( "resource", "dependant_plugins" ), &InterfaceId::new( 0 ), engine, &linker ).unwrap();
-    warnings.into_iter().for_each(| warning | println!( "{}", warning ));
+    let plugins = vec![
+        PluginDir::new( PluginId::new( "consumer".into() )).unwrap(),
+        PluginDir::new( PluginId::new( "counter".into() )).unwrap(),
+    ];
+    let ( tree, warnings ) = PluginTree::<InterfaceDir, _>::new::<FixtureError>( plugins, InterfaceId::new( 0x_00_00_00_00_u64 ));
+    assert_no_warnings!( warnings );
 
-    match tree.dispatch_function_on_root( "test:consumer/root", "get-value", true, &[] ) {
+    let ( tree, warnings ) = tree.load( &engine, &linker ).unwrap();
+    assert_no_warnings!( warnings );
+
+    match tree.dispatch( "test:consumer/root", "get-value", true, &[] ) {
         wasm_compose::Socket::ExactlyOne( Ok( Val::U32( 42 ) )) => {}
         wasm_compose::Socket::ExactlyOne( Ok( val )) => panic!( "Expected U32(42), got: {:#?}", val ),
         wasm_compose::Socket::ExactlyOne( Err( err )) => panic!( "Method call failed: {:?}", err ),

@@ -1,9 +1,19 @@
-pub mod capnp ;
-pub mod exports ;
-pub mod initialisation ;
-pub mod utils ;
+mod interface ;
+mod plugin ;
+mod loading ;
+mod plugin_tree ;
+mod plugin_tree_head ;
+mod socket ;
+mod plugin_instance ;
+mod utils ;
 
-pub use initialisation::{ InterfaceId, PluginData, PluginId, Socket,
-    InterfaceCardinality, initialise_plugin_tree,
-    UnrecoverableStartupError, PreloadError };
-pub use exports::exports ;
+pub use wasmtime::Engine ;
+pub use wasmtime::component::{ Component, Linker, Val };
+
+pub use interface::{ InterfaceId, InterfaceData, InterfaceCardinality, FunctionData, FunctionReturnType };
+pub use plugin::{ PluginId, PluginData };
+pub use loading::{ LoadError, DispatchError };
+pub use plugin_tree::PluginTree ;
+pub use plugin_tree_head::PluginTreeHead ;
+pub use socket::Socket ;
+pub use utils::{ PartialSuccess, PartialResult };

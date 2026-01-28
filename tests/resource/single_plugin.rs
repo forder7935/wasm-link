@@ -1,6 +1,7 @@
-use wasm_compose::{ initialise_plugin_tree, InterfaceId };
-use wasmtime::Engine ;
-use wasmtime::component::{ Linker, Val };
+use wasm_compose::{ Engine, Linker, PluginTree, InterfaceId, PluginId, Val };
+
+bind_fixtures!( "resource", "single_plugin" );
+use fixtures::{ InterfaceDir, PluginDir, FixtureError };
 
 #[test]
 fn resource_test_method_call() {
@@ -8,17 +9,21 @@ fn resource_test_method_call() {
     let engine = Engine::default();
     let linker = Linker::new( &engine );
 
-    let ( tree, warnings ) = initialise_plugin_tree( &test_data_path!( "resource", "single_plugin" ), &InterfaceId::new( 0 ), engine, &linker ).unwrap();
-    warnings.into_iter().for_each(| warning | println!( "{}", warning ));
+    let plugins = vec![ PluginDir::new( PluginId::new( "counter".into() )).unwrap() ];
+    let ( tree, warnings ) = PluginTree::<InterfaceDir, _>::new::<FixtureError>( plugins, InterfaceId::new( 0x_00_00_00_00_u64 ));
+    assert_no_warnings!( warnings );
 
-    let resource_handle = match tree.dispatch_function_on_root( "test:myresource/root", "[constructor]counter", true, &[] ) {
+    let ( tree, warnings ) = tree.load( &engine, &linker ).unwrap();
+    assert_no_warnings!( warnings );
+
+    let resource_handle = match tree.dispatch( "test:myresource/root", "[constructor]counter", true, &[] ) {
         wasm_compose::Socket::ExactlyOne( Ok( Val::Resource( handle ) )) => handle,
         wasm_compose::Socket::ExactlyOne( Ok( val )) => panic!( "Expected resource, got: {:#?}", val ),
         wasm_compose::Socket::ExactlyOne( Err( err )) => panic!( "Constructor failed: {:?}", err ),
         socket => panic!( "Expected ExactlyOne, got: {:#?}", socket ),
     };
 
-    match tree.dispatch_function_on_root( "test:myresource/root", "[method]counter.get-value", true, &[Val::Resource( resource_handle )] ) {
+    match tree.dispatch( "test:myresource/root", "[method]counter.get-value", true, &[Val::Resource( resource_handle )] ) {
         wasm_compose::Socket::ExactlyOne( Ok( Val::U32( 42 ) )) => {}
         wasm_compose::Socket::ExactlyOne( Ok( val )) => panic!( "Expected U32(42), got: {:#?}", val ),
         wasm_compose::Socket::ExactlyOne( Err( err )) => panic!( "Method call failed: {:?}", err ),

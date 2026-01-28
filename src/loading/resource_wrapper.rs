@@ -1,16 +1,13 @@
-use std::sync::{ Arc, Mutex };
+use std::sync::{ Arc, LazyLock, Mutex };
 use thiserror::Error ;
 use wasmtime::component::{ Resource, ResourceAny, ResourceTable, Val };
 use wasmtime::{ AsContextMut, StoreContextMut };
 
-use crate::PluginId ;
-use super::PluginContext ;
+use crate::plugin::{ PluginId, PluginData };
 
 
 
-lazy_static::lazy_static! {
-    static ref RESOURCE_TABLE: Mutex<ResourceTable> = Mutex::new( ResourceTable::new());
-}
+static RESOURCE_TABLE: LazyLock<Mutex<ResourceTable>> = LazyLock::new(|| Mutex::new( ResourceTable::new() ));
 
 pub(super) struct ResourceWrapper {
     pub plugin_id: PluginId,
@@ -60,10 +57,9 @@ impl ResourceWrapper {
         let resource = Resource::try_from_resource_any( handle, store ).map_err(|_| ResourceReceiveError::InvalidHandle )?;
         let lock = RESOURCE_TABLE.lock().map_err(|_| ResourceReceiveError::LockRejected )?;
         let wrapped = lock.get( &resource ).map_err(|_| ResourceReceiveError::InvalidHandle )?;
-        // let resource = ResourceAny::try_from_resource( resource, &mut store ).map_err(|_| unreachable!( "Resource already taken" ))?;
         Ok( Arc::clone( wrapped ))
     }
-    pub fn drop( _: StoreContextMut<PluginContext>, handle: u32) -> Result<(), wasmtime::Error> {
+    pub fn drop<T: PluginData>( _: StoreContextMut<T>, handle: u32) -> Result<(), wasmtime::Error> {
         let resource = Resource::<Arc<Self>>::new_own( handle );
         let mut lock = RESOURCE_TABLE.lock().map_err(|_| wasmtime::Error::new( ResourceReceiveError::LockRejected ))?;
         lock.delete( resource ).map_err(|_| wasmtime::Error::new( ResourceReceiveError::InvalidHandle ))?;

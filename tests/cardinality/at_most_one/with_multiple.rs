@@ -1,6 +1,7 @@
-use wasm_compose::{ initialise_plugin_tree, UnrecoverableStartupError, PreloadError, InterfaceCardinality, InterfaceId };
-use wasmtime::Engine ;
-use wasmtime::component::Linker ;
+use wasm_compose::{ Engine, Linker, PluginTree, InterfaceId, PluginId, LoadError, InterfaceCardinality };
+
+bind_fixtures!( "cardinality", "at_most_one", "with_multiple" );
+use fixtures::{ InterfaceDir, PluginDir, FixtureError };
 
 #[test]
 fn cardinality_test_at_most_one_with_multiple() {
@@ -8,13 +9,18 @@ fn cardinality_test_at_most_one_with_multiple() {
     let engine = Engine::default();
     let linker = Linker::new( &engine );
 
-    match initialise_plugin_tree( &test_data_path!( "cardinality", "at_most_one", "with_multiple" ), &InterfaceId::new( 0 ), engine, &linker ) {
-        Err(( UnrecoverableStartupError::PreloadError(
-            PreloadError::FailedCardinalityRequirements( InterfaceCardinality::AtMostOne, n )
-        ), _ )) if n > 1 => {},
+    let plugins = vec![
+        PluginDir::new( PluginId::new( "startup".into() )).unwrap(),
+        PluginDir::new( PluginId::new( "startup2".into() )).unwrap(),
+    ];
+    let ( tree, warnings ) = PluginTree::<InterfaceDir, _>::new::<FixtureError>( plugins, InterfaceId::new( 0x_00_00_00_00_u64 ));
+    assert_no_warnings!( warnings );
+
+    match tree.load( &engine, &linker ) {
+        Err(( LoadError::FailedCardinalityRequirements( InterfaceCardinality::AtMostOne, n ), _ )) if n > 1 => {},
         Err(( err, warnings )) if warnings.is_empty() => panic!( "{}", err ),
-        Err(( err, warnings )) => panic!( "Failed With Warnings: {}\n{:?}", err, warnings ),
-        Ok( val ) => panic!( "Expected failure, got: {:#?}", val ),
+        Err(( err, warnings )) => panic!( "Failed with warnings: {}\n{:?}", err, warnings ),
+        Ok( _ ) => panic!( "Expected failure" ),
     };
 
 }

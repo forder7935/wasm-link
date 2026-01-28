@@ -7,4 +7,4 @@
 - Plugins include manifest.toml (metadata) and root.wat (WASM text code).
 - Interfaces include manifest.toml and root.wit (interface definitions).
 - Tests validate plugin loading, dispatching, error handling, and cardinality constraints.
-- Run all with `cargo test --features test -- --nocapture`; specific suite with `--test <suite_name>`.
+- Run all with `cargo test -- --nocapture`; specific suite with `--test <suite_name>`.

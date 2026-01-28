@@ -1,6 +1,7 @@
-use wasm_compose::{ initialise_plugin_tree, InterfaceId };
-use wasmtime::Engine ;
-use wasmtime::component::{ Linker, Val };
+use wasm_compose::{ Engine, Linker, PluginTree, InterfaceId, PluginId, Val };
+
+bind_fixtures!( "dispatching", "dependant_plugins_expect_composite" );
+use fixtures::{ InterfaceDir, PluginDir, FixtureError };
 
 #[test]
 fn dispatch_test_dependant_plugins_expect_composite() {
@@ -8,10 +9,17 @@ fn dispatch_test_dependant_plugins_expect_composite() {
     let engine = Engine::default();
     let linker = Linker::new( &engine );
 
-    let ( tree, warnings ) = initialise_plugin_tree( &test_data_path!( "dispatching", "dependant_plugins_expect_composite" ), &InterfaceId::new( 0 ), engine, &linker ).unwrap();
-    warnings.into_iter().for_each(| warning | println!( "{}", warning ));
+    let plugins = vec![
+        PluginDir::new( PluginId::new( "startup".into() )).unwrap(),
+        PluginDir::new( PluginId::new( "child".into() )).unwrap(),
+    ];
+    let ( tree, warnings ) = PluginTree::<InterfaceDir, _>::new::<FixtureError>( plugins, InterfaceId::new( 0x_00_00_00_00_u64 ));
+    assert_no_warnings!( warnings );
 
-    match tree.dispatch_function_on_root( "test:dependant-composite/root", "get-composite", true, &[] ) {
+    let ( tree, warnings ) = tree.load( &engine, &linker ).unwrap();
+    assert_no_warnings!( warnings );
+
+    match tree.dispatch( "test:dependant-composite/root", "get-composite", true, &[] ) {
         wasm_compose::Socket::ExactlyOne( Ok( Val::Tuple( fields ) )) => {
             assert_eq!( fields[0], Val::U32( 42 ) );
             assert_eq!( fields[1], Val::U32( 24 ) );

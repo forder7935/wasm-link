@@ -4,7 +4,7 @@ Wasm Compose is a framework for building fully modular applications based around
 
 ## Essentials
 - Package manager: `nix develop`
-- Non-standard commands: `cargo test --features test`, `clippy`
+- Non-standard commands: `cargo test`, `clippy`
 - Apply functional programming style: Avoid explicit for-loops; use iterators instead. Avoid `mut` unless it incurs a performance penalty; prefer mut abstractions from `@src/utils/`.
 - Important: Never create commits. After completing a task (including adding and running tests), inform the user that the work is ready for review and manual commit.
 - Always strive for concise, simple solutions
@@ -17,7 +17,7 @@ Wasm Compose is a framework for building fully modular applications based around
 
 ## Build Mode
 - Make sure to run clippy after changes
-- Run tests after changes using `cargo test --features test`
+- Run tests after changes using `cargo test`
 - Execute all commands via `nix develop --command` or `nix run` to verify flake.nix completeness
 - Never install dependencies except by modifying flake.nix
 
@@ -25,4 +25,3 @@ Wasm Compose is a framework for building fully modular applications based around
 - [Philosophy & Architecture](agent-docs/philosophy.md)
 - [Coding Conventions](agent-docs/conventions.md)
 - [Testing](agent-docs/testing.md)
-- [Project Structure](agent-docs/structure.md)

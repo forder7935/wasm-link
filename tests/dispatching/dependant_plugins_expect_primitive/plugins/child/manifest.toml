@@ -1,5 +1,3 @@
-id = { id = "child" }
-version = { major = 1, minor = 0, patch = 0 }
-plug = { id = 1 }
+id = "child"
+plug = 1
 sockets = []
-permissions = []
