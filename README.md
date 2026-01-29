@@ -23,6 +23,7 @@ Wasm Compose is a framework for building fully modular applications based around
 - [Goals](#goals)
 - [Contributing](#contributing)
 - [Technical Details](#technical-details)
+- [License](#license)
 
 ## Project Philosophy
 
@@ -109,3 +110,7 @@ As of now, running this project will only require installing the [Rust toolchain
 ### Plugin System
 
 Plugins connect via abstract interfaces declaring a list of items the implementer is expected to export which the consumer may import. These are not tied to any specific plugin, instead, each plugin defines a 'plug' pointing to an interface it implements, and optionally, a list of 'sockets', pointing to interfaces it may import. Interfaces are allowed to declare any imports/exports supported by the wit format.
+
+## License
+
+This project is licensed under the Apache 2.0 License - see the [LICENSE](LICENSE) file for details.
