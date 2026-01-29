@@ -2,7 +2,7 @@ use std::sync::{ Arc, RwLock };
 use wasmtime::{ AsContextMut, StoreContextMut };
 use wasmtime::component::{ Linker, ResourceType, Val };
 
-use crate::interface::{ InterfaceData, FunctionData, FunctionReturnType };
+use crate::interface::{ InterfaceData, FunctionData, ReturnKind };
 use crate::plugin::{ PluginId, PluginData };
 use crate::socket::Socket ;
 use crate::plugin_instance::PluginInstance ;
@@ -118,9 +118,9 @@ where
     let mut lock = plugin.write().map_err(|_| DispatchError::Deadlock )?;
     let result = lock.dispatch( interface_path, function.name(), function.has_return(), data )?;
 
-    Ok( match function.return_type() {
-        FunctionReturnType::None | FunctionReturnType::DataNoResource => result,
-        FunctionReturnType::DataWithResources => wrap_resources( result, *lock.id(), ctx )?,
+    Ok( match function.return_kind() {
+        ReturnKind::Void | ReturnKind::AssumeNoResources => result,
+        ReturnKind::MayContainResources => wrap_resources( result, *lock.id(), ctx )?,
     })
 }
 

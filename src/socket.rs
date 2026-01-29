@@ -1,3 +1,11 @@
+//! Runtime container for plugin instances or dispatch results.
+//!
+//! A [`Socket`] holds values (plugin instances or call results) in a shape that
+//! matches an interface's [`InterfaceCardinality`]. This allows consumers to
+//! handle results appropriately based on whether they expected one plugin or many.
+//!
+//! [`InterfaceCardinality`]: crate::InterfaceCardinality
+
 use std::collections::HashMap ;
 use std::sync::{ RwLock, RwLockReadGuard, PoisonError };
 use wasmtime::component::Val ;
@@ -8,18 +16,30 @@ use crate::loading::DispatchError ;
 
 
 
-/// Container for plugin instances matching an interface's cardinality.
+/// Container for plugin instances or dispatch results.
 ///
-/// The variant used reflects the interface's cardinality constraint:
-/// - `AtMostOne` - Zero or one plugin allowed
-/// - `ExactlyOne` - Exactly one plugin required
-/// - `AtLeastOne` - One or more plugins required
-/// - `Any` - Zero or more plugins allowed
+/// The variant corresponds directly to the interface's [`InterfaceCardinality`]:
+///
+/// | Cardinality | Socket Variant | Contents |
+/// |-------------|----------------|----------|
+/// | `ExactlyOne` | `ExactlyOne(T)` | Single value, guaranteed present |
+/// | `AtMostOne` | `AtMostOne(Option<T>)` | Optional single value |
+/// | `AtLeastOne` | `AtLeastOne(HashMap)` | Map of plugin ID → value, at least one entry |
+/// | `Any` | `Any(HashMap)` | Map of plugin ID → value, may be empty |
+///
+/// When used with [`PluginTreeHead::dispatch`], `T` is `Result<Val, DispatchError>`.
+///
+/// [`InterfaceCardinality`]: crate::InterfaceCardinality
+/// [`PluginTreeHead::dispatch`]: crate::PluginTreeHead::dispatch
 #[derive( Debug )]
 pub enum Socket<T> {
+    /// Zero or one value. Used when cardinality is `AtMostOne`.
     AtMostOne( Option<T> ),
+    /// Exactly one value, guaranteed present. Used when cardinality is `ExactlyOne`.
     ExactlyOne( T ),
+    /// One or more values keyed by plugin ID. Used when cardinality is `AtLeastOne`.
     AtLeastOne( HashMap<PluginId, T> ),
+    /// Zero or more values keyed by plugin ID. Used when cardinality is `Any`.
     Any( HashMap<PluginId, T> ),
 }
 
