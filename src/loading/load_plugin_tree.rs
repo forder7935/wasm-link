@@ -12,40 +12,55 @@ use super::{ ResourceCreationError, ResourceReceiveError };
 
 
 
-/// Errors that can occur while loading and linking the plugin tree.
+/// Errors that can occur while loading and linking plugins.
 ///
-/// Loading attempts to proceed gracefully, loading as many plugins as possible
-/// while adhering to cardinality constraints.
+/// Loading attempts to proceed gracefully, collecting errors and loading as many
+/// plugins as possible while adhering to cardinality constraints. These errors
+/// are returned via [`PartialResult`] from [`PluginTree::load`].
+///
+/// [`PartialResult`]: crate::PartialResult
+/// [`PluginTree::load`]: crate::PluginTree::load
 #[derive( Error )]
 pub enum LoadError<I: InterfaceData, P: PluginData> {
 
+    /// A plugin references a socket (dependency) that doesn't exist in the interface set.
     #[error( "Invalid socket: {0}" )]
     InvalidSocket( InterfaceId ),
 
+    /// A dependency cycle was detected. Cycles are forbidden in the plugin graph.
     #[error( "Loop detected loading: '{0}'" )]
     LoopDetected( InterfaceId ),
 
+    /// The number of plugins implementing an interface violates its cardinality.
+    /// For example, `ExactlyOne` with 0 or 2+ plugins, or `AtLeastOne` with 0 plugins.
     #[error( "Failed to meet cardinality requirements: {0}, found {1}" )]
     FailedCardinalityRequirements( InterfaceCardinality, usize ),
 
+    /// Failed to read interface metadata (e.g., couldn't parse WIT or access data source).
     #[error( "Corrupted interface manifest: {0}" )]
     CorruptedInterfaceManifest( I::Error ),
 
+    /// Failed to read plugin metadata (e.g., couldn't determine sockets or ID).
     #[error( "Corrupted plugin manifest: {0}" )]
     CorruptedPluginManifest( P::Error ),
 
+    /// Wasmtime failed to compile the WASM component (invalid binary or unsupported features).
     #[error( "Failed to load component: {0}" )]
     FailedToLoadComponent( wasmtime::Error ),
 
+    /// I/O error reading the WASM binary.
     #[error( "Failed to read WASM data: {0}" )]
     FailedToReadWasm( std::io::Error ),
 
+    /// Failed to link the root interface into the plugin.
     #[error( "Failed to link root interface: {0}" )]
     FailedToLinkInterface( wasmtime::Error ),
 
+    /// Failed to link a specific function during socket wiring.
     #[error( "Failed to link function '{0}': {1}" )]
     FailedToLink( String, wasmtime::Error ),
 
+    /// Internal marker for errors that have already been reported.
     #[error( "Handled failure" )]
     AlreadyHandled,
 
@@ -69,16 +84,31 @@ impl<I: InterfaceData, P: PluginData> std::fmt::Debug for LoadError<I, P> {
 }
 
 /// Errors that can occur when dispatching a function call to plugins.
+///
+/// Returned inside the [`Socket`] from [`PluginTreeHead::dispatch`] when a
+/// function call fails at runtime.
+///
+/// [`Socket`]: crate::Socket
+/// [`PluginTreeHead::dispatch`]: crate::PluginTreeHead::dispatch
 #[derive( Error, Debug )]
 pub enum DispatchError<InterfaceError: std::error::Error> {
+    /// Failed to acquire lock on plugin instance (another call is in progress).
     #[error( "Deadlock" )] Deadlock,
+    /// Failed to parse interface metadata during dispatch.
     #[error( "Wit parser error: {0}")] WitParserError( InterfaceError ),
+    /// The specified interface path doesn't match any known interface.
     #[error( "Invalid Interface: {0}" )] InvalidInterface( String ),
+    /// The specified function doesn't exist on the interface.
     #[error( "Invalid Function: {0}" )] InvalidFunction( String ),
+    /// Function was expected to return a value but didn't.
     #[error( "Missing Response" )] MissingResponse,
+    /// The WASM function threw an exception during execution.
     #[error( "Runtime Exception" )] RuntimeException( wasmtime::Error ),
-    #[error( "Invalid Argument LIst" )] InvalidArgumentList,
+    /// The provided arguments don't match the function signature.
+    #[error( "Invalid Argument List" )] InvalidArgumentList,
+    /// Failed to create a resource handle for cross-plugin transfer.
     #[error( "Resource Create Error: {0}" )] ResourceCreationError( #[from] ResourceCreationError ),
+    /// Failed to receive a resource handle from another plugin.
     #[error( "Resource Receive Error: {0}" )] ResourceReceiveError( #[from] ResourceReceiveError ),
 }
 

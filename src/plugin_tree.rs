@@ -1,3 +1,12 @@
+//! Plugin dependency tree construction.
+//!
+//! The [`PluginTree`] represents an unloaded plugin dependency tree. Internally,
+//! multiple plugins may share a dependency (so it's technically a DAG), but this
+//! is an implementation detail - conceptually it's a tree rooted at the entry
+//! interface, and cycles are forbidden.
+//!
+//! Call [`PluginTree::load`] to compile the WASM components and link them together.
+
 use std::collections::HashMap ;
 use itertools::Itertools ;
 use thiserror::Error ;
@@ -13,11 +22,14 @@ use crate::utils::{ PartialSuccess, PartialResult, Merge };
 
 
 /// Error that can occur during plugin tree construction.
+///
+/// These errors occur in [`PluginTree::new`] when building the dependency graph,
+/// before any WASM compilation happens.
 #[derive( Debug, Error )]
 pub enum PluginTreeError<P: PluginData> {
-    /// Failed to read plugin metadata.
+    /// Failed to read plugin metadata (e.g., couldn't determine the plugin's plug).
     PluginDataError( P::Error ),
-    /// Some plugins expected an interface as a plug but it was not provided.
+    /// Plugins reference an interface that wasn't provided in the interfaces list.
     MissingInterface { interface_id: InterfaceId, plugins: Vec<P> },
 }
 
@@ -33,10 +45,17 @@ impl<P: PluginData> std::fmt::Display for PluginTreeError<P> {
 
 
 
-/// An unloaded plugin dependency graph.
+/// An unloaded plugin dependency tree.
 ///
 /// Built from a list of plugins by grouping them according to the interfaces
-/// they implement (their "plug") and depend on (their "sockets").
+/// they implement (their plug) and depend on (their sockets). The structure
+/// has a single root interface and cycles are forbidden, so it can be thought
+/// of as a tree (though internally, multiple plugins may share a dependency).
+///
+/// This is the pre-compilation representation - no WASM has been loaded yet.
+///
+/// Call [`load`](Self::load) to compile WASM components and link dependencies,
+/// producing a [`PluginTreeHead`] for dispatching function calls.
 ///
 /// # Type Parameters
 /// - `I`: [`InterfaceData`] implementation for loading interface metadata
@@ -44,16 +63,20 @@ impl<P: PluginData> std::fmt::Display for PluginTreeError<P> {
 ///
 /// # Example
 /// ```ignore
-/// let interfaces = vec![ MyInterfaceData::new( InterfaceId::new( 0 )) ];
-/// let plugins = vec![
-///     MyPluginData::new( "auth-provider" ),
-///     MyPluginData::new( "logger" ),
-/// ];
-/// let ( tree, errors ) = PluginTree::new(
-///     InterfaceId::new( 0 ),
+/// // Build the unloaded dependency graph
+/// let (tree, errors) = PluginTree::new(
+///     root_interface_id,
 ///     interfaces,
 ///     plugins,
 /// );
+///
+/// // Handle any build errors (e.g., missing interfaces)
+/// for error in &errors {
+///     eprintln!("Warning: {}", error);
+/// }
+///
+/// // Compile and link
+/// let tree_head = tree.load(&engine, &linker)?;
 /// ```
 pub struct PluginTree<I: InterfaceData, P: PluginData> {
     root_interface_id: InterfaceId,

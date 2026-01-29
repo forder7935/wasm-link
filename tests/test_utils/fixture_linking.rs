@@ -184,7 +184,7 @@ macro_rules! bind_fixtures {
             let functions = interface.functions.iter()
                 .map(|( _, function )| Ok(( function.name.clone(), wasm_compose::FunctionData::new(
                     function.clone(),
-                    parse_return_type( &resolve, function.result )?,
+                    parse_return_kind( &resolve, function.result )?,
                 ))))
                 .collect::<Result<_,FixtureError>>()?;
 
@@ -197,14 +197,14 @@ macro_rules! bind_fixtures {
             Ok( InterfaceWitData { package, functions, resources })
         }
 
-        fn parse_return_type(
+        fn parse_return_kind(
             resolve: &wit_parser::Resolve,
             result: Option<wit_parser::Type>
-        ) -> Result<wasm_compose::FunctionReturnType, FixtureError> {
-            let Some( return_type ) = result else { return Ok( wasm_compose::FunctionReturnType::None )};
+        ) -> Result<wasm_compose::ReturnKind, FixtureError> {
+            let Some( return_type ) = result else { return Ok( wasm_compose::ReturnKind::Void )};
             Ok( match has_resource( resolve, return_type )? {
-                false => wasm_compose::FunctionReturnType::DataNoResource,
-                true => wasm_compose::FunctionReturnType::DataWithResources,
+                false => wasm_compose::ReturnKind::AssumeNoResources,
+                true => wasm_compose::ReturnKind::MayContainResources,
             })
         }
 
