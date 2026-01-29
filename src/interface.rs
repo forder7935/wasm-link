@@ -53,7 +53,7 @@ pub trait InterfaceData: Sized {
     type ResourceIter<'a>: IntoIterator<Item = &'a String> where Self: 'a ;
 
     /// Returns the unique identifier for this interface.
-    fn id( &self ) -> InterfaceId ;
+    fn get_id( &self ) -> Result<InterfaceId, Self::Error> ;
 
     /// Returns how many plugins may/must implement this interface.
     ///

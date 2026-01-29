@@ -90,8 +90,7 @@ macro_rules! bind_fixtures {
             type FunctionIter<'a> = Vec<&'a FunctionDataImpl>;
             type ResourceIter<'a> = &'a [String];
 
-            fn id( &self ) -> wasm_compose::InterfaceId { self.id }
-
+            fn get_id( &self ) -> Result<wasm_compose::InterfaceId, Self::Error> { Ok( self.id ) }
             fn get_package_name( &self ) -> Result<&str, Self::Error> { Ok( &self.wit_data.package ) }
             fn get_cardinality( &self ) -> Result<&wasm_compose::InterfaceCardinality, Self::Error> { Ok( &self.cardinality ) }
             fn get_functions<'a>( &'a self ) -> Result<Self::FunctionIter<'a>, Self::Error> { Ok( self.wit_data.functions.values().collect()) }
