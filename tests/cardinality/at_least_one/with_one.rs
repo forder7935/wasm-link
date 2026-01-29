@@ -1,7 +1,7 @@
-use wasm_compose::{ Engine, Linker, PluginTree, InterfaceId, PluginId };
+use wasm_compose::{ Engine, Linker, PluginTree };
 
 bind_fixtures!( "cardinality", "at_least_one", "with_one" );
-use fixtures::{ InterfaceDir, PluginDir };
+use fixtures::{ InterfaceDir, PluginDir, interfaces, plugins };
 
 #[test]
 fn cardinality_test_at_least_one_with_one() {
@@ -9,9 +9,9 @@ fn cardinality_test_at_least_one_with_one() {
     let engine = Engine::default();
     let linker = Linker::new( &engine );
 
-    let interfaces = vec![ InterfaceDir::new( InterfaceId::new( 0 )).unwrap() ];
-    let plugins = vec![ PluginDir::new( PluginId::new( "startup".into() )).unwrap() ];
-    let ( tree, warnings ) = PluginTree::new( InterfaceId::new( 0x_00_00_00_00_u64 ), interfaces, plugins );
+    let interfaces = vec![ InterfaceDir::new( interfaces::ROOT ).unwrap() ];
+    let plugins = vec![ PluginDir::new( plugins::STARTUP ).unwrap() ];
+    let ( tree, warnings ) = PluginTree::new( interfaces::ROOT, interfaces, plugins );
     assert_no_warnings!( warnings );
 
     let ( _, warnings ) = tree.load( &engine, &linker ).unwrap();

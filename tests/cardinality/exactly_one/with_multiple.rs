@@ -1,7 +1,7 @@
-use wasm_compose::{ Engine, Linker, PluginTree, InterfaceId, PluginId, LoadError, InterfaceCardinality };
+use wasm_compose::{ Engine, Linker, PluginTree, LoadError, InterfaceCardinality };
 
 bind_fixtures!( "cardinality", "exactly_one", "with_multiple" );
-use fixtures::{ InterfaceDir, PluginDir };
+use fixtures::{ InterfaceDir, PluginDir, interfaces, plugins };
 
 #[test]
 fn cardinality_test_exactly_one_with_multiple() {
@@ -9,12 +9,12 @@ fn cardinality_test_exactly_one_with_multiple() {
     let engine = Engine::default();
     let linker = Linker::new( &engine );
 
-    let interfaces = vec![ InterfaceDir::new( InterfaceId::new( 0 )).unwrap() ];
+    let interfaces = vec![ InterfaceDir::new( interfaces::ROOT ).unwrap() ];
     let plugins = vec![
-        PluginDir::new( PluginId::new( "startup".into() )).unwrap(),
-        PluginDir::new( PluginId::new( "startup2".into() )).unwrap(),
+        PluginDir::new( plugins::STARTUP ).unwrap(),
+        PluginDir::new( plugins::STARTUP2 ).unwrap(),
     ];
-    let ( tree, warnings ) = PluginTree::new( InterfaceId::new( 0x_00_00_00_00_u64 ), interfaces, plugins );
+    let ( tree, warnings ) = PluginTree::new( interfaces::ROOT, interfaces, plugins );
     assert_no_warnings!( warnings );
 
     match tree.load( &engine, &linker ) {
