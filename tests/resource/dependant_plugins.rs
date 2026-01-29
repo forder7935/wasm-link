@@ -1,7 +1,7 @@
-use wasm_compose::{ Engine, Linker, PluginTree, InterfaceId, PluginId, Val };
+use wasm_compose::{ Engine, Linker, PluginTree, Val };
 
 bind_fixtures!( "resource", "dependant_plugins" );
-use fixtures::{ InterfaceDir, PluginDir };
+use fixtures::{ InterfaceDir, PluginDir, interfaces, plugins };
 
 #[test]
 fn resource_test_wrapper() {
@@ -10,14 +10,14 @@ fn resource_test_wrapper() {
     let linker = Linker::new( &engine );
 
     let interfaces = vec![
-        InterfaceDir::new( InterfaceId::new( 0 )).unwrap(),
-        InterfaceDir::new( InterfaceId::new( 1 )).unwrap(),
+        InterfaceDir::new( interfaces::ROOT ).unwrap(),
+        InterfaceDir::new( interfaces::DEPENDENCY ).unwrap(),
     ];
     let plugins = vec![
-        PluginDir::new( PluginId::new( "consumer".into() )).unwrap(),
-        PluginDir::new( PluginId::new( "counter".into() )).unwrap(),
+        PluginDir::new( plugins::CONSUMER ).unwrap(),
+        PluginDir::new( plugins::COUNTER ).unwrap(),
     ];
-    let ( tree, warnings ) = PluginTree::new( InterfaceId::new( 0x_00_00_00_00_u64 ), interfaces, plugins );
+    let ( tree, warnings ) = PluginTree::new( interfaces::ROOT, interfaces, plugins );
     assert_no_warnings!( warnings );
 
     let ( tree, warnings ) = tree.load( &engine, &linker ).unwrap();

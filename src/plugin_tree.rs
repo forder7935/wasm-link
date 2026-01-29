@@ -74,7 +74,7 @@ impl<I: InterfaceData, P: PluginData> PluginTree<I, P> {
     /// Does not validate cardinality requirements.
     ///
     /// # Partial Success
-    /// Attepmts to construct a tree for all plugins it received valid data for. Returns a list
+    /// Attempts to construct a tree for all plugins it received valid data for. Returns a list
     /// of errors alongside the loaded `PluginTree` is any of the following occurs:
     /// - An Interface mentioned in a plugin's plug is not passed in
     /// - Calling [`PluginData::get_plug`] returns an error

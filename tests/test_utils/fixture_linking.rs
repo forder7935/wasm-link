@@ -11,6 +11,26 @@ macro_rules! bind_fixtures {
             #[error("No package for root interface")] NoPackage,
             #[error("Undeclared type: {0:?}")] UndeclaredType( wit_parser::TypeId ),
             #[error("WASM load error: {0}")] WasmLoad( String ),
+            #[error("Interface not found: {0}")] InterfaceNotFound( String ),
+        }
+
+        fn fixture_path() -> std::path::PathBuf {
+            std::path::PathBuf::from( env!( "CARGO_MANIFEST_DIR" ))
+                .join( "tests" )
+                $(.join( $segment ))+
+        }
+
+        fn interface_name_to_id( name: &str ) -> Option<wasm_compose::InterfaceId> {
+            // Use the generated dir_name function in reverse
+            let mut id = 0u64;
+            loop {
+                let candidate = wasm_compose::InterfaceId::new( id );
+                match interfaces::dir_name( candidate ) {
+                    Some( dir_name ) if dir_name == name => return Some( candidate ),
+                    Some( _ ) => id += 1,
+                    None => return None,
+                }
+            }
         }
 
 
@@ -25,24 +45,18 @@ macro_rules! bind_fixtures {
 
             pub fn new( id: wasm_compose::InterfaceId ) -> Result<Self, FixtureError> {
 
-                let root_path = Self::path( id );
+                let dir_name = interfaces::dir_name( id ).ok_or_else(|| FixtureError::Io(
+                    std::io::Error::new( std::io::ErrorKind::NotFound, format!( "Interface {} not found", id ))
+                ))?;
+                let root_path = fixture_path().join( "interfaces" ).join( dir_name );
                 let manifest_path = root_path.join( "manifest.toml" );
                 let manifest_data: InterfaceManifestData = toml::from_str( &std::fs::read_to_string( manifest_path )?)?;
                 let cardinality = manifest_data.cardinality.into();
-                debug_assert!( wasm_compose::InterfaceId::new( manifest_data.id ) == id );
 
                 let wit_data = parse_wit( &root_path )?;
 
                 Ok( Self { id, cardinality, wit_data })
 
-            }
-
-            fn path( id: wasm_compose::InterfaceId ) -> std::path::PathBuf {
-                std::path::PathBuf::from( env!( "CARGO_MANIFEST_DIR" ))
-                    .join( "tests" )
-                    $(.join( $segment ))+
-                    .join( "interfaces" )
-                    .join( format!( "{}", id ))
             }
         }
 
@@ -74,27 +88,24 @@ macro_rules! bind_fixtures {
             #[allow( unused )]
             pub fn new( id: wasm_compose::PluginId ) -> Result<Self, FixtureError> {
 
-                let root_path = Self::path( &id );
+                let dir_name = plugins::dir_name( id ).ok_or_else(|| FixtureError::Io(
+                    std::io::Error::new( std::io::ErrorKind::NotFound, format!( "Plugin {} not found", id ))
+                ))?;
+                let root_path = fixture_path().join( "plugins" ).join( dir_name );
                 let manifest_path = root_path.join( "manifest.toml" );
                 let manifest_data: PluginManifestData = toml::from_str( &std::fs::read_to_string( manifest_path )?)?;
-                debug_assert!( wasm_compose::PluginId::new( manifest_data.id ) == id );
-                
-                let plug = wasm_compose::InterfaceId::new( manifest_data.plug );
-                let sockets = manifest_data.sockets.iter().map(| &socket | wasm_compose::InterfaceId::new( socket )).collect();
-                
+
+                let plug = interface_name_to_id( &manifest_data.plug )
+                    .ok_or_else(|| FixtureError::InterfaceNotFound( manifest_data.plug.clone() ))?;
+                let sockets = manifest_data.sockets.iter()
+                    .map(| name | interface_name_to_id( name ).ok_or_else(|| FixtureError::InterfaceNotFound( name.clone() )))
+                    .collect::<Result<Vec<_>, _>>()?;
+
                 let wasm_path = root_path.join( "root.wasm" );
                 let wasm_path = if wasm_path.exists() { wasm_path } else { root_path.join( "root.wat" ) };
 
                 Ok( Self { id, plug, sockets, wasm_path })
 
-            }
-
-            fn path( id: &wasm_compose::PluginId ) -> std::path::PathBuf {
-                std::path::PathBuf::from( env!( "CARGO_MANIFEST_DIR" ))
-                    .join( "tests" )
-                    $(.join( $segment ))+
-                    .join( "plugins" )
-                    .join( format!( "{}", id ))
             }
         }
 
@@ -117,19 +128,15 @@ macro_rules! bind_fixtures {
 
         }
 
-        type DeserialisablePluginId = String ;
-        type DeserialisableInterfaceId = u64 ;
-
         #[derive( Debug, serde::Deserialize )]
         struct PluginManifestData {
-            id: DeserialisablePluginId,
-            plug: DeserialisableInterfaceId,
-            sockets: Vec<DeserialisableInterfaceId>,
+            plug: String,
+            #[serde( default )]
+            sockets: Vec<String>,
         }
 
         #[derive( Debug, serde::Deserialize )]
         struct InterfaceManifestData {
-            id: DeserialisableInterfaceId,
             cardinality: __InterfaceCardinality,
         }
 
@@ -159,10 +166,10 @@ macro_rules! bind_fixtures {
             resources: Vec<String>,
         }
 
-        fn parse_wit( root_path: &std::path::PathBuf ) -> Result<InterfaceWitData, FixtureError> {
+        fn parse_wit( root_path: &std::path::Path ) -> Result<InterfaceWitData, FixtureError> {
 
             let mut resolve = wit_parser::Resolve::new();
-            let _ = resolve.push_path( AsRef::<std::path::Path>::as_ref( root_path ))?;
+            let _ = resolve.push_path( root_path )?;
 
             let interface = resolve.interfaces.iter().find(|( _, interface )| match &interface.name {
                 Some( name ) => name.as_str() == "root",
@@ -209,25 +216,25 @@ macro_rules! bind_fixtures {
                 {
                     wit_parser::TypeDefKind::Resource
                     | wit_parser::TypeDefKind::Handle( wit_parser::Handle::Own( _ )) => true,
-                    
+
                     wit_parser::TypeDefKind::Handle( wit_parser::Handle::Borrow( _ ))
                     | wit_parser::TypeDefKind::Flags( _ )
                     | wit_parser::TypeDefKind::Enum( _ )
                     | wit_parser::TypeDefKind::Future( Option::None )
                     | wit_parser::TypeDefKind::Stream( Option::None )
                     | wit_parser::TypeDefKind::Unknown => false,
-                    
+
                     wit_parser::TypeDefKind::Option( wit_type )
                     | wit_parser::TypeDefKind::List( wit_type )
                     | wit_parser::TypeDefKind::FixedSizeList( wit_type, _ )
                     | wit_parser::TypeDefKind::Future( Some( wit_type ))
                     | wit_parser::TypeDefKind::Stream( Some( wit_type ))
                     | wit_parser::TypeDefKind::Type( wit_type ) => has_resource( resolve, *wit_type )?,
-                    
+
                     wit_parser::TypeDefKind::Map( key_type, value_type ) =>
                         has_resource( resolve, *key_type )?
                         || has_resource( resolve, *value_type )?,
-                    
+
                     wit_parser::TypeDefKind::Result( result ) =>
                         ( match result.ok { Some( wit_type ) => has_resource( resolve, wit_type )?, _ => false, })
                         || match result.err { Some( wit_type ) => has_resource( resolve, wit_type )?, _ => false, },
@@ -235,11 +242,11 @@ macro_rules! bind_fixtures {
                     wit_parser::TypeDefKind::Record( record ) => record.fields.iter().try_fold( false, | acc, field |
                         Result::<_, FixtureError>::Ok( acc || has_resource( resolve, field.ty )? )
                     )?,
-                    
+
                     wit_parser::TypeDefKind::Tuple( tuple ) => tuple.types.iter().try_fold( false, | acc, &item |
                         Result::<_, FixtureError>::Ok( acc || has_resource( resolve, item )? )
                     )?,
-                    
+
                     wit_parser::TypeDefKind::Variant( variant ) => variant.cases.iter().try_fold( false, | acc, case |
                         Result::<_, FixtureError>::Ok( acc || match case.ty {
                             Some( wit_type ) => has_resource( resolve, wit_type )?,
@@ -251,5 +258,7 @@ macro_rules! bind_fixtures {
             })
 
         }
+
+        test_macros::generate_fixture_ids!( $( $segment ),+ );
     }};
 }

@@ -104,7 +104,7 @@ where
             .pipe(| LoadResult { socket_map, result, errors } | match result {
                 Ok( plugins ) => LoadResult {
                     socket_map,
-                    result: Ok(( interface, Socket::AtLeastOne( plugins.into_iter().map(| plugin: PluginInstance<P> | ( plugin.id().clone(), plugin )).collect() ) )),
+                    result: Ok(( interface, Socket::AtLeastOne( plugins.into_iter().map(| plugin: PluginInstance<P> | ( *plugin.id(), plugin )).collect() ) )),
                     errors,
                 },
                 Err( err ) => LoadResult { socket_map, result: Err( err ), errors },
@@ -112,7 +112,7 @@ where
         InterfaceCardinality::Any => load_any( socket_map, engine, default_linker, plugins )
             .pipe(|( socket_map, plugins, errors )| {
                 let plugins = plugins.into_iter()
-                    .map(| plugin: PluginInstance<P> | ( plugin.id().clone(), plugin ))
+                    .map(| plugin: PluginInstance<P> | ( *plugin.id(), plugin ))
                     .collect();
                 LoadResult {
                     socket_map,

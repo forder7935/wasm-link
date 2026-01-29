@@ -1,3 +1,1 @@
-id = "get-value"
-plug = 0
-sockets = []
+plug = "root"

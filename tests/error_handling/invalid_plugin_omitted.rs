@@ -1,7 +1,7 @@
-use wasm_compose::{ Engine, Linker, PluginTree, InterfaceId, PluginId };
+use wasm_compose::{ Engine, Linker, PluginTree };
 
 bind_fixtures!( "error_handling", "invalid_plugin_omitted" );
-use fixtures::{ InterfaceDir, PluginDir };
+use fixtures::{ InterfaceDir, PluginDir, interfaces, plugins };
 
 #[test]
 fn error_handling_test_invalid_plugin_omitted() {
@@ -9,12 +9,12 @@ fn error_handling_test_invalid_plugin_omitted() {
     let engine = Engine::default();
     let linker = Linker::new( &engine );
 
-    let interfaces = vec![ InterfaceDir::new( InterfaceId::new( 0 )).unwrap() ];
+    let interfaces = vec![ InterfaceDir::new( interfaces::ROOT ).unwrap() ];
     let plugins = vec![
-        PluginDir::new( PluginId::new( "invalid".into() )).unwrap(),
-        PluginDir::new( PluginId::new( "valid".into() )).unwrap(),
+        PluginDir::new( plugins::INVALID ).unwrap(),
+        PluginDir::new( plugins::VALID ).unwrap(),
     ];
-    let ( tree, warnings ) = PluginTree::new( InterfaceId::new( 0x_00_00_00_00_u64 ), interfaces, plugins );
+    let ( tree, warnings ) = PluginTree::new( interfaces::ROOT, interfaces, plugins );
     assert_no_warnings!( warnings );
 
     if let Err(( err, warnings )) = tree.load( &engine, &linker ) {

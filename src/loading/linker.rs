@@ -120,7 +120,7 @@ where
 
     Ok( match function.return_type() {
         FunctionReturnType::None | FunctionReturnType::DataNoResource => result,
-        FunctionReturnType::DataWithResources => wrap_resources( result, lock.id(), ctx )?,
+        FunctionReturnType::DataWithResources => wrap_resources( result, *lock.id(), ctx )?,
     })
 }
 
@@ -142,7 +142,7 @@ where
     }?;
 
     let resource = ResourceWrapper::from_handle( *handle, &mut ctx )?;
-    let plugin = socket.get( &resource.plugin_id )
+    let plugin = socket.get( resource.plugin_id )
         .map_err(|_| DispatchError::Deadlock )?
         .ok_or( DispatchError::InvalidArgumentList )?;
 
@@ -153,7 +153,7 @@ where
 
 }
 
-fn wrap_resources( val: Val, plugin_id: &PluginId, store: &mut impl AsContextMut ) -> Result<Val, ResourceCreationError> {
+fn wrap_resources( val: Val, plugin_id: PluginId, store: &mut impl AsContextMut ) -> Result<Val, ResourceCreationError> {
     Ok( match val {
         Val::Bool( _ )
         | Val::S8( _ ) | Val::S16( _ ) | Val::S32( _ ) | Val::S64( _ )
@@ -173,7 +173,7 @@ fn wrap_resources( val: Val, plugin_id: &PluginId, store: &mut impl AsContextMut
         Val::Option( Some( data_box )) => Val::Option( Some( Box::new( wrap_resources( *data_box, plugin_id, store )? ))),
         Val::Result( Ok( Some( data_box ))) => Val::Result( Ok( Some( Box::new( wrap_resources( *data_box, plugin_id, store )? )))),
         Val::Result( Err( Some( data_box ))) => Val::Result( Err( Some( Box::new( wrap_resources( *data_box, plugin_id, store )? )))),
-        Val::Resource( handle ) => Val::Resource( ResourceWrapper::new( plugin_id.clone(), handle ).attach( store )? ),
+        Val::Resource( handle ) => Val::Resource( ResourceWrapper::new( plugin_id, handle ).attach( store )? ),
         Val::Future( _ ) => unimplemented!( "'Val::Future' is not yet supported" ),
         Val::Stream( _ ) => unimplemented!( "'Val::Stream' is not yet supported" ),
         Val::ErrorContext( _ ) => unimplemented!( "'Val::ErrorContext' is not yet supported" ),
