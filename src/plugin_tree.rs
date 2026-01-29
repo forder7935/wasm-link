@@ -26,21 +26,14 @@ use crate::utils::{ PartialSuccess, PartialResult, Merge };
 /// These errors occur in [`PluginTree::new`] when building the dependency graph,
 /// before any WASM compilation happens.
 #[derive( Debug, Error )]
-pub enum PluginTreeError<P: PluginData> {
+pub enum PluginTreeError<I: InterfaceData, P: PluginData> {
+    /// Failed to read interface metadata (e.g., couldn't determine the interface's id).
+    #[error( "InterfaceData error: {0}" )] InterfaceDataError( I::Error ),
     /// Failed to read plugin metadata (e.g., couldn't determine the plugin's plug).
-    PluginDataError( P::Error ),
+    #[error( "PluginData error: {0}" )] PluginDataError( P::Error ),
     /// Plugins reference an interface that wasn't provided in the interfaces list.
+    #[error( "Missing interface {} required by {} plugins", interface_id, plugins.len() )]
     MissingInterface { interface_id: InterfaceId, plugins: Vec<P> },
-}
-
-impl<P: PluginData> std::fmt::Display for PluginTreeError<P> {
-    fn fmt( &self, f: &mut std::fmt::Formatter<'_> ) -> std::fmt::Result {
-        match self {
-            Self::PluginDataError( e ) => write!( f, "Plugin data error: {}", e ),
-            Self::MissingInterface { interface_id, plugins } =>
-                write!( f, "Missing interface {} required by {} plugins", interface_id, plugins.len())
-        }
-    }
 }
 
 
@@ -62,21 +55,74 @@ impl<P: PluginData> std::fmt::Display for PluginTreeError<P> {
 /// - `P`: [`PluginData`] implementation for loading plugin metadata
 ///
 /// # Example
-/// ```ignore
-/// // Build the unloaded dependency graph
-/// let (tree, errors) = PluginTree::new(
-///     root_interface_id,
-///     interfaces,
-///     plugins,
-/// );
 ///
-/// // Handle any build errors (e.g., missing interfaces)
-/// for error in &errors {
-///     eprintln!("Warning: {}", error);
+/// ```
+/// use wasm_compose::{
+///     InterfaceId, InterfaceData, InterfaceCardinality, FunctionData, ReturnKind,
+///     PluginId, PluginData, PluginTree, Engine, Component, Linker,
+/// };
+///
+/// # #[derive( Clone )]
+/// # struct Func { name: &'static str, return_kind: ReturnKind }
+/// # impl FunctionData for Func {
+/// #   fn name( &self ) -> &str { unreachable!() }
+/// #   fn return_kind( &self ) -> ReturnKind { unreachable!() }
+/// #   fn is_method( &self ) -> bool { unreachable!() }
+/// # }
+/// #
+/// struct Interface { id: InterfaceId, funcs: Vec<Func> }
+/// impl InterfaceData for Interface {
+///     /* ... */
+/// #   type Error = std::convert::Infallible ;
+/// #   type Function = Func ;
+/// #   type FunctionIter<'a> = std::slice::Iter<'a, Func> ;
+/// #   type ResourceIter<'a> = std::iter::Empty<&'a String> ;
+/// #   fn get_id( &self ) -> Result<InterfaceId, Self::Error> { Ok( self.id ) }
+/// #   fn get_cardinality( &self ) -> Result<&InterfaceCardinality, Self::Error> {
+/// #       Ok( &InterfaceCardinality::ExactlyOne )
+/// #   }
+/// #   fn get_package_name( &self ) -> Result<&str, Self::Error> { Ok( "my:package/example" ) }
+/// #   fn get_functions( &self ) -> Result<Self::FunctionIter<'_>, Self::Error> {
+/// #       Ok( self.funcs.iter())
+/// #   }
+/// #   fn get_resources( &self ) -> Result<Self::ResourceIter<'_>, Self::Error> {
+/// #       Ok( std::iter::empty())
+/// #   }
 /// }
 ///
-/// // Compile and link
-/// let tree_head = tree.load(&engine, &linker)?;
+/// struct Plugin { id: PluginId, plug: InterfaceId }
+/// impl PluginData for Plugin {
+///     /* ... */
+/// #   type Error = std::convert::Infallible ;
+/// #   type SocketIter<'a> = std::iter::Empty<&'a InterfaceId> ;
+/// #   fn get_id( &self ) -> Result<&PluginId, Self::Error> { Ok( &self.id ) }
+/// #   fn get_plug( &self ) -> Result<&InterfaceId, Self::Error> { Ok( &self.plug ) }
+/// #   fn get_sockets( &self ) -> Result<Self::SocketIter<'_>, Self::Error> {
+/// #       Ok( std::iter::empty())
+/// #   }
+/// #   fn component( &self, engine: &Engine ) -> Result<Component, Self::Error> {
+/// #       Ok( Component::new( engine, r#"(component
+/// #           (core module $m)
+/// #           (core instance $i (instantiate $m))
+/// #           (instance $inst)
+/// #           (export "my:package/example" (instance $inst))
+/// #       )"# ).unwrap())
+/// #   }
+/// }
+///
+/// let root_interface_id = InterfaceId::new( 0 );
+/// let plugins = [ Plugin { id: PluginId::new( 1 ), plug: root_interface_id }];
+/// let interfaces = [ Interface { id: root_interface_id, funcs: vec![] }];
+///
+/// // Build the dependency graph
+/// let ( tree, build_errors ) = PluginTree::new( root_interface_id, interfaces, plugins );
+/// assert!( build_errors.is_empty() );
+///
+/// // Compile and link the plugins
+/// let engine = Engine::default();
+/// let linker = Linker::new( &engine );
+/// let ( tree_head, load_errors ) = tree.load( &engine, &linker ).unwrap();
+/// assert!( load_errors.is_empty() );
 /// ```
 pub struct PluginTree<I: InterfaceData, P: PluginData> {
     root_interface_id: InterfaceId,
@@ -108,11 +154,11 @@ impl<I: InterfaceData, P: PluginData> PluginTree<I, P> {
         root_interface_id: InterfaceId,
         interfaces: impl IntoIterator<Item = I>,
         plugins: impl IntoIterator<Item = P>,
-    ) -> PartialSuccess<Self, PluginTreeError<P>> {
+    ) -> PartialSuccess<Self, PluginTreeError<I, P>> {
 
-        let interface_map = interfaces.into_iter()
-            .map(| i | ( i.id(), i ))
-            .collect::<HashMap<_, _ >>();
+        let ( interface_map, interface_errors ) = interfaces.into_iter()
+            .map(| i | Ok::<_, PluginTreeError<I, P>>(( i.get_id().map_err( PluginTreeError::InterfaceDataError )?, i )))
+            .partition_result::<HashMap<_, _ >, Vec<_>, _, _>();
 
         assert!(
             interface_map.contains_key( &root_interface_id ),
@@ -141,7 +187,7 @@ impl<I: InterfaceData, P: PluginData> PluginTree<I, P> {
             .chain( interface_map.into_iter().map(|( id, interface )| ( id, ( interface, Vec::new() ))))
             .collect::<HashMap<_, _>>();
 
-        ( Self { root_interface_id, socket_map }, plugin_errors.merge_all( missing_errors ))
+        ( Self { root_interface_id, socket_map }, interface_errors.merge_all( plugin_errors ).merge_all( missing_errors ))
 
     }
 

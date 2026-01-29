@@ -32,28 +32,7 @@
 //!
 //! 4. Use [`PluginTreeHead::dispatch`] to invoke functions on the root interface
 //!
-//! # Example
-//!
-//! ```ignore
-//! // Build the unloaded dependency graph
-//! let (tree, build_errors) = PluginTree::new(
-//!     root_interface_id,
-//!     interfaces,
-//!     plugins,
-//! );
-//!
-//! // Compile and link all plugins
-//! let linker = Linker::new(&engine);
-//! let tree_head = tree.load(&engine, &linker)?;
-//!
-//! // Dispatch a function call to all root plugins
-//! let results = tree_head.dispatch(
-//!     "my:package/root",
-//!     "hello",
-//!     true,
-//!     &[Val::String("world".into())],
-//! );
-//! ```
+//! See [`PluginTree`] and [`PluginTreeHead`] for usage examples.
 
 mod interface ;
 mod plugin ;

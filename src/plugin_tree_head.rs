@@ -17,7 +17,7 @@ use crate::loading::DispatchError ;
 
 /// The root node of a loaded plugin tree.
 ///
-/// Obtained from [`PluginTree::load`]. This is the host application's entry point
+/// Obtained from [`PluginTree::load`](crate::PluginTree::load). This is the host application's entry point
 /// for calling into the plugin system. The root socket represents the interface
 /// that the host has access to - all other interfaces are internal and can only
 /// be called by other plugins.
@@ -47,18 +47,84 @@ impl<I: InterfaceData, P: PluginData> PluginTreeHead<I, P> {
     /// * `data` - Arguments to pass to the function as wasmtime [`Val`]s
     ///
     /// # Example
-    /// ```ignore
-    /// let results = tree_head.dispatch(
-    ///     "my:package/greeter",
-    ///     "greet",
-    ///     true,  // has return value
-    ///     &[Val::String("world".into())],
-    /// );
     ///
-    /// match results {
-    ///     Socket::ExactlyOne(Ok(val)) => println!("Got: {:?}", val),
-    ///     Socket::ExactlyOne(Err(e)) => eprintln!("Error: {}", e),
-    ///     // ... handle other cardinalities
+    /// ```
+    /// use wasm_compose::{
+    ///     InterfaceId, InterfaceData, InterfaceCardinality, FunctionData, ReturnKind,
+    ///     PluginId, PluginData, PluginTree, Engine, Component, Linker, Socket, Val,
+    /// };
+    ///
+    /// #[derive( Clone )]
+    /// struct Func { name: String, return_kind: ReturnKind }
+    /// impl FunctionData for Func {
+    ///     /* .. */
+    /// #   fn name( &self ) -> &str { self.name.as_str() }
+    /// #   fn return_kind( &self ) -> ReturnKind { self.return_kind.clone() }
+    /// #   fn is_method( &self ) -> bool { false }
+    /// }
+    ///
+    /// struct Interface { id: InterfaceId, funcs: Vec<Func> }
+    /// impl InterfaceData for Interface {
+    ///     /* ... */
+    /// #   type Error = std::convert::Infallible ;
+    /// #   type Function = Func ;
+    /// #   type FunctionIter<'a> = std::slice::Iter<'a, Func> ;
+    /// #   type ResourceIter<'a> = std::iter::Empty<&'a String> ;
+    /// #   fn get_id( &self ) -> Result<InterfaceId, Self::Error> { Ok( self.id ) }
+    /// #   fn get_cardinality( &self ) -> Result<&InterfaceCardinality, Self::Error> {
+    /// #       Ok( &InterfaceCardinality::ExactlyOne )
+    /// #   }
+    /// #   fn get_package_name( &self ) -> Result<&str, Self::Error> { Ok( "my:package/example" ) }
+    /// #   fn get_functions( &self ) -> Result<Self::FunctionIter<'_>, Self::Error> {
+    /// #       Ok( self.funcs.iter())
+    /// #   }
+    /// #   fn get_resources( &self ) -> Result<Self::ResourceIter<'_>, Self::Error> {
+    /// #       Ok( std::iter::empty())
+    /// #   }
+    /// }
+    ///
+    /// struct Plugin { id: PluginId, plug: InterfaceId }
+    /// impl PluginData for Plugin {
+    ///     /* ... */
+    /// #   type Error = std::convert::Infallible ;
+    /// #   type SocketIter<'a> = std::iter::Empty<&'a InterfaceId> ;
+    /// #   fn get_id( &self ) -> Result<&PluginId, Self::Error> { Ok( &self.id ) }
+    /// #   fn get_plug( &self ) -> Result<&InterfaceId, Self::Error> { Ok( &self.plug ) }
+    /// #   fn get_sockets( &self ) -> Result<Self::SocketIter<'_>, Self::Error> {
+    /// #       Ok( std::iter::empty())
+    /// #   }
+    /// #   fn component( &self, engine: &Engine ) -> Result<Component, Self::Error> {
+    /// #       Ok( Component::new( engine, r#"(component
+    /// #           (core module $m (func (export "f") (result i32) i32.const 42))
+    /// #           (core instance $i (instantiate $m))
+    /// #           (func $f (export "get-value") (result u32) (canon lift (core func $i "f")))
+    /// #           (instance $inst (export "get-value" (func $f)))
+    /// #           (export "my:package/example" (instance $inst))
+    /// #       )"# ).unwrap())
+    /// #   }
+    /// }
+    ///
+    /// let root_interface_id = InterfaceId::new( 0 );
+    /// let plugins = [ Plugin { id: PluginId::new( 1 ), plug: root_interface_id }];
+    /// let interfaces = [ Interface { id: root_interface_id, funcs: vec![
+    ///     Func { name: "get-value".to_string(), return_kind: ReturnKind::MayContainResources }
+    /// ]}];
+    ///
+    /// let ( tree, build_errors ) = PluginTree::new( root_interface_id, interfaces, plugins );
+    /// assert!( build_errors.is_empty() );
+    ///
+    /// let engine = Engine::default();
+    /// let linker = Linker::new( &engine );
+    /// let ( tree_head, load_errors ) = tree.load( &engine, &linker ).unwrap();
+    /// assert!( load_errors.is_empty() );
+    ///
+    /// // Dispatch returns a Socket matching the interface's cardinality
+    /// let result = tree_head.dispatch( "my:package/example", "get-value", true, &[] );
+    ///
+    /// match result {
+    ///     Socket::ExactlyOne( Ok( Val::U32( n ))) => assert_eq!( n, 42 ),
+    ///     Socket::ExactlyOne( Err( e )) => panic!( "dispatch error: {e}" ),
+    ///     _ => panic!( "unexpected cardinality" ),
     /// }
     /// ```
     pub fn dispatch<IE>(
