@@ -43,7 +43,7 @@ impl<I: InterfaceData, P: PluginData> PluginTreeHead<I, P> {
     /// # Arguments
     /// * `interface_path` - Full WIT interface path (e.g., `"my:package/interface-name"`)
     /// * `function` - Function name to call as declared in the interface
-    /// * `has_return` - Whether the function returns a value (use [`FunctionData::has_return`])
+    /// * `has_return` - Whether you expect to receive a return value
     /// * `data` - Arguments to pass to the function as wasmtime [`Val`]s
     ///
     /// # Example
@@ -61,8 +61,6 @@ impl<I: InterfaceData, P: PluginData> PluginTreeHead<I, P> {
     ///     // ... handle other cardinalities
     /// }
     /// ```
-    ///
-    /// [`FunctionData::has_return`]: crate::FunctionData::has_return
     pub fn dispatch<IE>(
         &self,
         interface_path: &str,

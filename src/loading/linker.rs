@@ -34,7 +34,7 @@ where
     match interface.get_functions() {
         Ok( functions ) => functions.into_iter().try_for_each(| function | -> Result<(), LoadError<I, P>> {
 
-            let function_clone: FunctionData = function.clone();
+            let function_clone = function.clone();
             let interface_ident_clone = interface_ident.clone();
             let socket_arc_clone = Arc::clone( socket );
 
@@ -45,8 +45,8 @@ where
             }}
 
             match function.is_method() {
-                false => link!( dispatch_all::<P, I::Error> ),
-                true => link!( dispatch_method::<P, I::Error> ),
+                false => link!( dispatch_all::<P, I::Error, I::Function> ),
+                true => link!( dispatch_method::<P, I::Error, I::Function> ),
             }
 
         })?,
@@ -66,57 +66,61 @@ where
 }
 
 /// Dispatches a non-method function call to all plugins
-pub(crate) fn dispatch_all<P, E>(
+pub(crate) fn dispatch_all<P, E, F>(
     socket: &Arc<LoadedSocket<P>>,
     mut ctx: StoreContextMut<P>,
     interface_path: &str,
-    function: &FunctionData,
+    function: &F,
     data: &[Val],
 ) -> Val
 where
     P: PluginData,
     E: std::error::Error,
+    F: FunctionData,
 {
     debug_assert!( !function.is_method() );
-    socket.map(| plugin | Val::Result( match dispatch_of::<P, E>( &mut ctx, plugin, interface_path, function, data ) {
+    socket.map(| plugin | Val::Result( match dispatch_of::<P, E, F>( &mut ctx, plugin, interface_path, function, data ) {
         Ok( val ) => Ok( Some( Box::new( val ))),
         Err( err ) => Err( Some( Box::new( err.into() ))),
     })).into()
 }
 
 /// Dispatches a method function call, routing to the correct plugin.
-pub(crate) fn dispatch_method<P, E>(
+pub(crate) fn dispatch_method<P, E, F>(
     socket: &Arc<LoadedSocket<P>>,
     ctx: StoreContextMut<P>,
     interface_path: &str,
-    function: &FunctionData,
+    function: &F,
     data: &[Val],
 ) -> Val
 where
     P: PluginData,
     E: std::error::Error,
+    F: FunctionData,
 {
     debug_assert!( function.is_method() );
-    Val::Result( match route_method::<P, E>( socket, ctx, interface_path, function, data ) {
+    Val::Result( match route_method::<P, E, F>( socket, ctx, interface_path, function, data ) {
         Ok( val ) => Ok( Some( Box::new( val ))),
         Err( err ) => Err( Some( Box::new( err.into() ))),
     })
 }
 
-#[inline] fn dispatch_of<P, E>(
+#[inline] fn dispatch_of<P, E, F>(
     ctx: &mut StoreContextMut<P>,
     plugin: &RwLock<PluginInstance<P>>,
     interface_path: &str,
-    function: &FunctionData,
+    function: &F,
     data: &[Val],
 ) -> Result<Val, DispatchError<E>>
 where
     P: PluginData,
     E: std::error::Error,
+    F: FunctionData,
 {
 
     let mut lock = plugin.write().map_err(|_| DispatchError::Deadlock )?;
-    let result = lock.dispatch( interface_path, function.name(), function.has_return(), data )?;
+    let has_return = function.return_kind() != ReturnKind::Void;
+    let result = lock.dispatch( interface_path, function.name(), has_return, data )?;
 
     Ok( match function.return_kind() {
         ReturnKind::Void | ReturnKind::AssumeNoResources => result,
@@ -124,16 +128,17 @@ where
     })
 }
 
-#[inline] fn route_method<P, E>(
+#[inline] fn route_method<P, E, F>(
     socket: &LoadedSocket<P>,
     mut ctx: StoreContextMut<P>,
     interface_path: &str,
-    function: &FunctionData,
+    function: &F,
     data: &[Val],
 ) -> Result<Val, DispatchError<E>>
 where
     P: PluginData,
     E: std::error::Error,
+    F: FunctionData,
 {
 
     let handle = match data.first() {

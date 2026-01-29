@@ -60,10 +60,34 @@ macro_rules! bind_fixtures {
             }
         }
 
+        #[derive( Debug, Clone )]
+        pub struct FunctionDataImpl {
+            function: wit_parser::Function,
+            return_kind: wasm_compose::ReturnKind,
+        }
+
+        impl wasm_compose::FunctionData for FunctionDataImpl {
+            fn name( &self ) -> &str { &self.function.name }
+            fn return_kind( &self ) -> wasm_compose::ReturnKind { self.return_kind.clone() }
+            fn is_method( &self ) -> bool {
+                match self.function.kind {
+                    wit_parser::FunctionKind::Freestanding
+                    | wit_parser::FunctionKind::Static( _ )
+                    | wit_parser::FunctionKind::Constructor( _ ) => false,
+                    wit_parser::FunctionKind::Method( _ ) => true,
+                    wit_parser::FunctionKind::AsyncFreestanding
+                    | wit_parser::FunctionKind::AsyncMethod( _ )
+                    | wit_parser::FunctionKind::AsyncStatic( _ )
+                    => unimplemented!( "Async functions are not yet implemented" ),
+                }
+            }
+        }
+
         impl wasm_compose::InterfaceData for InterfaceDir {
 
             type Error = FixtureError ;
-            type FunctionIter<'a> = Vec<&'a wasm_compose::FunctionData>;
+            type Function = FunctionDataImpl ;
+            type FunctionIter<'a> = Vec<&'a FunctionDataImpl>;
             type ResourceIter<'a> = &'a [String];
 
             fn id( &self ) -> wasm_compose::InterfaceId { self.id }
@@ -162,7 +186,7 @@ macro_rules! bind_fixtures {
         #[derive( Debug )]
         struct InterfaceWitData {
             package: String,
-            functions: std::collections::HashMap<String, wasm_compose::FunctionData>,
+            functions: std::collections::HashMap<String, FunctionDataImpl>,
             resources: Vec<String>,
         }
 
@@ -182,10 +206,10 @@ macro_rules! bind_fixtures {
                 .name.to_string();
 
             let functions = interface.functions.iter()
-                .map(|( _, function )| Ok(( function.name.clone(), wasm_compose::FunctionData::new(
-                    function.clone(),
-                    parse_return_kind( &resolve, function.result )?,
-                ))))
+                .map(|( _, function )| Ok(( function.name.clone(), FunctionDataImpl {
+                    function: function.clone(),
+                    return_kind: parse_return_kind( &resolve, function.result )?,
+                })))
                 .collect::<Result<_,FixtureError>>()?;
 
             let resources = interface.types.iter().filter_map(|( name, wit_type_id )| match resolve.types.get( *wit_type_id ) {

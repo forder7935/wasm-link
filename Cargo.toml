@@ -7,14 +7,14 @@ edition = "2021"
 wasmtime = "40.0"
 thiserror = "1.0"
 itertools = "0.14.0"
-wit-parser = "0.244.0"
-anyhow = "1.0.100" #required because of wit-parser
 pipe-trait = "0.4.0"
 
 [dev-dependencies]
 toml = "0.8"
 serde = { version = "1.0", features = ["derive"] }
 test_macros = { path = "test_macros" }
+wit-parser = "0.244.0"
+anyhow = "1.0.100" #required because of wit-parser
 
 [lints.clippy]
 pedantic = { level = "warn", priority = -1 }

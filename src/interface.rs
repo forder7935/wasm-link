@@ -5,10 +5,6 @@
 //! tied to any specific plugin - they exist as abstract specifications that
 //! plugins reference via their plugs and sockets.
 
-use wit_parser::{ Function, FunctionKind };
-
-
-
 /// Unique identifier for an interface.
 ///
 /// Used to reference interfaces when building the plugin tree and linking
@@ -42,14 +38,17 @@ impl From<InterfaceId> for u64 {
 /// # Associated Types
 ///
 /// - `Error`: The error type returned when metadata access fails
+/// - `Function`: The type implementing [`FunctionData`] for function metadata
 /// - `FunctionIter`: Iterator over the functions this interface declares
 /// - `ResourceIter`: Iterator over the resource types this interface declares
 pub trait InterfaceData: Sized {
 
     /// Error type for metadata access failures.
     type Error: std::error::Error ;
+    /// Function metadata type implementing [`FunctionData`].
+    type Function: FunctionData + Clone + Send + Sync + 'static ;
     /// Iterator over functions declared by this interface.
-    type FunctionIter<'a>: IntoIterator<Item = &'a FunctionData> where Self: 'a ;
+    type FunctionIter<'a>: IntoIterator<Item = &'a Self::Function> where Self: 'a ;
     /// Iterator over resource type names declared by this interface.
     type ResourceIter<'a>: IntoIterator<Item = &'a String> where Self: 'a ;
 
@@ -84,34 +83,15 @@ pub trait InterfaceData: Sized {
 
 /// Metadata about a function declared by an interface.
 ///
-/// Contains information needed during linking to wire up cross-plugin dispatch,
+/// Provides information needed during linking to wire up cross-plugin dispatch,
 /// including the function signature and return kind.
-#[derive( Debug, Clone )]
-pub struct FunctionData {
-    function: Function,
-    return_kind: ReturnKind,
-}
-impl FunctionData {
-
-    /// Creates function metadata from a parsed WIT function and its return kind.
-    pub fn new( function: Function, return_kind: ReturnKind ) -> Self {
-        Self { function, return_kind }
-    }
-
+pub trait FunctionData {
     /// Returns the function's name as declared in the interface.
-    #[inline] pub fn name( &self ) -> &str { &self.function.name }
-    /// Returns `true` if this function returns a value.
-    #[inline] pub fn has_return( &self ) -> bool { self.return_kind != ReturnKind::Void }
+    fn name( &self ) -> &str ;
     /// Returns the function's return kind.
-    #[inline] pub fn return_kind( &self ) -> &ReturnKind { &self.return_kind }
+    fn return_kind( &self ) -> ReturnKind ;
     /// Returns `true` if this is a method (has a `self` parameter).
-    #[inline] pub fn is_method( &self ) -> bool { match self.function.kind {
-        FunctionKind::Freestanding | FunctionKind::Static( _ ) | FunctionKind::Constructor( _ ) => false,
-        FunctionKind::Method( _ ) => true,
-        FunctionKind::AsyncFreestanding | FunctionKind::AsyncMethod( _ ) | FunctionKind::AsyncStatic( _ )
-        => unimplemented!( "Async functions are not yet implemented" ),
-    }}
-
+    fn is_method( &self ) -> bool ;
 }
 
 /// Categorizes a function's return for dispatch handling.
@@ -134,6 +114,12 @@ impl FunctionData {
 pub enum ReturnKind {
     /// Function returns nothing (void).
     Void,
+    /// Function may return resource handles - always wraps safely.
+    ///
+    /// Use this variant whenever resources might be present in the return value,
+    /// or when you're unsure. The performance overhead of wrapping is preferable
+    /// to the undefined behavior caused by unwrapped resource handles.
+    MayContainResources,
     /// Assumes no resource handles are present - skips wrapping for performance.
     ///
     /// **Warning:** Only use this if you are certain no resources are present.
@@ -141,12 +127,6 @@ pub enum ReturnKind {
     /// not be wrapped correctly, potentially causing undefined behavior in plugins.
     /// When in doubt, use [`MayContainResources`](Self::MayContainResources) instead.
     AssumeNoResources,
-    /// Function may return resource handles - always wraps safely.
-    ///
-    /// Use this variant whenever resources might be present in the return value,
-    /// or when you're unsure. The performance overhead of wrapping is preferable
-    /// to the undefined behavior caused by unwrapped resource handles.
-    MayContainResources,
 }
 
 /// Specifies how many plugins may or must implement an interface.
