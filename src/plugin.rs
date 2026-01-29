@@ -6,11 +6,11 @@ use crate::InterfaceId ;
 
 
 /// Unique identifier for a plugin.
-#[derive( Eq, Hash, PartialEq, Debug, Clone )]
-pub struct PluginId( String );
+#[derive( Eq, Hash, PartialEq, Debug, Clone, Copy )]
+pub struct PluginId( u64 );
 
 impl PluginId {
-    pub const fn new( id: String ) -> Self { Self( id ) }
+    pub const fn new( id: u64 ) -> Self { Self( id ) }
 }
 
 impl std::fmt::Display for PluginId {
@@ -19,10 +19,8 @@ impl std::fmt::Display for PluginId {
     }
 }
 
-impl AsRef<std::path::Path> for PluginId {
-    fn as_ref( &self ) -> &std::path::Path {
-        AsRef::<std::path::Path>::as_ref( &self.0 )
-    }
+impl From<PluginId> for u64 {
+    fn from( id: PluginId ) -> Self { id.0 }
 }
 
 /// Trait for accessing plugin metadata from a user-defined source (filesystem, database, etc.).

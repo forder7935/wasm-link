@@ -1,4 +1,5 @@
 /target
+test_macros/target
 /appdata
 /.claude
 Cargo.lock

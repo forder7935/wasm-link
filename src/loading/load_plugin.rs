@@ -48,7 +48,7 @@ where
     };
 
     let plugin_id = match plugin.get_id() {
-        Ok( id ) => id.clone(),
+        Ok( id ) => *id,
         Err( err ) => return LoadResult { socket_map, result: Err( LoadError::CorruptedPluginManifest( err )), errors },
     };
 

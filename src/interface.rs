@@ -16,6 +16,10 @@ impl std::fmt::Display for InterfaceId {
     }
 }
 
+impl From<InterfaceId> for u64 {
+    fn from( id: InterfaceId ) -> Self { id.0 }
+}
+
 /// Trait for accessing interface metadata from a user-defined source (filesystem, database, etc.).
 pub trait InterfaceData: Sized {
 

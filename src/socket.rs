@@ -30,8 +30,8 @@ impl<T> Socket<T> {
             Self::AtMostOne( Option::None ) => Socket::AtMostOne( Option::None ),
             Self::AtMostOne( Some( t )) => Socket::AtMostOne( Some( map( t ))),
             Self::ExactlyOne( t ) => Socket::ExactlyOne( map( t )),
-            Self::AtLeastOne( vec ) => Socket::AtLeastOne( vec.iter().map(|( id, item ): ( &PluginId, _ )| ( id.clone(), map( item ) )).collect() ),
-            Self::Any( vec ) => Socket::Any( vec.iter().map(|( id, item ): ( &PluginId, _ )| ( id.clone(), map( item ) )).collect() ),
+            Self::AtLeastOne( vec ) => Socket::AtLeastOne( vec.iter().map(|( id, item ): ( &PluginId, _ )| ( *id, map( item ) )).collect() ),
+            Self::Any( vec ) => Socket::Any( vec.iter().map(|( id, item ): ( &PluginId, _ )| ( *id, map( item ) )).collect() ),
         }
     }
 
@@ -49,13 +49,13 @@ impl<T> Socket<T> {
 impl<T: PluginData> Socket<RwLock<PluginInstance<T>>> {
 
     #[allow( clippy::type_complexity )]
-    pub(crate) fn get( &self, id: &PluginId ) -> Result<Option<&RwLock<PluginInstance<T>>>,PoisonError<RwLockReadGuard<'_, PluginInstance<T>>>> {
+    pub(crate) fn get( &self, id: PluginId ) -> Result<Option<&RwLock<PluginInstance<T>>>,PoisonError<RwLockReadGuard<'_, PluginInstance<T>>>> {
         Ok( match self {
             Self::AtMostOne( Option::None ) => None,
             Self::AtMostOne( Some( plugin )) | Self::ExactlyOne( plugin ) => {
-                if &plugin.read()?.id == id { Some( plugin ) } else { None }
+                if plugin.read()?.id == id { Some( plugin ) } else { None }
             },
-            Self::AtLeastOne( plugins ) | Self::Any( plugins ) => plugins.get( id ),
+            Self::AtLeastOne( plugins ) | Self::Any( plugins ) => plugins.get( &id ),
         })
     }
 
