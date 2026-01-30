@@ -132,10 +132,6 @@ Licensed under either of
 
 at your option.
 
-## License
-
-This project is licensed under the Apache 2.0 License - see the [LICENSE](LICENSE) file for details.
-
 ## Contribution
 
 Contributions are welcome. For major changes, please open an issue first for discussion.
