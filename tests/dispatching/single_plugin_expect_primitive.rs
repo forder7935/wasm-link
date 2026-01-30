@@ -1,4 +1,4 @@
-use wasm_compose::{ Engine, Linker, PluginTree, Val };
+use wasm_link::{ Engine, Linker, PluginTree, Val, Socket };
 
 bind_fixtures!( "dispatching", "single_plugin_expect_primitive" );
 use fixtures::{ InterfaceDir, PluginDir, interfaces, plugins };
@@ -18,7 +18,7 @@ fn dispatch_test_single_plugin_expect_primitive() {
     assert_no_warnings!( warnings );
 
     match tree.dispatch( "test:primitive/root", "get-primitive", true, &[] ) {
-        wasm_compose::Socket::ExactlyOne( Ok( Val::U32( 42 ) )) => {}
+        Socket::ExactlyOne( Ok( Val::U32( 42 ) )) => {}
         value => panic!( "Expected ExactlyOne( Ok( U32( 42 ))), found: {:#?}", value ),
     }
 

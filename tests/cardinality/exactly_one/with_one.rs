@@ -1,4 +1,4 @@
-use wasm_compose::{ Engine, Linker, PluginTree };
+use wasm_link::{ Engine, Linker, PluginTree };
 
 bind_fixtures!( "cardinality", "exactly_one", "with_one" );
 use fixtures::{ InterfaceDir, PluginDir, interfaces, plugins };

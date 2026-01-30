@@ -1,4 +1,4 @@
-use wasm_compose::{ Engine, Linker, PluginTree, Val };
+use wasm_link::{ Engine, Linker, PluginTree, Val, Socket };
 
 bind_fixtures!( "resource", "single_plugin" );
 use fixtures::{ InterfaceDir, PluginDir, interfaces, plugins };
@@ -19,16 +19,16 @@ fn resource_test_method_call() {
     assert_no_warnings!( warnings );
 
     let resource_handle = match tree.dispatch( "test:myresource/root", "[constructor]counter", true, &[] ) {
-        wasm_compose::Socket::ExactlyOne( Ok( Val::Resource( handle ) )) => handle,
-        wasm_compose::Socket::ExactlyOne( Ok( val )) => panic!( "Expected resource, got: {:#?}", val ),
-        wasm_compose::Socket::ExactlyOne( Err( err )) => panic!( "Constructor failed: {:?}", err ),
+        Socket::ExactlyOne( Ok( Val::Resource( handle ) )) => handle,
+        Socket::ExactlyOne( Ok( val )) => panic!( "Expected resource, got: {:#?}", val ),
+        Socket::ExactlyOne( Err( err )) => panic!( "Constructor failed: {:?}", err ),
         socket => panic!( "Expected ExactlyOne, got: {:#?}", socket ),
     };
 
     match tree.dispatch( "test:myresource/root", "[method]counter.get-value", true, &[Val::Resource( resource_handle )] ) {
-        wasm_compose::Socket::ExactlyOne( Ok( Val::U32( 42 ) )) => {}
-        wasm_compose::Socket::ExactlyOne( Ok( val )) => panic!( "Expected U32(42), got: {:#?}", val ),
-        wasm_compose::Socket::ExactlyOne( Err( err )) => panic!( "Method call failed: {:?}", err ),
+        Socket::ExactlyOne( Ok( Val::U32( 42 ) )) => {}
+        Socket::ExactlyOne( Ok( val )) => panic!( "Expected U32(42), got: {:#?}", val ),
+        Socket::ExactlyOne( Err( err )) => panic!( "Method call failed: {:?}", err ),
         socket => panic!( "Expected ExactlyOne, got: {:#?}", socket ),
     }
 

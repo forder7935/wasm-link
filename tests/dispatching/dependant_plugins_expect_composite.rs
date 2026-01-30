@@ -1,4 +1,4 @@
-use wasm_compose::{ Engine, Linker, PluginTree, Val };
+use wasm_link::{ Engine, Linker, PluginTree, Val, Socket };
 
 bind_fixtures!( "dispatching", "dependant_plugins_expect_composite" );
 use fixtures::{ InterfaceDir, PluginDir, interfaces, plugins };
@@ -24,7 +24,7 @@ fn dispatch_test_dependant_plugins_expect_composite() {
     assert_no_warnings!( warnings );
 
     match tree.dispatch( "test:dependant-composite/root", "get-composite", true, &[] ) {
-        wasm_compose::Socket::ExactlyOne( Ok( Val::Tuple( fields ) )) => {
+        Socket::ExactlyOne( Ok( Val::Tuple( fields ) )) => {
             assert_eq!( fields[0], Val::U32( 42 ) );
             assert_eq!( fields[1], Val::U32( 24 ) );
         }

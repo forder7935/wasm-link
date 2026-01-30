@@ -76,7 +76,7 @@ fn generate_interface_module( fixture_path: &std::path::Path ) -> TokenStream2 {
         .map(|( id, dir_name )| {
             let id = id as u64;
             let const_name = format_ident!( "{}", dir_name_to_const_name( dir_name ));
-            quote! { pub const #const_name: wasm_compose::InterfaceId = wasm_compose::InterfaceId::new( #id ); }
+            quote! { pub const #const_name: wasm_link::InterfaceId = wasm_link::InterfaceId::new( #id ); }
         })
         .collect::<Vec<_>>();
 
@@ -91,7 +91,7 @@ fn generate_interface_module( fixture_path: &std::path::Path ) -> TokenStream2 {
     quote! {
         #( #consts )*
 
-        pub fn dir_name( id: wasm_compose::InterfaceId ) -> Option<&'static str> {
+        pub fn dir_name( id: wasm_link::InterfaceId ) -> Option<&'static str> {
             match u64::from( id ) {
                 #( #match_arms )*
                 _ => None,
@@ -110,7 +110,7 @@ fn generate_plugin_module( fixture_path: &std::path::Path ) -> TokenStream2 {
         .map(|( id, dir_name )| {
             let id = id as u64;
             let const_name = format_ident!( "{}", dir_name_to_const_name( dir_name ));
-            quote! { pub const #const_name: wasm_compose::PluginId = wasm_compose::PluginId::new( #id ); }
+            quote! { pub const #const_name: wasm_link::PluginId = wasm_link::PluginId::new( #id ); }
         })
         .collect::<Vec<_>>();
 
@@ -125,7 +125,7 @@ fn generate_plugin_module( fixture_path: &std::path::Path ) -> TokenStream2 {
     quote! {
         #( #consts )*
 
-        pub fn dir_name( id: wasm_compose::PluginId ) -> Option<&'static str> {
+        pub fn dir_name( id: wasm_link::PluginId ) -> Option<&'static str> {
             match u64::from( id ) {
                 #( #match_arms )*
                 _ => None,

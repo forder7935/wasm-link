@@ -1,4 +1,4 @@
-use wasm_compose::{ Engine, Linker, PluginTree, InterfaceId, LoadError, InterfaceCardinality };
+use wasm_link::{ Engine, Linker, PluginTree, InterfaceId, LoadError, InterfaceCardinality };
 
 bind_fixtures!( "cardinality", "at_least_one", "with_none" );
 use fixtures::{ InterfaceDir, PluginDir };

@@ -17,7 +17,7 @@ use crate::loading::DispatchError ;
 
 /// The root node of a loaded plugin tree.
 ///
-/// Obtained from [`PluginTree::load`](crate::PluginTree::load). This is the host application's entry point
+/// Obtained from [`PluginTree::load`]( crate::PluginTree::load ). This is the host application's entry point
 /// for calling into the plugin system. The root socket represents the interface
 /// that the host has access to - all other interfaces are internal and can only
 /// be called by other plugins.
@@ -49,7 +49,7 @@ impl<I: InterfaceData, P: PluginData> PluginTreeHead<I, P> {
     /// # Example
     ///
     /// ```
-    /// use wasm_compose::{
+    /// use wasm_link::{
     ///     InterfaceId, InterfaceData, InterfaceCardinality, FunctionData, ReturnKind,
     ///     PluginId, PluginData, PluginTree, Engine, Component, Linker, Socket, Val,
     /// };

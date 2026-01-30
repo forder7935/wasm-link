@@ -1,4 +1,4 @@
-use wasm_compose::{ Engine, Linker, PluginTree };
+use wasm_link::{ Engine, Linker, PluginTree };
 
 bind_fixtures!( "error_handling", "invalid_plugin_omitted" );
 use fixtures::{ InterfaceDir, PluginDir, interfaces, plugins };
