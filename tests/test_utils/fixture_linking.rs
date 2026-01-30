@@ -20,11 +20,11 @@ macro_rules! bind_fixtures {
                 $(.join( $segment ))+
         }
 
-        fn interface_name_to_id( name: &str ) -> Option<wasm_compose::InterfaceId> {
+        fn interface_name_to_id( name: &str ) -> Option<wasm_link::InterfaceId> {
             // Use the generated dir_name function in reverse
             let mut id = 0u64;
             loop {
-                let candidate = wasm_compose::InterfaceId::new( id );
+                let candidate = wasm_link::InterfaceId::new( id );
                 match interfaces::dir_name( candidate ) {
                     Some( dir_name ) if dir_name == name => return Some( candidate ),
                     Some( _ ) => id += 1,
@@ -36,14 +36,14 @@ macro_rules! bind_fixtures {
 
         #[derive( Debug )]
         pub struct InterfaceDir {
-            id: wasm_compose::InterfaceId,
-            cardinality: wasm_compose::InterfaceCardinality,
+            id: wasm_link::InterfaceId,
+            cardinality: wasm_link::InterfaceCardinality,
             wit_data: InterfaceWitData,
         }
 
         impl InterfaceDir {
 
-            pub fn new( id: wasm_compose::InterfaceId ) -> Result<Self, FixtureError> {
+            pub fn new( id: wasm_link::InterfaceId ) -> Result<Self, FixtureError> {
 
                 let dir_name = interfaces::dir_name( id ).ok_or_else(|| FixtureError::Io(
                     std::io::Error::new( std::io::ErrorKind::NotFound, format!( "Interface {} not found", id ))
@@ -63,12 +63,12 @@ macro_rules! bind_fixtures {
         #[derive( Debug, Clone )]
         pub struct FunctionDataImpl {
             function: wit_parser::Function,
-            return_kind: wasm_compose::ReturnKind,
+            return_kind: wasm_link::ReturnKind,
         }
 
-        impl wasm_compose::FunctionData for FunctionDataImpl {
+        impl wasm_link::FunctionData for FunctionDataImpl {
             fn name( &self ) -> &str { &self.function.name }
-            fn return_kind( &self ) -> wasm_compose::ReturnKind { self.return_kind.clone() }
+            fn return_kind( &self ) -> wasm_link::ReturnKind { self.return_kind.clone() }
             fn is_method( &self ) -> bool {
                 match self.function.kind {
                     wit_parser::FunctionKind::Freestanding
@@ -83,16 +83,16 @@ macro_rules! bind_fixtures {
             }
         }
 
-        impl wasm_compose::InterfaceData for InterfaceDir {
+        impl wasm_link::InterfaceData for InterfaceDir {
 
             type Error = FixtureError ;
             type Function = FunctionDataImpl ;
             type FunctionIter<'a> = Vec<&'a FunctionDataImpl>;
             type ResourceIter<'a> = &'a [String];
 
-            fn id( &self ) -> Result<wasm_compose::InterfaceId, Self::Error> { Ok( self.id ) }
+            fn id( &self ) -> Result<wasm_link::InterfaceId, Self::Error> { Ok( self.id ) }
             fn package_name( &self ) -> Result<&str, Self::Error> { Ok( &self.wit_data.package ) }
-            fn cardinality( &self ) -> Result<&wasm_compose::InterfaceCardinality, Self::Error> { Ok( &self.cardinality ) }
+            fn cardinality( &self ) -> Result<&wasm_link::InterfaceCardinality, Self::Error> { Ok( &self.cardinality ) }
             fn functions<'a>( &'a self ) -> Result<Self::FunctionIter<'a>, Self::Error> { Ok( self.wit_data.functions.values().collect()) }
             fn resources<'a>( &'a self ) -> Result<Self::ResourceIter<'a>, Self::Error> { Ok( &self.wit_data.resources ) }
 
@@ -100,16 +100,16 @@ macro_rules! bind_fixtures {
 
         #[derive( Debug )]
         pub struct PluginDir {
-            id: wasm_compose::PluginId,
-            plug: wasm_compose::InterfaceId,
-            sockets: Vec<wasm_compose::InterfaceId>,
+            id: wasm_link::PluginId,
+            plug: wasm_link::InterfaceId,
+            sockets: Vec<wasm_link::InterfaceId>,
             wasm_path: std::path::PathBuf,
         }
 
         impl PluginDir {
 
             #[allow( unused )]
-            pub fn new( id: wasm_compose::PluginId ) -> Result<Self, FixtureError> {
+            pub fn new( id: wasm_link::PluginId ) -> Result<Self, FixtureError> {
 
                 let dir_name = plugins::dir_name( id ).ok_or_else(|| FixtureError::Io(
                     std::io::Error::new( std::io::ErrorKind::NotFound, format!( "Plugin {} not found", id ))
@@ -132,21 +132,21 @@ macro_rules! bind_fixtures {
             }
         }
 
-        impl wasm_compose::PluginData for PluginDir {
+        impl wasm_link::PluginData for PluginDir {
 
             type Error = FixtureError ;
-            type SocketIter<'a> = &'a [wasm_compose::InterfaceId];
+            type SocketIter<'a> = &'a [wasm_link::InterfaceId];
 
-            fn id( &self ) -> Result<&wasm_compose::PluginId, Self::Error> { Ok( &self.id ) }
-            fn plug( &self ) -> Result<&wasm_compose::InterfaceId, Self::Error> {
+            fn id( &self ) -> Result<&wasm_link::PluginId, Self::Error> { Ok( &self.id ) }
+            fn plug( &self ) -> Result<&wasm_link::InterfaceId, Self::Error> {
                 Ok( &self.plug )
             }
             fn sockets<'a>( &'a self ) -> Result<Self::SocketIter<'a>, Self::Error> {
                 Ok( &self.sockets )
             }
 
-            fn component( &self, engine: &wasm_compose::Engine ) -> Result<wasm_compose::Component, Self::Error> {
-                wasm_compose::Component::from_file( engine, &self.wasm_path ).map_err(| e | FixtureError::WasmLoad( e.to_string() ))
+            fn component( &self, engine: &wasm_link::Engine ) -> Result<wasm_link::Component, Self::Error> {
+                wasm_link::Component::from_file( engine, &self.wasm_path ).map_err(| e | FixtureError::WasmLoad( e.to_string() ))
             }
 
         }
@@ -171,10 +171,10 @@ macro_rules! bind_fixtures {
             Any,
         }
 
-        impl From<__InterfaceCardinality> for wasm_compose::InterfaceCardinality {
+        impl From<__InterfaceCardinality> for wasm_link::InterfaceCardinality {
             fn from( parsed: __InterfaceCardinality ) -> Self {
                 match parsed {
-                    __InterfaceCardinality::AtMostOne => wasm_compose::InterfaceCardinality::AtMostOne,
+                    __InterfaceCardinality::AtMostOne => wasm_link::InterfaceCardinality::AtMostOne,
                     __InterfaceCardinality::ExactlyOne => Self::ExactlyOne,
                     __InterfaceCardinality::AtLeastOne => Self::AtLeastOne,
                     __InterfaceCardinality::Any => Self::Any,
@@ -223,11 +223,11 @@ macro_rules! bind_fixtures {
         fn parse_return_kind(
             resolve: &wit_parser::Resolve,
             result: Option<wit_parser::Type>
-        ) -> Result<wasm_compose::ReturnKind, FixtureError> {
-            let Some( return_type ) = result else { return Ok( wasm_compose::ReturnKind::Void )};
+        ) -> Result<wasm_link::ReturnKind, FixtureError> {
+            let Some( return_type ) = result else { return Ok( wasm_link::ReturnKind::Void )};
             Ok( match has_resource( resolve, return_type )? {
-                false => wasm_compose::ReturnKind::AssumeNoResources,
-                true => wasm_compose::ReturnKind::MayContainResources,
+                false => wasm_link::ReturnKind::AssumeNoResources,
+                true => wasm_link::ReturnKind::MayContainResources,
             })
         }
 

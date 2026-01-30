@@ -57,7 +57,7 @@ pub enum PluginTreeError<I: InterfaceData, P: PluginData> {
 /// # Example
 ///
 /// ```
-/// use wasm_compose::{
+/// use wasm_link::{
 ///     InterfaceId, InterfaceData, InterfaceCardinality, FunctionData, ReturnKind,
 ///     PluginId, PluginData, PluginTree, Engine, Component, Linker,
 /// };
