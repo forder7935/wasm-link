@@ -73,8 +73,7 @@ impl PluginData for Plugin {
     fn plug( &self ) -> Result<&InterfaceId, Self::Error> { Ok( &self.plug ) }
     fn sockets( &self ) -> Result<Self::SocketIter<'_>, Self::Error> { Ok( std::iter::empty()) }
     fn component( &self, engine: &Engine ) -> Result<Component, Self::Error> {
-        // TODO: remove unwrap
-        Ok( Component::from_file( engine, todo!( "your wasm path" ) ).unwrap())
+        todo!( "load in your plugin here" )
     }
 }
 
