@@ -20,7 +20,6 @@
 						lld
 						pkg-config
 						clang
-						capnproto
 					];
 				};
 			}

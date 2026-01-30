@@ -10,7 +10,14 @@ repository = "https://github.com/forder7935/wasm-link"
 license = "MIT OR Apache-2.0"
 keywords = ["wasm", "webassembly", "plugin", "component-model", "modular"]
 categories = ["wasm"]
-include = ["src/*", "tests/*", "test_macros/*"]
+include = [
+	"src/*",
+	"tests/*",
+	"test_macros/*",
+	"README.md",
+	"LICENSE-APACHE",
+	"LICENSE-MIT",
+]
 
 [lib]
 crate-type = ["cdylib", "rlib"]
