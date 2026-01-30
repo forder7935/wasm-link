@@ -1,8 +1,19 @@
 [package]
 name = "wasm_link"
 version = "0.1.0"
-license = "MIT OR Apache-2.0"
+authors = ["Forder7935"]
 edition = "2021"
+description = "A WebAssembly plugin runtime based around Wasmtime intended for building fully modular aapplications"
+documentation = "https://docs.rs/wasm-link"
+readme = "README.md"
+repository = "https://github.com/forder7935/wasm-link"
+license = "MIT OR Apache-2.0"
+keywords = ["wasm", "webassembly", "plugin", "component-model", "modular"]
+categories = ["wasm"]
+include = ["src/*", "tests/*", "test_macros/*"]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 wasmtime = "40.0"
