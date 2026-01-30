@@ -22,7 +22,7 @@ where
     P: PluginData + Send + Sync,
 {
 
-    let package = match interface.get_package_name() {
+    let package = match interface.package_name() {
         Ok( package ) => package,
         Err( err ) => return Err( LoadError::CorruptedInterfaceManifest( err )),
     };
@@ -31,7 +31,7 @@ where
     let mut root = linker.root();
     let mut linker_instance = root.instance( &interface_ident ).map_err( LoadError::FailedToLinkInterface )?;
 
-    match interface.get_functions() {
+    match interface.functions() {
         Ok( functions ) => functions.into_iter().try_for_each(| function | -> Result<(), LoadError<I, P>> {
 
             let function_clone = function.clone();
@@ -53,7 +53,7 @@ where
         Err( err ) => return Err( LoadError::CorruptedInterfaceManifest( err )),
     }
 
-    match interface.get_resources() {
+    match interface.resources() {
         Ok( resources ) => resources.into_iter().try_for_each(| resource | linker_instance
             .resource( resource.as_str(), ResourceType::host::<Arc<ResourceWrapper>>(), ResourceWrapper::drop )
             .map_err(| err | LoadError::FailedToLink( resource.clone(), err ))

@@ -90,11 +90,11 @@ macro_rules! bind_fixtures {
             type FunctionIter<'a> = Vec<&'a FunctionDataImpl>;
             type ResourceIter<'a> = &'a [String];
 
-            fn get_id( &self ) -> Result<wasm_compose::InterfaceId, Self::Error> { Ok( self.id ) }
-            fn get_package_name( &self ) -> Result<&str, Self::Error> { Ok( &self.wit_data.package ) }
-            fn get_cardinality( &self ) -> Result<&wasm_compose::InterfaceCardinality, Self::Error> { Ok( &self.cardinality ) }
-            fn get_functions<'a>( &'a self ) -> Result<Self::FunctionIter<'a>, Self::Error> { Ok( self.wit_data.functions.values().collect()) }
-            fn get_resources<'a>( &'a self ) -> Result<Self::ResourceIter<'a>, Self::Error> { Ok( &self.wit_data.resources ) }
+            fn id( &self ) -> Result<wasm_compose::InterfaceId, Self::Error> { Ok( self.id ) }
+            fn package_name( &self ) -> Result<&str, Self::Error> { Ok( &self.wit_data.package ) }
+            fn cardinality( &self ) -> Result<&wasm_compose::InterfaceCardinality, Self::Error> { Ok( &self.cardinality ) }
+            fn functions<'a>( &'a self ) -> Result<Self::FunctionIter<'a>, Self::Error> { Ok( self.wit_data.functions.values().collect()) }
+            fn resources<'a>( &'a self ) -> Result<Self::ResourceIter<'a>, Self::Error> { Ok( &self.wit_data.resources ) }
 
         }
 
@@ -137,11 +137,11 @@ macro_rules! bind_fixtures {
             type Error = FixtureError ;
             type SocketIter<'a> = &'a [wasm_compose::InterfaceId];
 
-            fn get_id( &self ) -> Result<&wasm_compose::PluginId, Self::Error> { Ok( &self.id ) }
-            fn get_plug( &self ) -> Result<&wasm_compose::InterfaceId, Self::Error> {
+            fn id( &self ) -> Result<&wasm_compose::PluginId, Self::Error> { Ok( &self.id ) }
+            fn plug( &self ) -> Result<&wasm_compose::InterfaceId, Self::Error> {
                 Ok( &self.plug )
             }
-            fn get_sockets<'a>( &'a self ) -> Result<Self::SocketIter<'a>, Self::Error> {
+            fn sockets<'a>( &'a self ) -> Result<Self::SocketIter<'a>, Self::Error> {
                 Ok( &self.sockets )
             }
 

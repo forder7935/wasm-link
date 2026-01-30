@@ -62,7 +62,7 @@ pub trait PluginData: Sized {
     ///
     /// # Errors
     /// Implementations may fail if the underlying data source is unavailable.
-    fn get_id( &self ) -> Result<&PluginId, Self::Error> ;
+    fn id( &self ) -> Result<&PluginId, Self::Error> ;
 
     /// Returns the interface ID that this plugin implements (its plug).
     ///
@@ -71,7 +71,7 @@ pub trait PluginData: Sized {
     ///
     /// # Errors
     /// Implementations may fail if the underlying data source is unavailable.
-    fn get_plug( &self ) -> Result<&InterfaceId, Self::Error> ;
+    fn plug( &self ) -> Result<&InterfaceId, Self::Error> ;
 
     /// Returns the interface IDs that this plugin depends on (its sockets).
     ///
@@ -80,18 +80,16 @@ pub trait PluginData: Sized {
     ///
     /// # Errors
     /// Implementations may fail if the underlying data source is unavailable.
-    fn get_sockets( &self ) -> Result<Self::SocketIter<'_>, Self::Error> ;
+    fn sockets( &self ) -> Result<Self::SocketIter<'_>, Self::Error> ;
 
     /// Compiles this plugin's WASM binary into a wasmtime Component.
     ///
-    /// Called during [`PluginTree::load`] to compile the plugin. The implementation
+    /// Called during [`PluginTree::load`]( crate::PluginTree::load ) to compile the plugin. The implementation
     /// is responsible for locating and reading the WASM binary.
     ///
     /// # Errors
     /// May fail due to I/O errors reading the WASM source, or wasmtime compilation
     /// errors if the binary is invalid or incompatible.
-    ///
-    /// [`PluginTree::load`]: crate::PluginTree::load
     fn component( &self, engine: &Engine ) -> Result<Component, Self::Error> ;
 
 }

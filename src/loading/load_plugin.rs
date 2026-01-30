@@ -24,7 +24,7 @@ where
     P: PluginData + Send + Sync,
 {
 
-    let socket_ids = match plugin.get_sockets() {
+    let socket_ids = match plugin.sockets() {
         Ok( ids ) => ids,
         Err( err ) => return LoadResult { socket_map, result: Err( LoadError::CorruptedPluginManifest( err ) ), errors: Vec::with_capacity( 0 ) }
     };
@@ -47,7 +47,7 @@ where
         Err( err ) => return LoadResult { socket_map, result: Err( LoadError::CorruptedPluginManifest( err )), errors }
     };
 
-    let plugin_id = match plugin.get_id() {
+    let plugin_id = match plugin.id() {
         Ok( id ) => *id,
         Err( err ) => return LoadResult { socket_map, result: Err( LoadError::CorruptedPluginManifest( err )), errors },
     };

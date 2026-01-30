@@ -84,7 +84,7 @@ where
     P: PluginData + Send + Sync,
 {
 
-    let cardinality = match interface.get_cardinality() {
+    let cardinality = match interface.cardinality() {
         Ok( cardinality ) => cardinality,
         Err( err ) => return LoadResult { socket_map, result: Err( LoadError::CorruptedInterfaceManifest( err )), errors: Vec::with_capacity( 0 ) },
     };
