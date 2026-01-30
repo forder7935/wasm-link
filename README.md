@@ -1,12 +1,20 @@
-# Wasm Compose
+<div align="center">
+  <h1><code>wasm_link</code></h1>
 
-## Overview
+  <p>
+    <strong>A
+    <a href="https://webassembly.org/">WebAssembly</a>
+    plugin runtime based around
+    <a href="https://wasmtime.dev/">Wasmtime</a>
+    <br>intended for building fully modular applications</strong>
+  </p>
 
-Wasm Compose is a framework for building fully modular applications based around [WebAssembly](https://webassembly.org/) plugins. These plugins are meant to be very simplistic building blocks that can be easily switched out, built by either the app developers or 3rd parties. These may link together in a tree-like structure defining their own interfaces.
-
-**Note:** Documentation is not yet available online, you have to generate it yourself using `cargo doc`
-
-**Note:** This project is in early alpha. Expect breaking changes, incomplete features, and potential instability.
+  <p>
+    <a href="https://docs.rs/wasm-link/latest/wasm_link"><img src="https://img.shields.io/badge/docs-passing-emerald" alt="documentation status" /></a>
+    <img src="https://img.shields.io/badge/status-early_alpha-orange.svg" alt="project status" />
+    <img src="https://img.shields.io/badge/rustc-stable+-green.svg" alt="supported rustc stable" />
+  </p>
+</div>
 
 ## Highlights
 
@@ -15,15 +23,13 @@ Wasm Compose is a framework for building fully modular applications based around
 
 ## Contents
 
-- [Overview](#overview)
 - [Highlights](#highlights)
 - [Contents](#contents)
 - [Project Philosophy](#project-philosophy)
-- [Usage](#usage)
+- [Example](#example)
 - [Goals](#goals)
-- [Contribution](#contribution)
-- [Technical Details](#technical-details)
 - [License](#license)
+- [Contribution](#contribution)
 
 ## Project Philosophy
 
@@ -32,40 +38,74 @@ Wasm Compose is a framework for building fully modular applications based around
 - **The client belongs to the user:** Any part should be able to be easily added, removed or switched out for something else.
 - **Zero-trust by default:** Don't just use something and expect it behaves, assume malice and constraint it to the minimum capabilities required.
 
-## Usage
+## Example
 
 ```rs
-// Declare your sources of plugins and interfaces
+// Declare your fixture sources
 #[derive( Clone )]
 struct Func { name: String, return_kind: ReturnKind }
-impl FunctionData for Func { /* accessors to basic function signature info */ }
+impl FunctionData for Func {
+    fn name( &self ) -> &str { self.name.as_str() }
+    fn return_kind( &self ) -> ReturnKind { self.return_kind.clone() }
+    // Determine whether a function is a resource method
+    // a constructor is not considered to be a method
+    fn is_method( &self ) -> bool { false }
+}
 
 struct Interface { id: InterfaceId, funcs: Vec<Func> }
-impl InterfaceData for Interface { /* accessors to interface data required for linking */ }
+impl InterfaceData for Interface {
+    type Error = std::convert::Infallible ;
+    type Function = Func ;
+    type FunctionIter<'a> = std::slice::Iter<'a, Func> ;
+    type ResourceIter<'a> = std::iter::Empty<&'a String> ;
+    fn id( &self ) -> Result<InterfaceId, Self::Error> { Ok( self.id ) }
+    fn cardinality( &self ) -> Result<&InterfaceCardinality, Self::Error> { Ok( &InterfaceCardinality::ExactlyOne ) }
+    fn package_name( &self ) -> Result<&str, Self::Error> { Ok( "my:package/example" ) }
+    fn functions( &self ) -> Result<Self::FunctionIter<'_>, Self::Error> { Ok( self.funcs.iter()) }
+    fn resources( &self ) -> Result<Self::ResourceIter<'_>, Self::Error> { Ok( std::iter::empty()) }
+}
 
 struct Plugin { id: PluginId, plug: InterfaceId }
-impl PluginData for Plugin { /* accessors to plugin metadata and the root executable */ }
+impl PluginData for Plugin {
+    type Error = std::convert::Infallible ;
+    type SocketIter<'a> = std::iter::Empty<&'a InterfaceId> ;
+    fn id( &self ) -> Result<&PluginId, Self::Error> { Ok( &self.id ) }
+    fn plug( &self ) -> Result<&InterfaceId, Self::Error> { Ok( &self.plug ) }
+    fn sockets( &self ) -> Result<Self::SocketIter<'_>, Self::Error> { Ok( std::iter::empty()) }
+    fn component( &self, engine: &Engine ) -> Result<Component, Self::Error> {
+        // TODO: remove unwrap
+        Ok( Component::from_file( engine, todo!( "your wasm path" ) ).unwrap())
+    }
+}
 
-// Create your fixtures
+// Now construct some plugins and related data
 let root_interface_id = InterfaceId::new( 0 );
 let plugins = [ Plugin { id: PluginId::new( 1 ), plug: root_interface_id }];
 let interfaces = [ Interface { id: root_interface_id, funcs: vec![
     Func { name: "get-value".to_string(), return_kind: ReturnKind::MayContainResources }
 ]}];
 
-// Initialise the plugin tree
+// First you need to tell wasm_link about your plugins, interfaces and where you want
+// the execution to begin. wasm_link will try it's best to load in all the plugins,
+// upon encountering an error, it will try to salvage as much of the remaining data
+// as possible returning a list of failures alongside the `PluginTree`.
 let ( tree, build_errors ) = PluginTree::new( root_interface_id, interfaces, plugins );
 assert!( build_errors.is_empty() );
 
-// Load the plugins and perform linking
+// Once you've got your `PluginTree` constructed, you can link the plugins together
+// Since some plugins may fail to load, it is only at this point that the cardinality
+// requirements are satisfied by the plugins that managed to get loaded, otherwise it
+// tries to salvage as much of the tree as can be loaded returning a list of failures
+// alongside the loaded `PluginTreeHead` - the root node of the `PluginTree`.
 let engine = Engine::default();
 let linker = Linker::new( &engine );
 let ( tree_head, load_errors ) = tree.load( &engine, &linker ).unwrap();
 assert!( load_errors.is_empty() );
 
-// Dispatch any functions of the root interface
+// Now you can dispatch any function on the root interface.
+// This will dispatch the function for all plugins plugged in to the root socket returning
+// a Result for each in the shape determined by the interface cardinality.
 let result = tree_head.dispatch( "my:package/example", "get-value", true, &[] );
-
 match result {
     Socket::ExactlyOne( Ok( Val::U32( n ))) => assert_eq!( n, 42 ),
     Socket::ExactlyOne( Err( e )) => panic!( "dispatch error: {e}" ),
@@ -93,6 +133,10 @@ Licensed under either of
 
 at your option.
 
+## License
+
+This project is licensed under the Apache 2.0 License - see the [LICENSE](LICENSE) file for details.
+
 ## Contribution
 
 Contributions are welcome. For major changes, please open an issue first for discussion.
@@ -113,19 +157,4 @@ nix develop
 
 #### Manual Setup
 
-As of now, running this project will only require installing the [Rust toolchain](https://www.rust-lang.org/learn/get-started/)
-
-## Technical Details
-
-### Design Rationale
-
-- **WebAssembly**: Easy language-agnostic low-overhead sandboxing.
-- **WIT**: Standardized [IDL](https://en.wikipedia.org/wiki/Interface_description_language) designed for the WebAssembly Component Model.
-
-### Plugin System
-
-Plugins connect via abstract interfaces declaring a list of items the implementer is expected to export which the consumer may import. These are not tied to any specific plugin, instead, each plugin defines a 'plug' pointing to an interface it implements, and optionally, a list of 'sockets', pointing to interfaces it may import. Interfaces are allowed to declare any imports/exports supported by the wit format.
-
-## License
-
-This project is licensed under the Apache 2.0 License - see the [LICENSE](LICENSE) file for details.
+Running this project will only require installing the [Rust toolchain](https://www.rust-lang.org/learn/get-started/)
