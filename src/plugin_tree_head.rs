@@ -70,15 +70,15 @@ impl<I: InterfaceData, P: PluginData> PluginTreeHead<I, P> {
     /// #   type Function = Func ;
     /// #   type FunctionIter<'a> = std::slice::Iter<'a, Func> ;
     /// #   type ResourceIter<'a> = std::iter::Empty<&'a String> ;
-    /// #   fn get_id( &self ) -> Result<InterfaceId, Self::Error> { Ok( self.id ) }
-    /// #   fn get_cardinality( &self ) -> Result<&InterfaceCardinality, Self::Error> {
+    /// #   fn id( &self ) -> Result<InterfaceId, Self::Error> { Ok( self.id ) }
+    /// #   fn cardinality( &self ) -> Result<&InterfaceCardinality, Self::Error> {
     /// #       Ok( &InterfaceCardinality::ExactlyOne )
     /// #   }
-    /// #   fn get_package_name( &self ) -> Result<&str, Self::Error> { Ok( "my:package/example" ) }
-    /// #   fn get_functions( &self ) -> Result<Self::FunctionIter<'_>, Self::Error> {
+    /// #   fn package_name( &self ) -> Result<&str, Self::Error> { Ok( "my:package/example" ) }
+    /// #   fn functions( &self ) -> Result<Self::FunctionIter<'_>, Self::Error> {
     /// #       Ok( self.funcs.iter())
     /// #   }
-    /// #   fn get_resources( &self ) -> Result<Self::ResourceIter<'_>, Self::Error> {
+    /// #   fn resources( &self ) -> Result<Self::ResourceIter<'_>, Self::Error> {
     /// #       Ok( std::iter::empty())
     /// #   }
     /// }
@@ -88,9 +88,9 @@ impl<I: InterfaceData, P: PluginData> PluginTreeHead<I, P> {
     ///     /* ... */
     /// #   type Error = std::convert::Infallible ;
     /// #   type SocketIter<'a> = std::iter::Empty<&'a InterfaceId> ;
-    /// #   fn get_id( &self ) -> Result<&PluginId, Self::Error> { Ok( &self.id ) }
-    /// #   fn get_plug( &self ) -> Result<&InterfaceId, Self::Error> { Ok( &self.plug ) }
-    /// #   fn get_sockets( &self ) -> Result<Self::SocketIter<'_>, Self::Error> {
+    /// #   fn id( &self ) -> Result<&PluginId, Self::Error> { Ok( &self.id ) }
+    /// #   fn plug( &self ) -> Result<&InterfaceId, Self::Error> { Ok( &self.plug ) }
+    /// #   fn sockets( &self ) -> Result<Self::SocketIter<'_>, Self::Error> {
     /// #       Ok( std::iter::empty())
     /// #   }
     /// #   fn component( &self, engine: &Engine ) -> Result<Component, Self::Error> {

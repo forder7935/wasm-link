@@ -39,9 +39,11 @@ impl From<ResourceReceiveError> for Val {
 }
 
 impl ResourceWrapper {
+
     pub fn new( plugin_id: PluginId, resource_handle: ResourceAny ) -> Self {
         Self { plugin_id, resource_handle }
     }
+
     pub fn attach(
         self,
         store: &mut impl AsContextMut,
@@ -50,6 +52,7 @@ impl ResourceWrapper {
         let resource = lock.push( Arc::new( self )).map_err(|_| ResourceCreationError::ResourceTableFull )?;
         ResourceAny::try_from_resource( resource, store ).map_err(|_| unreachable!( "Resource already taken" ))
     }
+
     pub fn from_handle(
         handle: ResourceAny,
         store: &mut impl AsContextMut,
@@ -59,10 +62,12 @@ impl ResourceWrapper {
         let wrapped = lock.get( &resource ).map_err(|_| ResourceReceiveError::InvalidHandle )?;
         Ok( Arc::clone( wrapped ))
     }
+
     pub fn drop<T: PluginData>( _: StoreContextMut<T>, handle: u32) -> Result<(), wasmtime::Error> {
         let resource = Resource::<Arc<Self>>::new_own( handle );
         let mut lock = RESOURCE_TABLE.lock().map_err(|_| wasmtime::Error::new( ResourceReceiveError::LockRejected ))?;
         lock.delete( resource ).map_err(|_| wasmtime::Error::new( ResourceReceiveError::InvalidHandle ))?;
         Ok(())
     }
+
 }

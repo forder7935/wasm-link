@@ -10,7 +10,7 @@
 /// Used to reference interfaces when building the plugin tree and linking
 /// dependencies. Two plugins with the same `InterfaceId` in their plug/socket
 /// declarations will be connected during loading.
-#[derive( Copy, Clone, Debug, Eq, Hash, PartialEq )]
+#[derive( Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug )]
 pub struct InterfaceId( u64 );
 
 impl InterfaceId {
@@ -53,31 +53,31 @@ pub trait InterfaceData: Sized {
     type ResourceIter<'a>: IntoIterator<Item = &'a String> where Self: 'a ;
 
     /// Returns the unique identifier for this interface.
-    fn get_id( &self ) -> Result<InterfaceId, Self::Error> ;
+    fn id( &self ) -> Result<InterfaceId, Self::Error> ;
 
     /// Returns how many plugins may/must implement this interface.
     ///
     /// # Errors
     /// Implementations may fail if the underlying data source is unavailable.
-    fn get_cardinality( &self ) -> Result<&InterfaceCardinality, Self::Error> ;
+    fn cardinality( &self ) -> Result<&InterfaceCardinality, Self::Error> ;
 
     /// Returns the WIT package name for this interface.
     ///
     /// # Errors
     /// Implementations may fail if the underlying data source is unavailable.
-    fn get_package_name( &self ) -> Result<&str, Self::Error> ;
+    fn package_name( &self ) -> Result<&str, Self::Error> ;
 
     /// Returns the functions exported by this interface.
     ///
     /// # Errors
-    /// Implementations may fail if WIT parsing fails or the data source is unavailable.
-    fn get_functions( &self ) -> Result<Self::FunctionIter<'_>, Self::Error> ;
+    /// Implementations may fail if the underlying data source is unavailable.
+    fn functions( &self ) -> Result<Self::FunctionIter<'_>, Self::Error> ;
 
     /// Returns the resource types defined by this interface.
     ///
     /// # Errors
-    /// Implementations may fail if WIT parsing fails or the data source is unavailable.
-    fn get_resources( &self ) -> Result<Self::ResourceIter<'_>, Self::Error> ;
+    /// Implementations may fail if the underlying data source is unavailable.
+    fn resources( &self ) -> Result<Self::ResourceIter<'_>, Self::Error> ;
 
 }
 
@@ -110,10 +110,10 @@ pub trait FunctionData {
 /// `AssumeNoResources` is a performance optimization that skips the wrapping step.
 /// Only use it when you are certain the return type contains no resource handles
 /// anywhere in its structure (including nested within records, variants, lists, etc.).
-#[derive( Debug, Clone, PartialEq )]
+#[derive( Copy, Clone, Eq, PartialEq, Hash, Debug, Default )]
 pub enum ReturnKind {
     /// Function returns nothing (void).
-    Void,
+    #[default] Void,
     /// Function may return resource handles - always wraps safely.
     ///
     /// Use this variant whenever resources might be present in the return value,
@@ -127,6 +127,16 @@ pub enum ReturnKind {
     /// not be wrapped correctly, potentially causing undefined behavior in plugins.
     /// When in doubt, use [`MayContainResources`](Self::MayContainResources) instead.
     AssumeNoResources,
+}
+
+impl std::fmt::Display for ReturnKind {
+    fn fmt( &self, f: &mut std::fmt::Formatter ) -> Result<(), std::fmt::Error> {
+        match self {
+            Self::Void => write!( f, "Function returns no data" ),
+            Self::MayContainResources => write!( f, "Return type may contain resources" ),
+            Self::AssumeNoResources => write!( f, "Function is assumed to not return any resources" ),
+        }
+    }
 }
 
 /// Specifies how many plugins may or must implement an interface.

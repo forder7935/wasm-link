@@ -47,7 +47,7 @@ pub enum PluginTreeError<I: InterfaceData, P: PluginData> {
 ///
 /// This is the pre-compilation representation - no WASM has been loaded yet.
 ///
-/// Call [`load`](Self::load) to compile WASM components and link dependencies,
+/// Call [`load`]( Self::load ) to compile WASM components and link dependencies,
 /// producing a [`PluginTreeHead`] for dispatching function calls.
 ///
 /// # Type Parameters
@@ -77,15 +77,15 @@ pub enum PluginTreeError<I: InterfaceData, P: PluginData> {
 /// #   type Function = Func ;
 /// #   type FunctionIter<'a> = std::slice::Iter<'a, Func> ;
 /// #   type ResourceIter<'a> = std::iter::Empty<&'a String> ;
-/// #   fn get_id( &self ) -> Result<InterfaceId, Self::Error> { Ok( self.id ) }
-/// #   fn get_cardinality( &self ) -> Result<&InterfaceCardinality, Self::Error> {
+/// #   fn id( &self ) -> Result<InterfaceId, Self::Error> { Ok( self.id ) }
+/// #   fn cardinality( &self ) -> Result<&InterfaceCardinality, Self::Error> {
 /// #       Ok( &InterfaceCardinality::ExactlyOne )
 /// #   }
-/// #   fn get_package_name( &self ) -> Result<&str, Self::Error> { Ok( "my:package/example" ) }
-/// #   fn get_functions( &self ) -> Result<Self::FunctionIter<'_>, Self::Error> {
+/// #   fn package_name( &self ) -> Result<&str, Self::Error> { Ok( "my:package/example" ) }
+/// #   fn functions( &self ) -> Result<Self::FunctionIter<'_>, Self::Error> {
 /// #       Ok( self.funcs.iter())
 /// #   }
-/// #   fn get_resources( &self ) -> Result<Self::ResourceIter<'_>, Self::Error> {
+/// #   fn resources( &self ) -> Result<Self::ResourceIter<'_>, Self::Error> {
 /// #       Ok( std::iter::empty())
 /// #   }
 /// }
@@ -95,9 +95,9 @@ pub enum PluginTreeError<I: InterfaceData, P: PluginData> {
 ///     /* ... */
 /// #   type Error = std::convert::Infallible ;
 /// #   type SocketIter<'a> = std::iter::Empty<&'a InterfaceId> ;
-/// #   fn get_id( &self ) -> Result<&PluginId, Self::Error> { Ok( &self.id ) }
-/// #   fn get_plug( &self ) -> Result<&InterfaceId, Self::Error> { Ok( &self.plug ) }
-/// #   fn get_sockets( &self ) -> Result<Self::SocketIter<'_>, Self::Error> {
+/// #   fn id( &self ) -> Result<&PluginId, Self::Error> { Ok( &self.id ) }
+/// #   fn plug( &self ) -> Result<&InterfaceId, Self::Error> { Ok( &self.plug ) }
+/// #   fn sockets( &self ) -> Result<Self::SocketIter<'_>, Self::Error> {
 /// #       Ok( std::iter::empty())
 /// #   }
 /// #   fn component( &self, engine: &Engine ) -> Result<Component, Self::Error> {
@@ -133,8 +133,8 @@ impl<I: InterfaceData, P: PluginData> PluginTree<I, P> {
 
     /// Builds a plugin dependency graph from the given interfaces and plugins.
     ///
-    /// Plugins are grouped by the interface they implement ( via `get_plug()` ).
-    /// Interfaces are indexed by their `id()` method.
+    /// Plugins are grouped by the interface they implement ( via [`PluginData::plug`] ).
+    /// Interfaces are indexed by their [`PluginData::id`] method.
     ///
     /// The `root_interface_id` specifies the entry point of the tree - the interface
     /// whose plugins will be directly accessible via [`PluginTreeHead::dispatch`] after loading.
@@ -146,7 +146,7 @@ impl<I: InterfaceData, P: PluginData> PluginTree<I, P> {
     /// Attempts to construct a tree for all plugins it received valid data for. Returns a list
     /// of errors alongside the loaded `PluginTree` is any of the following occurs:
     /// - An Interface mentioned in a plugin's plug is not passed in
-    /// - Calling [`PluginData::get_plug`] returns an error
+    /// - Calling [`PluginData::plug`] returns an error
     ///
     /// # Panics
     /// Panics if an interface with id `root_interface_id` is not present in `interfaces`.
@@ -157,7 +157,7 @@ impl<I: InterfaceData, P: PluginData> PluginTree<I, P> {
     ) -> PartialSuccess<Self, PluginTreeError<I, P>> {
 
         let ( interface_map, interface_errors ) = interfaces.into_iter()
-            .map(| i | Ok::<_, PluginTreeError<I, P>>(( i.get_id().map_err( PluginTreeError::InterfaceDataError )?, i )))
+            .map(| i | Ok::<_, PluginTreeError<I, P>>(( i.id().map_err( PluginTreeError::InterfaceDataError )?, i )))
             .partition_result::<HashMap<_, _ >, Vec<_>, _, _>();
 
         assert!(
@@ -167,7 +167,7 @@ impl<I: InterfaceData, P: PluginData> PluginTree<I, P> {
         );
 
         let ( entries, plugin_errors ) = plugins.into_iter()
-            .map(| plugin | Ok(( *plugin.get_plug().map_err( PluginTreeError::PluginDataError )?, plugin )))
+            .map(| plugin | Ok(( *plugin.plug().map_err( PluginTreeError::PluginDataError )?, plugin )))
             .partition_result::<Vec<_>, Vec<_>, _, _>();
 
         let plugin_groups = entries.into_iter().into_group_map();
