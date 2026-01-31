@@ -1,5 +1,5 @@
 [package]
-name = "wasm_link"
+name = "wasm-link"
 version = "0.1.0"
 authors = ["Forder7935"]
 edition = "2021"
@@ -23,7 +23,7 @@ include = [
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-wasmtime = "40.0"
+wasmtime = "41.0"
 thiserror = "1.0"
 itertools = "0.14.0"
 pipe-trait = "0.4.0"
