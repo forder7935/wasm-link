@@ -5,29 +5,6 @@
 //! tied to any specific plugin - they exist as abstract specifications that
 //! plugins reference via their plugs and sockets.
 
-/// Unique identifier for an interface.
-///
-/// Used to reference interfaces when building the plugin tree and linking
-/// dependencies. Two plugins with the same `InterfaceId` in their plug/socket
-/// declarations will be connected during loading.
-#[derive( Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug )]
-pub struct InterfaceId( u64 );
-
-impl InterfaceId {
-    /// Creates a new interface identifier from a `u64`.
-    pub const fn new( id: u64 ) -> Self { Self( id )}
-}
-
-impl std::fmt::Display for InterfaceId {
-    fn fmt( &self, f: &mut std::fmt::Formatter ) -> Result<(),std::fmt::Error> {
-        std::fmt::Display::fmt( &self.0, f )
-    }
-}
-
-impl From<InterfaceId> for u64 {
-    fn from( id: InterfaceId ) -> Self { id.0 }
-}
-
 /// Trait for accessing interface metadata from a user-defined source.
 ///
 /// Implement this trait to define how interface specifications are loaded. The source
@@ -43,6 +20,8 @@ impl From<InterfaceId> for u64 {
 /// - `ResourceIter`: Iterator over the resource types this interface declares
 pub trait InterfaceData: Sized {
 
+    /// A type used as a unique identifier for an interface
+    type Id: Clone + std::hash::Hash + Eq + std::fmt::Display + std::fmt::Debug ;
     /// Error type for metadata access failures.
     type Error: std::error::Error ;
     /// Function metadata type implementing [`FunctionData`].
@@ -53,7 +32,7 @@ pub trait InterfaceData: Sized {
     type ResourceIter<'a>: IntoIterator<Item = &'a String> where Self: 'a ;
 
     /// Returns the unique identifier for this interface.
-    fn id( &self ) -> Result<InterfaceId, Self::Error> ;
+    fn id( &self ) -> Result<&Self::Id, Self::Error> ;
 
     /// Returns how many plugins may/must implement this interface.
     ///

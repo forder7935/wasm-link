@@ -17,10 +17,11 @@ mod load_plugin ;
 mod linker ;
 mod resource_wrapper ;
 
-pub use load_plugin_tree::{ LoadError, DispatchError };
+pub use load_plugin_tree::LoadError ;
 pub(crate) use load_plugin_tree::load_plugin_tree ;
+pub(crate) use linker::LoadedSocket ;
+pub(crate) use resource_wrapper::{ ResourceCreationError, ResourceReceiveError };
 use load_plugin_tree::LoadResult ;
 use load_socket::{ SocketState, load_socket };
-pub(crate) use linker::LoadedSocket ;
 use linker::link_socket ;
-use resource_wrapper::{ ResourceWrapper, ResourceCreationError, ResourceReceiveError };
+use resource_wrapper::ResourceWrapper ;

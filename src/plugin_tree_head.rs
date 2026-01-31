@@ -11,7 +11,7 @@ use crate::interface::InterfaceData ;
 use crate::plugin::PluginData ;
 use crate::socket::Socket ;
 use crate::plugin_instance::PluginInstance ;
-use crate::loading::DispatchError ;
+use crate::DispatchError ;
 
 
 
@@ -27,7 +27,7 @@ use crate::loading::DispatchError ;
 pub struct PluginTreeHead<I: InterfaceData, P: PluginData + 'static> {
     /// Retained for future hot-loading support (adding/removing plugins at runtime).
     pub(crate) _interface: Arc<I>,
-    pub(crate) socket: Arc<Socket<RwLock<PluginInstance<P>>>>,
+    pub(crate) socket: Arc<Socket<RwLock<PluginInstance<P>>, P::Id>>,
 }
 
 impl<I: InterfaceData, P: PluginData> PluginTreeHead<I, P> {
@@ -50,8 +50,8 @@ impl<I: InterfaceData, P: PluginData> PluginTreeHead<I, P> {
     ///
     /// ```
     /// use wasm_link::{
-    ///     InterfaceId, InterfaceData, InterfaceCardinality, FunctionData, ReturnKind,
-    ///     PluginId, PluginData, PluginTree, Engine, Component, Linker, Socket, Val,
+    ///     InterfaceData, InterfaceCardinality, FunctionData, ReturnKind,
+    ///     PluginData, PluginTree, Engine, Component, Linker, Socket, Val,
     /// };
     ///
     /// #[derive( Clone )]
@@ -63,14 +63,15 @@ impl<I: InterfaceData, P: PluginData> PluginTreeHead<I, P> {
     /// #   fn is_method( &self ) -> bool { false }
     /// }
     ///
-    /// struct Interface { id: InterfaceId, funcs: Vec<Func> }
+    /// struct Interface { id: &'static str, funcs: Vec<Func> }
     /// impl InterfaceData for Interface {
     ///     /* ... */
+    /// #   type Id = &'static str ;
     /// #   type Error = std::convert::Infallible ;
     /// #   type Function = Func ;
     /// #   type FunctionIter<'a> = std::slice::Iter<'a, Func> ;
     /// #   type ResourceIter<'a> = std::iter::Empty<&'a String> ;
-    /// #   fn id( &self ) -> Result<InterfaceId, Self::Error> { Ok( self.id ) }
+    /// #   fn id( &self ) -> Result<&Self::Id, Self::Error> { Ok( &self.id ) }
     /// #   fn cardinality( &self ) -> Result<&InterfaceCardinality, Self::Error> {
     /// #       Ok( &InterfaceCardinality::ExactlyOne )
     /// #   }
@@ -83,13 +84,15 @@ impl<I: InterfaceData, P: PluginData> PluginTreeHead<I, P> {
     /// #   }
     /// }
     ///
-    /// struct Plugin { id: PluginId, plug: InterfaceId }
+    /// struct Plugin { id: &'static str, plug: &'static str }
     /// impl PluginData for Plugin {
     ///     /* ... */
+    /// #   type Id = &'static str ;
+    /// #   type InterfaceId = &'static str ;
     /// #   type Error = std::convert::Infallible ;
-    /// #   type SocketIter<'a> = std::iter::Empty<&'a InterfaceId> ;
-    /// #   fn id( &self ) -> Result<&PluginId, Self::Error> { Ok( &self.id ) }
-    /// #   fn plug( &self ) -> Result<&InterfaceId, Self::Error> { Ok( &self.plug ) }
+    /// #   type SocketIter<'a> = std::iter::Empty<&'a Self::InterfaceId> ;
+    /// #   fn id( &self ) -> Result<&Self::Id, Self::Error> { Ok( &self.id ) }
+    /// #   fn plug( &self ) -> Result<&Self::InterfaceId, Self::Error> { Ok( &self.plug ) }
     /// #   fn sockets( &self ) -> Result<Self::SocketIter<'_>, Self::Error> {
     /// #       Ok( std::iter::empty())
     /// #   }
@@ -104,8 +107,8 @@ impl<I: InterfaceData, P: PluginData> PluginTreeHead<I, P> {
     /// #   }
     /// }
     ///
-    /// let root_interface_id = InterfaceId::new( 0 );
-    /// let plugins = [ Plugin { id: PluginId::new( 1 ), plug: root_interface_id }];
+    /// let root_interface_id = "root" ;
+    /// let plugins = [ Plugin { id: "foo", plug: root_interface_id }];
     /// let interfaces = [ Interface { id: root_interface_id, funcs: vec![
     ///     Func { name: "get-value".to_string(), return_kind: ReturnKind::MayContainResources }
     /// ]}];
@@ -127,17 +130,13 @@ impl<I: InterfaceData, P: PluginData> PluginTreeHead<I, P> {
     ///     _ => panic!( "unexpected cardinality" ),
     /// }
     /// ```
-    pub fn dispatch<IE>(
+    pub fn dispatch(
         &self,
         interface_path: &str,
         function: &str,
         has_return: bool,
         data: &[Val],
-    ) -> Socket<Result<Val, DispatchError<IE>>>
-    where
-        IE: std::error::Error,
-        I: InterfaceData<Error = IE>,
-    {
+    ) -> Socket<Result<Val, DispatchError<I>>, P::Id> {
         self.socket.dispatch_function( interface_path, function, has_return, data )
     }
 }

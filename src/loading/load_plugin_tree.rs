@@ -4,7 +4,7 @@ use thiserror::Error ;
 use wasmtime::Engine;
 use wasmtime::component::{ Linker, Val };
 
-use crate::interface::{ InterfaceId, InterfaceData, InterfaceCardinality };
+use crate::interface::{ InterfaceData, InterfaceCardinality };
 use crate::plugin::PluginData ;
 use crate::utils::PartialResult ;
 use super::{ load_socket, SocketState, LoadedSocket };
@@ -25,11 +25,11 @@ pub enum LoadError<I: InterfaceData, P: PluginData> {
 
     /// A plugin references a socket (dependency) that doesn't exist in the interface set.
     #[error( "Invalid socket: {0}" )]
-    InvalidSocket( InterfaceId ),
+    InvalidSocket( I::Id ),
 
     /// A dependency cycle was detected. Cycles are forbidden in the plugin graph.
     #[error( "Loop detected loading: '{0}'" )]
-    LoopDetected( InterfaceId ),
+    LoopDetected( I::Id ),
 
     /// The number of plugins implementing an interface violates its cardinality.
     /// For example, `ExactlyOne` with 0 or 2+ plugins, or `AtLeastOne` with 0 plugins.
@@ -91,11 +91,11 @@ impl<I: InterfaceData, P: PluginData> std::fmt::Debug for LoadError<I, P> {
 /// [`Socket`]: crate::Socket
 /// [`PluginTreeHead::dispatch`]: crate::PluginTreeHead::dispatch
 #[derive( Error, Debug )]
-pub enum DispatchError<InterfaceError: std::error::Error> {
+pub enum DispatchError<I: InterfaceData> {
     /// Failed to acquire lock on plugin instance (another call is in progress).
     #[error( "Deadlock" )] Deadlock,
     /// Failed to parse interface metadata during dispatch.
-    #[error( "Wit parser error: {0}")] WitParserError( InterfaceError ),
+    #[error( "Interface Error: {0}")] WitParserError( I::Error ),
     /// The specified interface path doesn't match any known interface.
     #[error( "Invalid Interface: {0}" )] InvalidInterface( String ),
     /// The specified function doesn't exist on the interface.
@@ -112,8 +112,8 @@ pub enum DispatchError<InterfaceError: std::error::Error> {
     #[error( "Resource Receive Error: {0}" )] ResourceReceiveError( #[from] ResourceReceiveError ),
 }
 
-impl<T: std::error::Error> From<DispatchError<T>> for Val {
-    fn from( error: DispatchError<T> ) -> Val { match error {
+impl<I: InterfaceData> From<DispatchError<I>> for Val {
+    fn from( error: DispatchError<I> ) -> Val { match error {
         DispatchError::Deadlock => Val::Variant( "deadlock".to_string(), None ),
         DispatchError::WitParserError( err ) => Val::Variant( "wit-parser-error".to_string(), Some( Box::new( Val::String( err.to_string() )))),
         DispatchError::InvalidInterface( package ) => Val::Variant( "invalid-interface".to_string(), Some( Box::new( Val::String( package )))),
@@ -131,21 +131,22 @@ impl<T: std::error::Error> From<DispatchError<T>> for Val {
 /// Convenience abstraction semantically equivalent to:
 /// `( SocketMap, LoadResult<T, LoadError, LoadError> )`
 pub(super) struct LoadResult<T, I: InterfaceData, P: PluginData + 'static> {
-    pub socket_map: HashMap<InterfaceId, SocketState<I, P>>,
+    pub socket_map: HashMap<I::Id, SocketState<I, P>>,
     pub result: Result<T, LoadError<I, P>>,
     pub errors: Vec<LoadError<I, P>>,
 }
 
 #[allow( clippy::type_complexity )]
-#[inline] pub(crate) fn load_plugin_tree<I, P>(
-    socket_map: HashMap<InterfaceId, ( I, Vec<P> )>,
+#[inline] pub(crate) fn load_plugin_tree<I, P, InterfaceId>(
+    socket_map: HashMap<I::Id, ( I, Vec<P> )>,
     engine: &Engine,
     default_linker: &Linker<P>,
-    root: InterfaceId,
-) -> PartialResult<( Arc<I>, Arc<LoadedSocket<P>> ), LoadError<I, P>, LoadError<I, P>>
+    root: I::Id,
+) -> PartialResult<( Arc<I>, Arc<LoadedSocket<P, P::Id>> ), LoadError<I, P>, LoadError<I, P>>
 where
-    I: InterfaceData,
-    P: PluginData + Send + Sync,
+    I: InterfaceData<Id = InterfaceId>,
+    P: PluginData<InterfaceId = InterfaceId>,
+    InterfaceId: Clone + std::hash::Hash + Eq,
 {
     let socket_map = socket_map.into_iter()
         .map(|( socket_id, ( interface, plugins ))| ( socket_id, SocketState::Unprocessed( interface, plugins )))

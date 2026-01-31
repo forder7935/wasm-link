@@ -13,7 +13,7 @@ use thiserror::Error ;
 use wasmtime::Engine ;
 use wasmtime::component::Linker ;
 
-use crate::interface::{ InterfaceId, InterfaceData };
+use crate::interface::{ InterfaceData };
 use crate::plugin::PluginData ;
 use crate::plugin_tree_head::PluginTreeHead ;
 use crate::loading::{ LoadError, load_plugin_tree };
@@ -33,7 +33,7 @@ pub enum PluginTreeError<I: InterfaceData, P: PluginData> {
     #[error( "PluginData error: {0}" )] PluginDataError( P::Error ),
     /// Plugins reference an interface that wasn't provided in the interfaces list.
     #[error( "Missing interface {} required by {} plugins", interface_id, plugins.len() )]
-    MissingInterface { interface_id: InterfaceId, plugins: Vec<P> },
+    MissingInterface { interface_id: I::Id, plugins: Vec<P> },
 }
 
 
@@ -58,8 +58,8 @@ pub enum PluginTreeError<I: InterfaceData, P: PluginData> {
 ///
 /// ```
 /// use wasm_link::{
-///     InterfaceId, InterfaceData, InterfaceCardinality, FunctionData, ReturnKind,
-///     PluginId, PluginData, PluginTree, Engine, Component, Linker,
+///     InterfaceData, InterfaceCardinality, FunctionData, ReturnKind,
+///     PluginData, PluginTree, Engine, Component, Linker,
 /// };
 ///
 /// # #[derive( Clone )]
@@ -70,14 +70,15 @@ pub enum PluginTreeError<I: InterfaceData, P: PluginData> {
 /// #   fn is_method( &self ) -> bool { unreachable!() }
 /// # }
 /// #
-/// struct Interface { id: InterfaceId, funcs: Vec<Func> }
+/// struct Interface { id: &'static str, funcs: Vec<Func> }
 /// impl InterfaceData for Interface {
 ///     /* ... */
+/// #   type Id = &'static str ;
 /// #   type Error = std::convert::Infallible ;
 /// #   type Function = Func ;
 /// #   type FunctionIter<'a> = std::slice::Iter<'a, Func> ;
 /// #   type ResourceIter<'a> = std::iter::Empty<&'a String> ;
-/// #   fn id( &self ) -> Result<InterfaceId, Self::Error> { Ok( self.id ) }
+/// #   fn id( &self ) -> Result<&Self::Id, Self::Error> { Ok( &self.id ) }
 /// #   fn cardinality( &self ) -> Result<&InterfaceCardinality, Self::Error> {
 /// #       Ok( &InterfaceCardinality::ExactlyOne )
 /// #   }
@@ -90,13 +91,15 @@ pub enum PluginTreeError<I: InterfaceData, P: PluginData> {
 /// #   }
 /// }
 ///
-/// struct Plugin { id: PluginId, plug: InterfaceId }
+/// struct Plugin { id: &'static str, plug: &'static str }
 /// impl PluginData for Plugin {
 ///     /* ... */
+/// #   type Id = &'static str ;
+/// #   type InterfaceId = &'static str ;
 /// #   type Error = std::convert::Infallible ;
-/// #   type SocketIter<'a> = std::iter::Empty<&'a InterfaceId> ;
-/// #   fn id( &self ) -> Result<&PluginId, Self::Error> { Ok( &self.id ) }
-/// #   fn plug( &self ) -> Result<&InterfaceId, Self::Error> { Ok( &self.plug ) }
+/// #   type SocketIter<'a> = std::iter::Empty<&'a Self::InterfaceId> ;
+/// #   fn id( &self ) -> Result<&Self::Id, Self::Error> { Ok( &self.id ) }
+/// #   fn plug( &self ) -> Result<&Self::InterfaceId, Self::Error> { Ok( &self.plug ) }
 /// #   fn sockets( &self ) -> Result<Self::SocketIter<'_>, Self::Error> {
 /// #       Ok( std::iter::empty())
 /// #   }
@@ -110,8 +113,8 @@ pub enum PluginTreeError<I: InterfaceData, P: PluginData> {
 /// #   }
 /// }
 ///
-/// let root_interface_id = InterfaceId::new( 0 );
-/// let plugins = [ Plugin { id: PluginId::new( 1 ), plug: root_interface_id }];
+/// let root_interface_id = "root" ;
+/// let plugins = [ Plugin { id: "foo", plug: root_interface_id }];
 /// let interfaces = [ Interface { id: root_interface_id, funcs: vec![] }];
 ///
 /// // Build the dependency graph
@@ -125,11 +128,16 @@ pub enum PluginTreeError<I: InterfaceData, P: PluginData> {
 /// assert!( load_errors.is_empty() );
 /// ```
 pub struct PluginTree<I: InterfaceData, P: PluginData> {
-    root_interface_id: InterfaceId,
-    socket_map: HashMap<InterfaceId, ( I, Vec<P> )>,
+    root_interface_id: I::Id,
+    socket_map: HashMap<I::Id, ( I, Vec<P> )>,
 }
 
-impl<I: InterfaceData, P: PluginData> PluginTree<I, P> {
+impl<I: InterfaceData, P: PluginData, InterfaceId> PluginTree<I, P>
+where
+    I: InterfaceData<Id = InterfaceId>,
+    P: PluginData<InterfaceId = InterfaceId>,
+    InterfaceId: Clone + std::hash::Hash + Eq + std::fmt::Display,
+{
 
     /// Builds a plugin dependency graph from the given interfaces and plugins.
     ///
@@ -151,13 +159,13 @@ impl<I: InterfaceData, P: PluginData> PluginTree<I, P> {
     /// # Panics
     /// Panics if an interface with id `root_interface_id` is not present in `interfaces`.
     pub fn new(
-        root_interface_id: InterfaceId,
+        root_interface_id: I::Id,
         interfaces: impl IntoIterator<Item = I>,
         plugins: impl IntoIterator<Item = P>,
     ) -> PartialSuccess<Self, PluginTreeError<I, P>> {
 
         let ( interface_map, interface_errors ) = interfaces.into_iter()
-            .map(| i | Ok::<_, PluginTreeError<I, P>>(( i.id().map_err( PluginTreeError::InterfaceDataError )?, i )))
+            .map(| i | Ok::<_, PluginTreeError<I, P>>(( i.id().map_err(| err | PluginTreeError::InterfaceDataError( err ))?.clone(), i )))
             .partition_result::<HashMap<_, _ >, Vec<_>, _, _>();
 
         assert!(
@@ -167,7 +175,7 @@ impl<I: InterfaceData, P: PluginData> PluginTree<I, P> {
         );
 
         let ( entries, plugin_errors ) = plugins.into_iter()
-            .map(| plugin | Ok(( *plugin.plug().map_err( PluginTreeError::PluginDataError )?, plugin )))
+            .map(| plugin | Ok(( plugin.plug().map_err( PluginTreeError::PluginDataError )?.clone(), plugin )))
             .partition_result::<Vec<_>, Vec<_>, _, _>();
 
         let plugin_groups = entries.into_iter().into_group_map();
@@ -199,8 +207,8 @@ impl<I: InterfaceData, P: PluginData> PluginTree<I, P> {
     /// # Panics
     /// Panics if an interface with id `root_interface_id` is not present in `interfaces`.
     pub fn from_socket_map(
-        root_interface_id: InterfaceId,
-        socket_map: HashMap<InterfaceId, ( I, Vec<P> )>,
+        root_interface_id: I::Id,
+        socket_map: HashMap<I::Id, ( I, Vec<P> )>,
     ) -> Self {
 
         assert!(
@@ -228,10 +236,7 @@ impl<I: InterfaceData, P: PluginData> PluginTree<I, P> {
         self,
         engine: &Engine,
         exports: &Linker<P>,
-    ) -> PartialResult<PluginTreeHead<I, P>, LoadError<I, P>, LoadError<I, P>>
-    where
-        P: Send + Sync,
-    {
+    ) -> PartialResult<PluginTreeHead<I, P>, LoadError<I, P>, LoadError<I, P>> {
         match load_plugin_tree( self.socket_map, engine, exports, self.root_interface_id ) {
             Ok((( interface, socket ), errors )) => Ok(( PluginTreeHead { _interface: interface, socket }, errors )),
             Err(( err, errors )) => Err(( err , errors )),

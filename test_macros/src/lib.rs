@@ -72,32 +72,13 @@ fn generate_interface_module( fixture_path: &std::path::Path ) -> TokenStream2 {
     let dirs = get_sorted_dirs( &interfaces_dir );
 
     let consts = dirs.iter()
-        .enumerate()
-        .map(|( id, dir_name )| {
-            let id = id as u64;
+        .map(| dir_name | {
             let const_name = format_ident!( "{}", dir_name_to_const_name( dir_name ));
-            quote! { pub const #const_name: wasm_link::InterfaceId = wasm_link::InterfaceId::new( #id ); }
+            quote! { pub const #const_name: &'static str = #dir_name ; }
         })
         .collect::<Vec<_>>();
 
-    let match_arms = dirs.iter()
-        .enumerate()
-        .map(|( id, dir_name )| {
-            let id = id as u64;
-            quote! { #id => Some( #dir_name ), }
-        })
-        .collect::<Vec<_>>();
-
-    quote! {
-        #( #consts )*
-
-        pub fn dir_name( id: wasm_link::InterfaceId ) -> Option<&'static str> {
-            match u64::from( id ) {
-                #( #match_arms )*
-                _ => None,
-            }
-        }
-    }
+    quote! { #( #consts )* }
 }
 
 fn generate_plugin_module( fixture_path: &std::path::Path ) -> TokenStream2 {
@@ -106,30 +87,13 @@ fn generate_plugin_module( fixture_path: &std::path::Path ) -> TokenStream2 {
     let dirs = get_sorted_dirs( &plugins_dir );
 
     let consts = dirs.iter()
-        .enumerate()
-        .map(|( id, dir_name )| {
-            let id = id as u64;
+        .map(| dir_name | {
             let const_name = format_ident!( "{}", dir_name_to_const_name( dir_name ));
-            quote! { pub const #const_name: wasm_link::PluginId = wasm_link::PluginId::new( #id ); }
-        })
-        .collect::<Vec<_>>();
-
-    let match_arms: Vec<TokenStream2> = dirs.iter()
-        .enumerate()
-        .map(|( id, dir_name )| {
-            let id = id as u64;
-            quote! { #id => Some( #dir_name ), }
+            quote! { pub const #const_name: &'static str = #dir_name ; }
         })
         .collect::<Vec<_>>();
 
     quote! {
         #( #consts )*
-
-        pub fn dir_name( id: wasm_link::PluginId ) -> Option<&'static str> {
-            match u64::from( id ) {
-                #( #match_arms )*
-                _ => None,
-            }
-        }
     }
 }
