@@ -3,23 +3,24 @@ use wasmtime::{ AsContextMut, StoreContextMut };
 use wasmtime::component::{ Linker, ResourceType, Val };
 
 use crate::interface::{ InterfaceData, FunctionData, ReturnKind };
-use crate::plugin::{ PluginId, PluginData };
+use crate::plugin::PluginData ;
 use crate::socket::Socket ;
 use crate::plugin_instance::PluginInstance ;
-use super::{ LoadError, DispatchError, ResourceWrapper, ResourceCreationError };
+use crate::plugin_instance::DispatchError ;
+use super::{ LoadError, ResourceWrapper, ResourceCreationError };
 
 
 
-pub type LoadedSocket<P> = Socket<RwLock<PluginInstance<P>>> ;
+pub type LoadedSocket<P, Id> = Socket<RwLock<PluginInstance<P>>, Id> ;
 
 #[inline] pub fn link_socket<I, P>(
     mut linker: Linker<P>,
     interface: &Arc<I>,
-    socket: &Arc<LoadedSocket<P>>,
+    socket: &Arc<LoadedSocket<P, P::Id>>,
 ) -> Result<Linker<P>, LoadError<I, P>>
 where
     I: InterfaceData,
-    P: PluginData + Send + Sync,
+    P: PluginData,
 {
 
     let package = match interface.package_name() {
@@ -45,8 +46,8 @@ where
             }}
 
             match function.is_method() {
-                false => link!( dispatch_all::<P, I::Error, I::Function> ),
-                true => link!( dispatch_method::<P, I::Error, I::Function> ),
+                false => link!( dispatch_all::<I, P> ),
+                true => link!( dispatch_method::<I, P> ),
             }
 
         })?,
@@ -55,7 +56,7 @@ where
 
     match interface.resources() {
         Ok( resources ) => resources.into_iter().try_for_each(| resource | linker_instance
-            .resource( resource.as_str(), ResourceType::host::<Arc<ResourceWrapper>>(), ResourceWrapper::drop )
+            .resource( resource.as_str(), ResourceType::host::<Arc<ResourceWrapper<P::Id>>>(), ResourceWrapper::<P::Id>::drop )
             .map_err(| err | LoadError::FailedToLink( resource.clone(), err ))
         )?,
         Err( err ) => return Err( LoadError::CorruptedInterfaceManifest( err )),
@@ -66,56 +67,53 @@ where
 }
 
 /// Dispatches a non-method function call to all plugins
-pub(crate) fn dispatch_all<P, E, F>(
-    socket: &Arc<LoadedSocket<P>>,
+pub(crate) fn dispatch_all<I, P>(
+    socket: &Arc<LoadedSocket<P, P::Id>>,
     mut ctx: StoreContextMut<P>,
     interface_path: &str,
-    function: &F,
+    function: &I::Function,
     data: &[Val],
 ) -> Val
 where
+    I: InterfaceData,
     P: PluginData,
-    E: std::error::Error,
-    F: FunctionData,
 {
     debug_assert!( !function.is_method() );
-    socket.map(| plugin | Val::Result( match dispatch_of::<P, E, F>( &mut ctx, plugin, interface_path, function, data ) {
+    socket.map(| plugin | Val::Result( match dispatch_of::<I, P>( &mut ctx, plugin, interface_path, function, data ) {
         Ok( val ) => Ok( Some( Box::new( val ))),
         Err( err ) => Err( Some( Box::new( err.into() ))),
     })).into()
 }
 
 /// Dispatches a method function call, routing to the correct plugin.
-pub(crate) fn dispatch_method<P, E, F>(
-    socket: &Arc<LoadedSocket<P>>,
+pub(crate) fn dispatch_method<I, P>(
+    socket: &Arc<LoadedSocket<P, P::Id>>,
     ctx: StoreContextMut<P>,
     interface_path: &str,
-    function: &F,
+    function: &I::Function,
     data: &[Val],
 ) -> Val
 where
+    I: InterfaceData,
     P: PluginData,
-    E: std::error::Error,
-    F: FunctionData,
 {
     debug_assert!( function.is_method() );
-    Val::Result( match route_method::<P, E, F>( socket, ctx, interface_path, function, data ) {
+    Val::Result( match route_method::<I, P>( socket, ctx, interface_path, function, data ) {
         Ok( val ) => Ok( Some( Box::new( val ))),
         Err( err ) => Err( Some( Box::new( err.into() ))),
     })
 }
 
-#[inline] fn dispatch_of<P, E, F>(
+#[inline] fn dispatch_of<I, P>(
     ctx: &mut StoreContextMut<P>,
     plugin: &RwLock<PluginInstance<P>>,
     interface_path: &str,
-    function: &F,
+    function: &I::Function,
     data: &[Val],
-) -> Result<Val, DispatchError<E>>
+) -> Result<Val, DispatchError<I>>
 where
+    I: InterfaceData,
     P: PluginData,
-    E: std::error::Error,
-    F: FunctionData,
 {
 
     let mut lock = plugin.write().map_err(|_| DispatchError::Deadlock )?;
@@ -124,21 +122,20 @@ where
 
     Ok( match function.return_kind() {
         ReturnKind::Void | ReturnKind::AssumeNoResources => result,
-        ReturnKind::MayContainResources => wrap_resources( result, *lock.id(), ctx )?,
+        ReturnKind::MayContainResources => wrap_resources( result, lock.id(), ctx )?,
     })
 }
 
-#[inline] fn route_method<P, E, F>(
-    socket: &LoadedSocket<P>,
+#[inline] fn route_method<I, P>(
+    socket: &LoadedSocket<P, P::Id>,
     mut ctx: StoreContextMut<P>,
     interface_path: &str,
-    function: &F,
+    function: &I::Function,
     data: &[Val],
-) -> Result<Val, DispatchError<E>>
+) -> Result<Val, DispatchError<I>>
 where
+    I: InterfaceData,
     P: PluginData,
-    E: std::error::Error,
-    F: FunctionData,
 {
 
     let handle = match data.first() {
@@ -147,7 +144,7 @@ where
     }?;
 
     let resource = ResourceWrapper::from_handle( *handle, &mut ctx )?;
-    let plugin = socket.get( resource.plugin_id )
+    let plugin = socket.get( &resource.plugin_id )
         .map_err(|_| DispatchError::Deadlock )?
         .ok_or( DispatchError::InvalidArgumentList )?;
 
@@ -158,7 +155,7 @@ where
 
 }
 
-fn wrap_resources( val: Val, plugin_id: PluginId, store: &mut impl AsContextMut ) -> Result<Val, ResourceCreationError> {
+fn wrap_resources<Id: std::fmt::Debug + Clone + Send + Sync + 'static>( val: Val, plugin_id: &Id, store: &mut impl AsContextMut ) -> Result<Val, ResourceCreationError> {
     Ok( match val {
         Val::Bool( _ )
         | Val::S8( _ ) | Val::S16( _ ) | Val::S32( _ ) | Val::S64( _ )
@@ -178,7 +175,7 @@ fn wrap_resources( val: Val, plugin_id: PluginId, store: &mut impl AsContextMut 
         Val::Option( Some( data_box )) => Val::Option( Some( Box::new( wrap_resources( *data_box, plugin_id, store )? ))),
         Val::Result( Ok( Some( data_box ))) => Val::Result( Ok( Some( Box::new( wrap_resources( *data_box, plugin_id, store )? )))),
         Val::Result( Err( Some( data_box ))) => Val::Result( Err( Some( Box::new( wrap_resources( *data_box, plugin_id, store )? )))),
-        Val::Resource( handle ) => Val::Resource( ResourceWrapper::new( plugin_id, handle ).attach( store )? ),
+        Val::Resource( handle ) => Val::Resource( ResourceWrapper::new( plugin_id.clone(), handle ).attach( store )? ),
         Val::Future( _ ) => unimplemented!( "'Val::Future' is not yet supported" ),
         Val::Stream( _ ) => unimplemented!( "'Val::Stream' is not yet supported" ),
         Val::ErrorContext( _ ) => unimplemented!( "'Val::ErrorContext' is not yet supported" ),

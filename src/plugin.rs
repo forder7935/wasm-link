@@ -8,32 +8,6 @@
 use wasmtime::Engine ;
 use wasmtime::component::Component ;
 
-use crate::InterfaceId ;
-
-
-
-/// Unique identifier for a plugin.
-///
-/// Used to track plugins throughout the loading process and to identify specific
-/// plugins in multi-plugin sockets (when cardinality allows multiple implementations).
-#[derive( Eq, Hash, PartialEq, Debug, Clone, Copy )]
-pub struct PluginId( u64 );
-
-impl PluginId {
-    /// Creates a new plugin identifier from a `u64`.
-    pub const fn new( id: u64 ) -> Self { Self( id ) }
-}
-
-impl std::fmt::Display for PluginId {
-    fn fmt( &self, f: &mut std::fmt::Formatter ) -> Result<(), std::fmt::Error> {
-        std::fmt::Display::fmt( &self.0, f )
-    }
-}
-
-impl From<PluginId> for u64 {
-    fn from( id: PluginId ) -> Self { id.0 }
-}
-
 /// Trait for accessing plugin metadata from a user-defined source.
 ///
 /// Implement this trait to define how plugin specifications and WASM binaries are
@@ -51,18 +25,22 @@ impl From<PluginId> for u64 {
 ///
 /// - `Error`: The error type returned when metadata access or compilation fails
 /// - `SocketIter`: Iterator over the interface IDs this plugin depends on
-pub trait PluginData: Sized {
+pub trait PluginData: Sized + Send + Sync {
 
+    /// A type used as a unique identifier for a plugin
+    type Id: Clone + std::hash::Hash + Eq + std::fmt::Debug + Send + Sync ;
+    /// A type used as a unique identifier for an interface
+    type InterfaceId: Clone + std::hash::Hash + Eq + std::fmt::Display ;
     /// Error type for metadata access and compilation failures.
     type Error: std::error::Error ;
     /// Iterator over interface IDs this plugin depends on (its sockets).
-    type SocketIter<'a>: IntoIterator<Item = &'a InterfaceId> where Self: 'a ;
+    type SocketIter<'a>: IntoIterator<Item = &'a Self::InterfaceId> where Self: 'a ;
 
     /// Returns this plugin's unique identifier.
     ///
     /// # Errors
     /// Implementations may fail if the underlying data source is unavailable.
-    fn id( &self ) -> Result<&PluginId, Self::Error> ;
+    fn id( &self ) -> Result<&Self::Id, Self::Error> ;
 
     /// Returns the interface ID that this plugin implements (its plug).
     ///
@@ -71,7 +49,7 @@ pub trait PluginData: Sized {
     ///
     /// # Errors
     /// Implementations may fail if the underlying data source is unavailable.
-    fn plug( &self ) -> Result<&InterfaceId, Self::Error> ;
+    fn plug( &self ) -> Result<&Self::InterfaceId, Self::Error> ;
 
     /// Returns the interface IDs that this plugin depends on (its sockets).
     ///

@@ -4,14 +4,13 @@ macro_rules! bind_fixtures {
 
         #[derive( Debug, thiserror::Error )]
         pub enum FixtureError {
-            #[error("IO error: {0}")] Io( #[from] std::io::Error ),
-            #[error("TOML parse error: {0}")] Toml( #[from] toml::de::Error ),
-            #[error("WIT parser error: {0}")] WitParser( #[from] anyhow::Error ),
-            #[error("No root interface found")] NoRootInterface,
-            #[error("No package for root interface")] NoPackage,
-            #[error("Undeclared type: {0:?}")] UndeclaredType( wit_parser::TypeId ),
-            #[error("WASM load error: {0}")] WasmLoad( String ),
-            #[error("Interface not found: {0}")] InterfaceNotFound( String ),
+            #[error( "IO error: {0}" )] Io( #[from] std::io::Error ),
+            #[error( "TOML parse error: {0}" )] Toml( #[from] toml::de::Error ),
+            #[error( "WIT parser error: {0}" )] WitParser( #[from] anyhow::Error ),
+            #[error( "No root interface found" )] NoRootInterface,
+            #[error( "No package for root interface" )] NoPackage,
+            #[error( "Undeclared type: {0:?}" )] UndeclaredType( wit_parser::TypeId ),
+            #[error( "WASM load error: {0}" )] WasmLoad( String ),
         }
 
         fn fixture_path() -> std::path::PathBuf {
@@ -20,42 +19,25 @@ macro_rules! bind_fixtures {
                 $(.join( $segment ))+
         }
 
-        fn interface_name_to_id( name: &str ) -> Option<wasm_link::InterfaceId> {
-            // Use the generated dir_name function in reverse
-            let mut id = 0u64;
-            loop {
-                let candidate = wasm_link::InterfaceId::new( id );
-                match interfaces::dir_name( candidate ) {
-                    Some( dir_name ) if dir_name == name => return Some( candidate ),
-                    Some( _ ) => id += 1,
-                    None => return None,
-                }
-            }
-        }
-
-
         #[derive( Debug )]
         pub struct InterfaceDir {
-            id: wasm_link::InterfaceId,
+            id: String,
             cardinality: wasm_link::InterfaceCardinality,
             wit_data: InterfaceWitData,
         }
 
         impl InterfaceDir {
 
-            pub fn new( id: wasm_link::InterfaceId ) -> Result<Self, FixtureError> {
+            pub fn new( id: &'static str ) -> Result<Self, FixtureError> {
 
-                let dir_name = interfaces::dir_name( id ).ok_or_else(|| FixtureError::Io(
-                    std::io::Error::new( std::io::ErrorKind::NotFound, format!( "Interface {} not found", id ))
-                ))?;
-                let root_path = fixture_path().join( "interfaces" ).join( dir_name );
+                let root_path = fixture_path().join( "interfaces" ).join( id );
                 let manifest_path = root_path.join( "manifest.toml" );
                 let manifest_data: InterfaceManifestData = toml::from_str( &std::fs::read_to_string( manifest_path )?)?;
                 let cardinality = manifest_data.cardinality.into();
 
                 let wit_data = parse_wit( &root_path )?;
 
-                Ok( Self { id, cardinality, wit_data })
+                Ok( Self { id: id.to_string(), cardinality, wit_data })
 
             }
         }
@@ -85,12 +67,13 @@ macro_rules! bind_fixtures {
 
         impl wasm_link::InterfaceData for InterfaceDir {
 
+            type Id = String ;
             type Error = FixtureError ;
             type Function = FunctionDataImpl ;
             type FunctionIter<'a> = Vec<&'a FunctionDataImpl>;
             type ResourceIter<'a> = &'a [String];
 
-            fn id( &self ) -> Result<wasm_link::InterfaceId, Self::Error> { Ok( self.id ) }
+            fn id( &self ) -> Result<&Self::Id, Self::Error> { Ok( &self.id ) }
             fn package_name( &self ) -> Result<&str, Self::Error> { Ok( &self.wit_data.package ) }
             fn cardinality( &self ) -> Result<&wasm_link::InterfaceCardinality, Self::Error> { Ok( &self.cardinality ) }
             fn functions<'a>( &'a self ) -> Result<Self::FunctionIter<'a>, Self::Error> { Ok( self.wit_data.functions.values().collect()) }
@@ -100,48 +83,41 @@ macro_rules! bind_fixtures {
 
         #[derive( Debug )]
         pub struct PluginDir {
-            id: wasm_link::PluginId,
-            plug: wasm_link::InterfaceId,
-            sockets: Vec<wasm_link::InterfaceId>,
+            id: String,
+            plug: String,
+            sockets: Vec<String>,
             wasm_path: std::path::PathBuf,
         }
 
         impl PluginDir {
 
             #[allow( unused )]
-            pub fn new( id: wasm_link::PluginId ) -> Result<Self, FixtureError> {
+            pub fn new( id: &'static str ) -> Result<Self, FixtureError> {
 
-                let dir_name = plugins::dir_name( id ).ok_or_else(|| FixtureError::Io(
-                    std::io::Error::new( std::io::ErrorKind::NotFound, format!( "Plugin {} not found", id ))
-                ))?;
-                let root_path = fixture_path().join( "plugins" ).join( dir_name );
+                let root_path = fixture_path().join( "plugins" ).join( id );
                 let manifest_path = root_path.join( "manifest.toml" );
                 let manifest_data: PluginManifestData = toml::from_str( &std::fs::read_to_string( manifest_path )?)?;
-
-                let plug = interface_name_to_id( &manifest_data.plug )
-                    .ok_or_else(|| FixtureError::InterfaceNotFound( manifest_data.plug.clone() ))?;
-                let sockets = manifest_data.sockets.iter()
-                    .map(| name | interface_name_to_id( name ).ok_or_else(|| FixtureError::InterfaceNotFound( name.clone() )))
-                    .collect::<Result<Vec<_>, _>>()?;
 
                 let wasm_path = root_path.join( "root.wasm" );
                 let wasm_path = if wasm_path.exists() { wasm_path } else { root_path.join( "root.wat" ) };
 
-                Ok( Self { id, plug, sockets, wasm_path })
+                Ok( Self { id: id.to_string(), plug: manifest_data.plug, sockets: manifest_data.sockets, wasm_path })
 
             }
         }
 
         impl wasm_link::PluginData for PluginDir {
 
+            type Id = String ;
+            type InterfaceId = String ;
             type Error = FixtureError ;
-            type SocketIter<'a> = &'a [wasm_link::InterfaceId];
+            type SocketIter<'b> = &'b [Self::InterfaceId];
 
-            fn id( &self ) -> Result<&wasm_link::PluginId, Self::Error> { Ok( &self.id ) }
-            fn plug( &self ) -> Result<&wasm_link::InterfaceId, Self::Error> {
+            fn id( &self ) -> Result<&Self::Id, Self::Error> { Ok( &self.id ) }
+            fn plug( &self ) -> Result<&Self::Id, Self::Error> {
                 Ok( &self.plug )
             }
-            fn sockets<'a>( &'a self ) -> Result<Self::SocketIter<'a>, Self::Error> {
+            fn sockets<'b>( &'b self ) -> Result<Self::SocketIter<'b>, Self::Error> {
                 Ok( &self.sockets )
             }
 

@@ -14,7 +14,7 @@ fn error_handling_test_invalid_plugin_omitted() {
         PluginDir::new( plugins::INVALID ).unwrap(),
         PluginDir::new( plugins::VALID ).unwrap(),
     ];
-    let ( tree, warnings ) = PluginTree::new( interfaces::ROOT, interfaces, plugins );
+    let ( tree, warnings ) = PluginTree::new( interfaces::ROOT.to_string(), interfaces, plugins );
     assert_no_warnings!( warnings );
 
     if let Err(( err, warnings )) = tree.load( &engine, &linker ) {

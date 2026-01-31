@@ -5,7 +5,7 @@ use wasmtime::Engine;
 use wasmtime::component::Linker ;
 
 use crate::utils::{ MapScanTrait, Merge };
-use crate::interface::{ InterfaceId, InterfaceData, InterfaceCardinality };
+use crate::interface::{ InterfaceData, InterfaceCardinality };
 use crate::plugin::PluginData ;
 use crate::socket::Socket ;
 use crate::plugin_instance::PluginInstance ;
@@ -17,7 +17,7 @@ use super::load_plugin::load_plugin ;
 #[derive( Debug, Default )]
 pub(super) enum SocketState<I: InterfaceData, P: PluginData + 'static> {
     Unprocessed( I, Vec<P> ),
-    Loaded( Arc<I>, Arc<LoadedSocket<P>> ),
+    Loaded( Arc<I>, Arc<LoadedSocket<P, P::Id>> ),
     Failed,
     #[default] Borrowed,
 }
@@ -26,19 +26,20 @@ impl<I: InterfaceData, P: PluginData> From<( I, Vec<P> )> for SocketState<I, P> 
 }
 
 #[allow( clippy::type_complexity )]
-pub(super) fn load_socket<I, P>(
-    mut socket_map: HashMap<InterfaceId, SocketState<I, P>>,
+pub(super) fn load_socket<I, P, InterfaceId>(
+    mut socket_map: HashMap<I::Id, SocketState<I, P>>,
     engine: &Engine,
     default_linker: &Linker<P>,
-    socket_id: InterfaceId
-) -> LoadResult<( Arc<I>, Arc<LoadedSocket<P>> ), I, P>
+    socket_id: I::Id,
+) -> LoadResult<( Arc<I>, Arc<LoadedSocket<P, P::Id>> ), I, P>
 where
-    I: InterfaceData,
-    P: PluginData + Send + Sync,
+    I: InterfaceData<Id = InterfaceId>,
+    P: PluginData<InterfaceId = InterfaceId>,
+    InterfaceId: Clone + std::hash::Hash + Eq,
 {
 
     // NOTE: do not forget to add the entry back if it's already loaded
-    let Some( socket_plugins ) = socket_map.insert( socket_id, SocketState::Borrowed ) else {
+    let Some( socket_plugins ) = socket_map.insert( socket_id.clone(), SocketState::Borrowed ) else {
         return LoadResult { socket_map, result: Err( LoadError::InvalidSocket( socket_id )), errors: Vec::with_capacity( 0 )};
     };
 
@@ -49,7 +50,7 @@ where
             let interface_arc = Arc::clone( &interface );
             let plugins_arc = Arc::clone( &plugins );
             // NOTE: readding entry since it was taken out to gain ownership
-            socket_map.insert( socket_id, SocketState::Loaded( interface, plugins ));
+            socket_map.insert( socket_id.clone(), SocketState::Loaded( interface, plugins ));
             LoadResult { socket_map, result: Ok(( interface_arc, plugins_arc )), errors: Vec::with_capacity( 0 ) }
         },
         SocketState::Unprocessed( interface, plugins ) => {
@@ -72,16 +73,17 @@ where
 
 }
 
-#[inline] fn load_socket_unprocessed<I, P>(
-    socket_map: HashMap<InterfaceId, SocketState<I, P>>,
+#[inline] fn load_socket_unprocessed<I, P, InterfaceId>(
+    socket_map: HashMap<I::Id, SocketState<I, P>>,
     interface: I,
     plugins: Vec<P>,
     engine: &Engine,
     default_linker: &Linker<P>,
-) -> LoadResult<( I, Socket<PluginInstance<P>> ), I, P>
+) -> LoadResult<( I, Socket<PluginInstance<P>, P::Id> ), I, P>
 where
-    I: InterfaceData,
-    P: PluginData + Send + Sync,
+    I: InterfaceData<Id = InterfaceId>,
+    P: PluginData<InterfaceId = InterfaceId>,
+    InterfaceId: Clone + std::hash::Hash + Eq,
 {
 
     let cardinality = match interface.cardinality() {
@@ -104,7 +106,7 @@ where
             .pipe(| LoadResult { socket_map, result, errors } | match result {
                 Ok( plugins ) => LoadResult {
                     socket_map,
-                    result: Ok(( interface, Socket::AtLeastOne( plugins.into_iter().map(| plugin: PluginInstance<P> | ( *plugin.id(), plugin )).collect() ) )),
+                    result: Ok(( interface, Socket::AtLeastOne( plugins.into_iter().map(| plugin: PluginInstance<P> | ( plugin.id().clone(), plugin )).collect() ) )),
                     errors,
                 },
                 Err( err ) => LoadResult { socket_map, result: Err( err ), errors },
@@ -112,7 +114,7 @@ where
         InterfaceCardinality::Any => load_any( socket_map, engine, default_linker, plugins )
             .pipe(|( socket_map, plugins, errors )| {
                 let plugins = plugins.into_iter()
-                    .map(| plugin: PluginInstance<P> | ( *plugin.id(), plugin ))
+                    .map(| plugin: PluginInstance<P> | ( plugin.id().clone(), plugin ))
                     .collect();
                 LoadResult {
                     socket_map,
@@ -123,15 +125,16 @@ where
     }
 }
 
-#[inline] fn load_most_one<I, P>(
-    socket_map: HashMap<InterfaceId, SocketState<I, P>>,
+#[inline] fn load_most_one<I, P, InterfaceId>(
+    socket_map: HashMap<I::Id, SocketState<I, P>>,
     engine: &Engine,
     default_linker: &Linker<P>,
     mut plugins: Vec<P>,
 ) -> LoadResult<Option<PluginInstance<P>>, I, P>
 where
-    I: InterfaceData,
-    P: PluginData + Send + Sync,
+    I: InterfaceData<Id = InterfaceId>,
+    P: PluginData<InterfaceId = InterfaceId>,
+    InterfaceId: Clone + std::hash::Hash + Eq,
 {
     match plugins.pop() {
         Option::None => LoadResult { socket_map, result: Ok( None ), errors: Vec::with_capacity( 0 ) },
@@ -149,15 +152,16 @@ where
     }
 }
 
-#[inline] fn load_exact_one<I, P>(
-    socket_map: HashMap<InterfaceId, SocketState<I, P>>,
+#[inline] fn load_exact_one<I, P, InterfaceId>(
+    socket_map: HashMap<I::Id, SocketState<I, P>>,
     engine: &Engine,
     default_linker: &Linker<P>,
     mut plugins: Vec<P>,
 ) -> LoadResult<PluginInstance<P>, I, P>
 where
-    I: InterfaceData,
-    P: PluginData + Send + Sync,
+    I: InterfaceData<Id = InterfaceId>,
+    P: PluginData<InterfaceId = InterfaceId>,
+    InterfaceId: Clone + std::hash::Hash + Eq,
 {
 
     match plugins.pop() {
@@ -178,15 +182,16 @@ where
 
 }
 
-#[inline] fn load_at_least_one<I, P>(
-    socket_map: HashMap<InterfaceId, SocketState<I, P>>,
+#[inline] fn load_at_least_one<I, P, InterfaceId>(
+    socket_map: HashMap<I::Id, SocketState<I, P>>,
     engine: &Engine,
     default_linker: &Linker<P>,
     plugins: Vec<P>,
 ) -> LoadResult<Vec<PluginInstance<P>>, I, P>
 where
-    I: InterfaceData,
-    P: PluginData + Send + Sync,
+    I: InterfaceData<Id = InterfaceId>,
+    P: PluginData<InterfaceId = InterfaceId>,
+    InterfaceId: Clone + std::hash::Hash + Eq,
 {
 
     if plugins.is_empty() { return LoadResult {
@@ -208,18 +213,19 @@ where
 }
 
 #[allow( clippy::type_complexity )]
-#[inline] fn load_any<I, P>(
-    socket_map: HashMap<InterfaceId, SocketState<I, P>>,
+#[inline] fn load_any<I, P, InterfaceId>(
+    socket_map: HashMap<I::Id, SocketState<I, P>>,
     engine: &Engine,
     default_linker: &Linker<P>,
     plugins: Vec<P>,
 ) -> (
-    HashMap<InterfaceId, SocketState<I, P>>,
+    HashMap<I::Id, SocketState<I, P>>,
     Vec<PluginInstance<P>>,
     Vec<LoadError<I, P>>,
 ) where
-    I: InterfaceData,
-    P: PluginData + Send + Sync,
+    I: InterfaceData<Id = InterfaceId>,
+    P: PluginData<InterfaceId = InterfaceId>,
+    InterfaceId: Clone + std::hash::Hash + Eq,
 {
 
     let (( plugins, errors ), socket_map ) = plugins.into_iter().map_scan(

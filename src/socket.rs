@@ -10,9 +10,10 @@ use std::collections::HashMap ;
 use std::sync::{ RwLock, RwLockReadGuard, PoisonError };
 use wasmtime::component::Val ;
 
-use crate::plugin::{ PluginId, PluginData };
+use crate::plugin::PluginData ;
+use crate::interface::InterfaceData ;
 use crate::plugin_instance::PluginInstance ;
-use crate::loading::DispatchError ;
+use crate::DispatchError ;
 
 
 
@@ -32,30 +33,30 @@ use crate::loading::DispatchError ;
 /// [`InterfaceCardinality`]: crate::InterfaceCardinality
 /// [`PluginTreeHead::dispatch`]: crate::PluginTreeHead::dispatch
 #[derive( Debug )]
-pub enum Socket<T> {
+pub enum Socket<T, Id> {
     /// Zero or one value. Used when cardinality is `AtMostOne`.
     AtMostOne( Option<T> ),
     /// Exactly one value, guaranteed present. Used when cardinality is `ExactlyOne`.
     ExactlyOne( T ),
     /// One or more values keyed by plugin ID. Used when cardinality is `AtLeastOne`.
-    AtLeastOne( HashMap<PluginId, T> ),
+    AtLeastOne( HashMap<Id, T> ),
     /// Zero or more values keyed by plugin ID. Used when cardinality is `Any`.
-    Any( HashMap<PluginId, T> ),
+    Any( HashMap<Id, T> ),
 }
 
-impl<T> Socket<T> {
+impl<T, Id: Clone + std::hash::Hash + Eq> Socket<T, Id> {
 
-    pub(crate) fn map<N>( &self, mut map: impl FnMut( &T ) -> N ) -> Socket<N> {
+    pub(crate) fn map<N>( &self, mut map: impl FnMut( &T ) -> N ) -> Socket<N, Id> {
         match self {
             Self::AtMostOne( Option::None ) => Socket::AtMostOne( Option::None ),
-            Self::AtMostOne( Some( t )) => Socket::AtMostOne( Some( map( t ))),
+            Self::AtMostOne( Some( t ) ) => Socket::AtMostOne( Some( map( t ))),
             Self::ExactlyOne( t ) => Socket::ExactlyOne( map( t )),
-            Self::AtLeastOne( vec ) => Socket::AtLeastOne( vec.iter().map(|( id, item ): ( &PluginId, _ )| ( *id, map( item ) )).collect() ),
-            Self::Any( vec ) => Socket::Any( vec.iter().map(|( id, item ): ( &PluginId, _ )| ( *id, map( item ) )).collect() ),
+            Self::AtLeastOne( vec ) => Socket::AtLeastOne( vec.iter().map(|( id, item ): ( &Id, _ )| ( id.clone(), map( item ) )).collect() ),
+            Self::Any( vec ) => Socket::Any( vec.iter().map(|( id, item ): ( &Id, _ )| ( id.clone(), map( item ) )).collect() ),
         }
     }
 
-    pub(crate) fn map_mut<N>( self, mut map: impl FnMut(T) -> N ) -> Socket<N> {
+    pub(crate) fn map_mut<N>( self, mut map: impl FnMut(T) -> N ) -> Socket<N, Id> {
         match self {
             Self::AtMostOne( Option::None ) => Socket::AtMostOne( Option::None ),
             Self::AtMostOne( Some( t )) => Socket::AtMostOne( Some( map( t ))),
@@ -66,26 +67,26 @@ impl<T> Socket<T> {
     }
 }
 
-impl<T: PluginData> Socket<RwLock<PluginInstance<T>>> {
+impl<P: PluginData> Socket<RwLock<PluginInstance<P>>, P::Id> {
 
     #[allow( clippy::type_complexity )]
-    pub(crate) fn get( &self, id: PluginId ) -> Result<Option<&RwLock<PluginInstance<T>>>,PoisonError<RwLockReadGuard<'_, PluginInstance<T>>>> {
+    pub(crate) fn get( &self, id: &P::Id ) -> Result<Option<&RwLock<PluginInstance<P>>>,PoisonError<RwLockReadGuard<'_, PluginInstance<P>>>> {
         Ok( match self {
             Self::AtMostOne( Option::None ) => None,
             Self::AtMostOne( Some( plugin )) | Self::ExactlyOne( plugin ) => {
-                if plugin.read()?.id == id { Some( plugin ) } else { None }
+                if &plugin.read()?.id == id { Some( plugin ) } else { None }
             },
             Self::AtLeastOne( plugins ) | Self::Any( plugins ) => plugins.get( &id ),
         })
     }
 
-    pub(crate) fn dispatch_function<IE: std::error::Error>(
+    pub(crate) fn dispatch_function<I: InterfaceData>(
         &self,
         interface_path: &str,
         function: &str,
         has_return: bool,
         data: &[Val],
-    ) -> Socket<Result<Val, DispatchError<IE>>> {
+    ) -> Socket<Result<Val, DispatchError<I>>, P::Id> {
         self.map(| plugin | plugin
             .write().map_err(|_| DispatchError::Deadlock )
             .and_then(| mut lock | lock.dispatch( interface_path, function, has_return, data ))
@@ -93,8 +94,8 @@ impl<T: PluginData> Socket<RwLock<PluginInstance<T>>> {
     }
 }
 
-impl From<Socket<Val>> for Val {
-    fn from( socket: Socket<Val> ) -> Self {
+impl<Id> From<Socket<Val, Id>> for Val {
+    fn from( socket: Socket<Val, Id> ) -> Self {
         match socket {
             Socket::AtMostOne( Option::None ) => Val::Option( Option::None ),
             Socket::AtMostOne( Some( val )) => Val::Option( Some( Box::new( val ))),

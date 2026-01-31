@@ -46,10 +46,11 @@ mod utils ;
 pub use wasmtime::Engine ;
 pub use wasmtime::component::{ Component, Linker, Val };
 
-pub use interface::{ InterfaceId, InterfaceData, InterfaceCardinality, FunctionData, ReturnKind };
-pub use plugin::{ PluginId, PluginData };
-pub use loading::{ LoadError, DispatchError };
+pub use interface::{ InterfaceData, InterfaceCardinality, FunctionData, ReturnKind };
+pub use plugin::{ PluginData };
+pub use loading::LoadError ;
 pub use plugin_tree::{ PluginTree, PluginTreeError };
 pub use plugin_tree_head::PluginTreeHead ;
 pub use socket::Socket ;
+pub use plugin_instance::DispatchError ;
 pub use utils::{ PartialSuccess, PartialResult };

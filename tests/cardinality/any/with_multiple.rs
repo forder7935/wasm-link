@@ -15,7 +15,7 @@ fn cardinality_test_any_with_multiple() {
         PluginDir::new( plugins::STARTUP2 ).unwrap(),
     ];
 
-    let ( tree, warnings ) = PluginTree::new( interfaces::ROOT, interfaces, plugins );
+    let ( tree, warnings ) = PluginTree::new( interfaces::ROOT.to_string(), interfaces, plugins );
     assert_no_warnings!( warnings );
 
     let ( _, warnings ) = tree.load( &engine, &linker ).unwrap();

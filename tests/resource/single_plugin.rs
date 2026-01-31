@@ -12,7 +12,7 @@ fn resource_test_method_call() {
     let interfaces = vec![ InterfaceDir::new( interfaces::ROOT ).unwrap() ];
     let plugins = vec![ PluginDir::new( plugins::COUNTER ).unwrap() ];
 
-    let ( tree, warnings ) = PluginTree::new( interfaces::ROOT, interfaces, plugins );
+    let ( tree, warnings ) = PluginTree::new( interfaces::ROOT.to_string(), interfaces, plugins );
     assert_no_warnings!( warnings );
 
     let ( tree, warnings ) = tree.load( &engine, &linker ).unwrap();

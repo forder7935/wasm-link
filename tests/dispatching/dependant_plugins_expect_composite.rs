@@ -17,7 +17,7 @@ fn dispatch_test_dependant_plugins_expect_composite() {
         PluginDir::new( plugins::STARTUP ).unwrap(),
         PluginDir::new( plugins::CHILD ).unwrap(),
     ];
-    let ( tree, warnings ) = PluginTree::new( interfaces::ROOT, interfaces, plugins );
+    let ( tree, warnings ) = PluginTree::new( interfaces::ROOT.to_string(), interfaces, plugins );
     assert_no_warnings!( warnings );
 
     let ( tree, warnings ) = tree.load( &engine, &linker ).unwrap();
