@@ -41,6 +41,11 @@
 ## Example
 
 ```rs
+use wasm_link::{
+    InterfaceData, InterfaceCardinality, FunctionData, ReturnKind,
+    PluginData, PluginTree, Socket, Engine, Component, Linker, Val,
+};
+
 // Declare your fixture sources
 #[derive( Clone )]
 struct Func { name: String, return_kind: ReturnKind }
@@ -52,34 +57,37 @@ impl FunctionData for Func {
     fn is_method( &self ) -> bool { false }
 }
 
-struct Interface { id: InterfaceId, funcs: Vec<Func> }
+struct Interface { id: &'static str, funcs: Vec<Func> }
 impl InterfaceData for Interface {
+    type Id = &'static str ;
     type Error = std::convert::Infallible ;
     type Function = Func ;
     type FunctionIter<'a> = std::slice::Iter<'a, Func> ;
     type ResourceIter<'a> = std::iter::Empty<&'a String> ;
-    fn id( &self ) -> Result<InterfaceId, Self::Error> { Ok( self.id ) }
+    fn id( &self ) -> Result<&Self::Id, Self::Error> { Ok( &self.id ) }
     fn cardinality( &self ) -> Result<&InterfaceCardinality, Self::Error> { Ok( &InterfaceCardinality::ExactlyOne ) }
     fn package_name( &self ) -> Result<&str, Self::Error> { Ok( "my:package/example" ) }
     fn functions( &self ) -> Result<Self::FunctionIter<'_>, Self::Error> { Ok( self.funcs.iter()) }
     fn resources( &self ) -> Result<Self::ResourceIter<'_>, Self::Error> { Ok( std::iter::empty()) }
 }
 
-struct Plugin { id: PluginId, plug: InterfaceId }
+struct Plugin { id: &'static str, plug: &'static str }
 impl PluginData for Plugin {
+    type Id = &'static str ;
+    type InterfaceId = &'static str ;
     type Error = std::convert::Infallible ;
-    type SocketIter<'a> = std::iter::Empty<&'a InterfaceId> ;
-    fn id( &self ) -> Result<&PluginId, Self::Error> { Ok( &self.id ) }
-    fn plug( &self ) -> Result<&InterfaceId, Self::Error> { Ok( &self.plug ) }
+    type SocketIter<'a> = std::iter::Empty<&'a Self::InterfaceId> ;
+    fn id( &self ) -> Result<&Self::Id, Self::Error> { Ok( &self.id ) }
+    fn plug( &self ) -> Result<&Self::InterfaceId, Self::Error> { Ok( &self.plug ) }
     fn sockets( &self ) -> Result<Self::SocketIter<'_>, Self::Error> { Ok( std::iter::empty()) }
     fn component( &self, engine: &Engine ) -> Result<Component, Self::Error> {
-        todo!( "load in your plugin here" )
+        /* inialise your component here */
     }
 }
 
 // Now construct some plugins and related data
-let root_interface_id = InterfaceId::new( 0 );
-let plugins = [ Plugin { id: PluginId::new( 1 ), plug: root_interface_id }];
+let root_interface_id = "root" ;
+let plugins = [ Plugin { id: "foo", plug: root_interface_id }];
 let interfaces = [ Interface { id: root_interface_id, funcs: vec![
     Func { name: "get-value".to_string(), return_kind: ReturnKind::MayContainResources }
 ]}];
