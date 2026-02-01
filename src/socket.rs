@@ -76,7 +76,7 @@ impl<P: PluginData> Socket<RwLock<PluginInstance<P>>, P::Id> {
             Self::AtMostOne( Some( plugin )) | Self::ExactlyOne( plugin ) => {
                 if &plugin.read()?.id == id { Some( plugin ) } else { None }
             },
-            Self::AtLeastOne( plugins ) | Self::Any( plugins ) => plugins.get( &id ),
+            Self::AtLeastOne( plugins ) | Self::Any( plugins ) => plugins.get( id ),
         })
     }
 

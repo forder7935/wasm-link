@@ -73,6 +73,7 @@ where
 
 }
 
+#[allow( clippy::type_complexity )]
 #[inline] fn load_socket_unprocessed<I, P, InterfaceId>(
     socket_map: HashMap<I::Id, SocketState<I, P>>,
     interface: I,
