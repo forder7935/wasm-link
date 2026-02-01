@@ -1,17 +1,23 @@
 use wasm_link::{ Engine, Linker, PluginTree, LoadError, InterfaceCardinality };
 
-bind_fixtures!( "cardinality", "at_least_one", "with_none" );
-use fixtures::{ InterfaceDir, PluginDir, interfaces };
+fixtures! {
+    const ROOT          =   "root" ;
+    const INTERFACES    = [ "root" ];
+    const PLUGINS       = [];
+}
 
 #[test]
 fn cardinality_test_at_least_one_with_none() {
 
+    let ( tree, warnings ) = PluginTree::new(
+        fixtures::ROOT.to_string(),
+        fixtures::INTERFACES.clone(),
+        fixtures::PLUGINS.clone(),
+    );
+    assert_no_warnings!( warnings );
+
     let engine = Engine::default();
     let linker = Linker::new( &engine );
-
-    let interfaces = vec![ InterfaceDir::new( interfaces::ROOT ).unwrap() ];
-    let ( tree, warnings ) = PluginTree::<_, PluginDir>::new( interfaces::ROOT.to_string(), interfaces, vec![] );
-    assert_no_warnings!( warnings );
 
     match tree.load( &engine, &linker ) {
         Err(( LoadError::FailedCardinalityRequirements( InterfaceCardinality::AtLeastOne, 0 ), _ )) => {},

@@ -1,21 +1,23 @@
 use wasm_link::{ Engine, Linker, PluginTree, LoadError, InterfaceCardinality };
 
-bind_fixtures!( "cardinality", "exactly_one", "with_multiple" );
-use fixtures::{ InterfaceDir, PluginDir, interfaces, plugins };
+fixtures! {
+    const ROOT          =   "root" ;
+    const INTERFACES    = [ "root" ];
+    const PLUGINS       = [ "startup1", "startup2" ];
+}
 
 #[test]
 fn cardinality_test_exactly_one_with_multiple() {
 
+    let ( tree, warnings ) = PluginTree::new(
+        fixtures::ROOT.to_string(),
+        fixtures::INTERFACES.clone(),
+        fixtures::PLUGINS.clone(),
+    );
+    assert_no_warnings!( warnings );
+
     let engine = Engine::default();
     let linker = Linker::new( &engine );
-
-    let interfaces = vec![ InterfaceDir::new( interfaces::ROOT ).unwrap() ];
-    let plugins = vec![
-        PluginDir::new( plugins::STARTUP ).unwrap(),
-        PluginDir::new( plugins::STARTUP2 ).unwrap(),
-    ];
-    let ( tree, warnings ) = PluginTree::new( interfaces::ROOT.to_string(), interfaces, plugins );
-    assert_no_warnings!( warnings );
 
     match tree.load( &engine, &linker ) {
         Err(( LoadError::FailedCardinalityRequirements( InterfaceCardinality::ExactlyOne, n ), _ )) if n > 1 => {},
