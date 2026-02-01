@@ -43,7 +43,8 @@
 ```rs
 use wasm_link::{
     InterfaceData, InterfaceCardinality, FunctionData, ReturnKind,
-    PluginData, PluginTree, Socket, Engine, Component, Linker, Val,
+    PluginCtxView, PluginData, PluginTree, Socket,
+    Engine, Component, Linker, ResourceTable, Val,
 };
 
 // Declare your fixture sources
@@ -71,7 +72,10 @@ impl InterfaceData for Interface {
     fn resources( &self ) -> Result<Self::ResourceIter<'_>, Self::Error> { Ok( std::iter::empty()) }
 }
 
-struct Plugin { id: &'static str, plug: &'static str }
+struct Plugin { id: &'static str, plug: &'static str, resource_table: ResourceTable }
+impl PluginCtxView for Plugin {
+    fn resource_table( &mut self ) -> &mut ResourceTable { &mut self.resource_table }
+}
 impl PluginData for Plugin {
     type Id = &'static str ;
     type InterfaceId = &'static str ;
@@ -87,7 +91,7 @@ impl PluginData for Plugin {
 
 // Now construct some plugins and related data
 let root_interface_id = "root" ;
-let plugins = [ Plugin { id: "foo", plug: root_interface_id }];
+let plugins = [ Plugin { id: "foo", plug: root_interface_id, resource_table: ResourceTable::new() }];
 let interfaces = [ Interface { id: root_interface_id, funcs: vec![
     Func { name: "get-value".to_string(), return_kind: ReturnKind::MayContainResources }
 ]}];

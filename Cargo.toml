@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = ["Forder7935"]
 edition = "2021"
 rust-version = "1.90.0"
-description = "A WebAssembly plugin runtime based around Wasmtime intended for building fully modular aapplications"
+description = "A WebAssembly plugin runtime based around Wasmtime intended for building fully modular applications"
 documentation = "https://docs.rs/wasm-link"
 readme = "README.md"
 repository = "https://github.com/forder7935/wasm-link"
@@ -18,9 +18,6 @@ include = [
 	"LICENSE-APACHE",
 	"LICENSE-MIT",
 ]
-
-[lib]
-crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 wasmtime = "41.0"

@@ -7,7 +7,7 @@
 //! [`InterfaceCardinality`]: crate::InterfaceCardinality
 
 use std::collections::HashMap ;
-use std::sync::{ RwLock, RwLockReadGuard, PoisonError };
+use std::sync::{ Mutex, MutexGuard, PoisonError };
 use wasmtime::component::Val ;
 
 use crate::plugin::PluginData ;
@@ -21,12 +21,12 @@ use crate::DispatchError ;
 ///
 /// The variant corresponds directly to the interface's [`InterfaceCardinality`]:
 ///
-/// | Cardinality | Socket Variant | Contents |
-/// |-------------|----------------|----------|
-/// | `ExactlyOne` | `ExactlyOne(T)` | Single value, guaranteed present |
-/// | `AtMostOne` | `AtMostOne(Option<T>)` | Optional single value |
-/// | `AtLeastOne` | `AtLeastOne(HashMap)` | Map of plugin ID → value, at least one entry |
-/// | `Any` | `Any(HashMap)` | Map of plugin ID → value, may be empty |
+/// | Cardinality  | Socket Variant           | Contents                                     |
+/// |--------------|--------------------------|----------------------------------------------|
+/// | `ExactlyOne` | `ExactlyOne( T )`        | Single value, guaranteed present             |
+/// | `AtMostOne`  | `AtMostOne( Option<T> )` | Optional single value                        |
+/// | `AtLeastOne` | `AtLeastOne( HashMap )`  | Map of plugin ID → value, at least one entry |
+/// | `Any`        | `Any( HashMap )`         | Map of plugin ID → value, may be empty       |
 ///
 /// When used with [`PluginTreeHead::dispatch`], `T` is `Result<Val, DispatchError>`.
 ///
@@ -67,14 +67,14 @@ impl<T, Id: Clone + std::hash::Hash + Eq> Socket<T, Id> {
     }
 }
 
-impl<P: PluginData> Socket<RwLock<PluginInstance<P>>, P::Id> {
+impl<P: PluginData> Socket<Mutex<PluginInstance<P>>, P::Id> {
 
     #[allow( clippy::type_complexity )]
-    pub(crate) fn get( &self, id: &P::Id ) -> Result<Option<&RwLock<PluginInstance<P>>>,PoisonError<RwLockReadGuard<'_, PluginInstance<P>>>> {
+    pub(crate) fn get( &self, id: &P::Id ) -> Result<Option<&Mutex<PluginInstance<P>>>,PoisonError<MutexGuard<'_, PluginInstance<P>>>> {
         Ok( match self {
             Self::AtMostOne( Option::None ) => None,
             Self::AtMostOne( Some( plugin )) | Self::ExactlyOne( plugin ) => {
-                if &plugin.read()?.id == id { Some( plugin ) } else { None }
+                if &plugin.lock()?.id == id { Some( plugin ) } else { None }
             },
             Self::AtLeastOne( plugins ) | Self::Any( plugins ) => plugins.get( id ),
         })
@@ -88,7 +88,7 @@ impl<P: PluginData> Socket<RwLock<PluginInstance<P>>, P::Id> {
         data: &[Val],
     ) -> Socket<Result<Val, DispatchError<I>>, P::Id> {
         self.map(| plugin | plugin
-            .write().map_err(|_| DispatchError::Deadlock )
+            .lock().map_err(|_| DispatchError::Deadlock )
             .and_then(| mut lock | lock.dispatch( interface_path, function, has_return, data ))
         )
     }

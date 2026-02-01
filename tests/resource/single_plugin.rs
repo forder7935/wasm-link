@@ -1,18 +1,18 @@
 use wasm_link::{ Engine, Linker, PluginTree, Val, Socket };
 
 fixtures! {
-    const ROOT          =   "root" ;
-    const INTERFACES    = [ "root" ];
-    const PLUGINS       = [ "counter" ];
+	const ROOT	=   "root" ;
+	interfaces	= [ "root" ];
+	plugins		= [ "counter" ];
 }
 
 #[test]
 fn resource_test_method_call() {
 
     let ( tree, warnings ) = PluginTree::new(
-        fixtures::ROOT.to_string(),
-        fixtures::INTERFACES.clone(),
-        fixtures::PLUGINS.clone(),
+		fixtures::ROOT.to_string(),
+		fixtures::interfaces(),
+		fixtures::plugins(),
     );
     assert_no_warnings!( warnings );
 

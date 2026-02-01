@@ -59,7 +59,7 @@ pub enum PluginTreeError<I: InterfaceData, P: PluginData> {
 /// ```
 /// use wasm_link::{
 ///     InterfaceData, InterfaceCardinality, FunctionData, ReturnKind,
-///     PluginData, PluginTree, Engine, Component, Linker,
+///     PluginData, PluginCtxView, PluginTree, Engine, Component, Linker, ResourceTable,
 /// };
 ///
 /// # #[derive( Clone )]
@@ -91,7 +91,10 @@ pub enum PluginTreeError<I: InterfaceData, P: PluginData> {
 /// #   }
 /// }
 ///
-/// struct Plugin { id: &'static str, plug: &'static str }
+/// struct Plugin { id: &'static str, plug: &'static str, resource_table: ResourceTable }
+/// # impl PluginCtxView for Plugin {
+/// #   fn resource_table( &mut self ) -> &mut ResourceTable { &mut self.resource_table }
+/// # }
 /// impl PluginData for Plugin {
 ///     /* ... */
 /// #   type Id = &'static str ;
@@ -114,7 +117,7 @@ pub enum PluginTreeError<I: InterfaceData, P: PluginData> {
 /// }
 ///
 /// let root_interface_id = "root" ;
-/// let plugins = [ Plugin { id: "foo", plug: root_interface_id }];
+/// let plugins = [ Plugin { id: "foo", plug: root_interface_id, resource_table: ResourceTable::new() }];
 /// let interfaces = [ Interface { id: root_interface_id, funcs: vec![] }];
 ///
 /// // Build the dependency graph

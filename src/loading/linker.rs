@@ -1,9 +1,9 @@
-use std::sync::{ Arc, RwLock };
-use wasmtime::{ AsContextMut, StoreContextMut };
+use std::sync::{ Arc, Mutex };
+use wasmtime::StoreContextMut ;
 use wasmtime::component::{ Linker, ResourceType, Val };
 
 use crate::interface::{ InterfaceData, FunctionData, ReturnKind };
-use crate::plugin::PluginData ;
+use crate::plugin::{ PluginCtxView, PluginData };
 use crate::socket::Socket ;
 use crate::plugin_instance::PluginInstance ;
 use crate::plugin_instance::DispatchError ;
@@ -11,7 +11,7 @@ use super::{ LoadError, ResourceWrapper, ResourceCreationError };
 
 
 
-pub type LoadedSocket<P, Id> = Socket<RwLock<PluginInstance<P>>, Id> ;
+pub type LoadedSocket<P, Id> = Socket<Mutex<PluginInstance<P>>, Id> ;
 
 #[inline] pub fn link_socket<I, P>(
     mut linker: Linker<P>,
@@ -106,7 +106,7 @@ where
 
 #[inline] fn dispatch_of<I, P>(
     ctx: &mut StoreContextMut<P>,
-    plugin: &RwLock<PluginInstance<P>>,
+    plugin: &Mutex<PluginInstance<P>>,
     interface_path: &str,
     function: &I::Function,
     data: &[Val],
@@ -116,7 +116,7 @@ where
     P: PluginData,
 {
 
-    let mut lock = plugin.write().map_err(|_| DispatchError::Deadlock )?;
+    let mut lock = plugin.lock().map_err(|_| DispatchError::Deadlock )?;
     let has_return = function.return_kind() != ReturnKind::Void;
     let result = lock.dispatch( interface_path, function.name(), has_return, data )?;
 
@@ -155,7 +155,11 @@ where
 
 }
 
-fn wrap_resources<Id: std::fmt::Debug + Clone + Send + Sync + 'static>( val: Val, plugin_id: &Id, store: &mut impl AsContextMut ) -> Result<Val, ResourceCreationError> {
+fn wrap_resources<T, Id>( val: Val, plugin_id: &Id, store: &mut StoreContextMut<T> ) -> Result<Val, ResourceCreationError>
+where
+    T: PluginCtxView,
+    Id: std::fmt::Debug + Clone + Send + Sync + 'static,
+{
     Ok( match val {
         Val::Bool( _ )
         | Val::S8( _ ) | Val::S16( _ ) | Val::S32( _ ) | Val::S64( _ )

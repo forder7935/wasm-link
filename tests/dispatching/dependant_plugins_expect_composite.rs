@@ -1,23 +1,23 @@
 use wasm_link::{ Engine, Linker, PluginTree, Val, Socket };
 
 fixtures! {
-    const ROOT          =   "root" ;
-    const INTERFACES    = [ "root", "dependency" ];
-    const PLUGINS       = [ "startup", "child" ];
+	const ROOT	=   "root" ;
+	interfaces	= [ "root", "dependency" ];
+	plugins		= [ "startup", "child" ];
 }
 
 #[test]
 fn dispatch_test_dependant_plugins_expect_composite() {
 
-    let engine = Engine::default();
-    let linker = Linker::new( &engine );
-
     let ( tree, warnings ) = PluginTree::new(
-        fixtures::ROOT.to_string(),
-        fixtures::INTERFACES.clone(),
-        fixtures::PLUGINS.clone(),
+		fixtures::ROOT.to_string(),
+		fixtures::interfaces(),
+		fixtures::plugins(),
     );
     assert_no_warnings!( warnings );
+
+	let engine = Engine::default();
+	let linker = Linker::new( &engine );
 
     let ( tree, warnings ) = tree.load( &engine, &linker ).unwrap();
     assert_no_warnings!( warnings );

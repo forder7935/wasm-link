@@ -1,9 +1,9 @@
 use wasm_link::{ Engine, Linker, PluginTree };
 
 fixtures! {
-    const ROOT          =   "root" ;
-    const INTERFACES    = [ "root" ];
-    const PLUGINS       = [];
+	const ROOT	=   "root" ;
+	interfaces	= [ "root" ];
+	plugins		= [];
 }
 
 #[test]
@@ -11,8 +11,8 @@ fn cardinality_test_any_with_none() {
 
     let ( tree, warnings ) = PluginTree::new(
         fixtures::ROOT.to_string(),
-        fixtures::INTERFACES.clone(),
-        fixtures::PLUGINS.clone(),
+		fixtures::interfaces(),
+		fixtures::plugins(),
     );
     assert_no_warnings!( warnings );
 

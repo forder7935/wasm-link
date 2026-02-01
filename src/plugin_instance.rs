@@ -55,7 +55,7 @@ pub enum DispatchError<I: InterfaceData> {
 }
 
 impl<I: InterfaceData> From<DispatchError<I>> for Val {
-    fn from( error: DispatchError<I> ) -> Val { println!( "error {}", error ); match error {
+    fn from( error: DispatchError<I> ) -> Val { match error {
         DispatchError::Deadlock => Val::Variant( "deadlock".to_string(), None ),
         DispatchError::WitParserError( err ) => Val::Variant( "wit-parser-error".to_string(), Some( Box::new( Val::String( err.to_string() )))),
         DispatchError::InvalidInterface( package ) => Val::Variant( "invalid-interface".to_string(), Some( Box::new( Val::String( package )))),
@@ -81,8 +81,6 @@ impl<P: PluginData> PluginInstance<P> {
         returns: bool,
         data: &[Val],
     ) -> Result<Val, DispatchError<I>> {
-
-        println!( "calling {}", function );
 
         let mut buffer = match returns {
             true => vec![ Self::PLACEHOLDER_VAL ],

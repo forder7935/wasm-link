@@ -1,5 +1,5 @@
 use std::collections::HashMap ;
-use std::sync::{ Arc, RwLock };
+use std::sync::{ Arc, Mutex };
 use pipe_trait::Pipe;
 use wasmtime::Engine;
 use wasmtime::component::Linker ;
@@ -59,7 +59,7 @@ where
             match result {
                 Ok(( interface, plugins )) => {
                     let interface = Arc::new( interface );
-                    let plugins = Arc::new( plugins.map_mut( RwLock::new ));
+                    let plugins = Arc::new( plugins.map_mut( Mutex::new ));
                     socket_map.insert( socket_id, SocketState::Loaded( Arc::clone( &interface ), Arc::clone( &plugins )));
                     LoadResult { socket_map, result: Ok(( interface, plugins )), errors }
                 },

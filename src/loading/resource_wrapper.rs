@@ -1,73 +1,78 @@
-use std::sync::{ Arc, LazyLock, Mutex };
+use std::sync::Arc ;
 use thiserror::Error ;
-use wasmtime::component::{ Resource, ResourceAny, ResourceTable, Val };
-use wasmtime::{ AsContextMut, StoreContextMut };
+use wasmtime::component::{ Resource, ResourceAny, Val };
+use wasmtime::StoreContextMut ;
 
-use crate::plugin::PluginData ;
+use crate::plugin::{ PluginCtxView, PluginData };
 
 
 
-static RESOURCE_TABLE: LazyLock<Mutex<ResourceTable>> = LazyLock::new(|| Mutex::new( ResourceTable::new() ));
-
+#[derive( Debug )]
 pub(super) struct ResourceWrapper<Id> {
     pub plugin_id: Id,
     pub resource_handle: ResourceAny,
 }
 
+/// Errors that occur when creating a resource handle for cross-plugin transfer.
+///
+/// Resources are wrapped before being passed between plugins to track ownership.
+/// These errors indicate failures in that wrapping process.
 #[derive( Debug, Error )]
 pub enum ResourceCreationError {
-    #[error( "Lock Rejected" )] LockRejected,
+    /// The resource table has reached capacity and cannot store more handles.
     #[error( "Resource Table Full" )] ResourceTableFull,
 }
 impl From<ResourceCreationError> for Val {
     fn from( error: ResourceCreationError ) -> Self { match error {
-        ResourceCreationError::LockRejected => Val::Variant( "resource-table-lock-rejected".to_string(), None ),
         ResourceCreationError::ResourceTableFull => Val::Variant( "resource-table-full".to_string(), None ),
     }}
 }
 
+/// Errors that occur when unwrapping a resource handle received from another plugin.
+///
+/// When a plugin receives a resource from another plugin, the handle must be
+/// looked up in the resource table to retrieve the original resource.
+/// These errors indicate failures in that lookup process.
 #[derive( Debug, Error )]
 pub enum ResourceReceiveError {
-    #[error( "Lock Rejected" )] LockRejected,
+    /// The handle doesn't correspond to any known resource (possibly already dropped or invalid).
     #[error( "Invalid Handle" )] InvalidHandle,
 }
 impl From<ResourceReceiveError> for Val {
     fn from( error: ResourceReceiveError ) -> Self { match error {
-        ResourceReceiveError::LockRejected => Val::Variant( "resource-table-lock-rejected".to_string(), None ),
         ResourceReceiveError::InvalidHandle => Val::Variant( "invalid-resource-handle".to_string(), None ),
     }}
 }
 
-impl<Id: 'static + std::fmt::Debug> ResourceWrapper<Id> {
+impl<Id: 'static + std::fmt::Debug + Send + Sync> ResourceWrapper<Id> {
 
     pub fn new( plugin_id: Id, resource_handle: ResourceAny ) -> Self {
         Self { plugin_id, resource_handle }
     }
 
-    pub fn attach(
+    pub fn attach<P: PluginCtxView>(
         self,
-        store: &mut impl AsContextMut,
-    ) -> Result<ResourceAny, ResourceCreationError> where Id: Send + Sync {
-        let mut lock = RESOURCE_TABLE.lock().map_err(|_| ResourceCreationError::LockRejected )?;
-        let resource = lock.push( Arc::new( self )).map_err(|_| ResourceCreationError::ResourceTableFull )?;
-        let temp = ResourceAny::try_from_resource( resource, store ).map_err(|_| unreachable!( "Resource already taken" ));
-        temp
+        store: &mut StoreContextMut<P>,
+    ) -> Result<ResourceAny, ResourceCreationError> {
+        let table = store.data_mut().resource_table();
+        let resource = table.push( Arc::new( self )).map_err(|_| ResourceCreationError::ResourceTableFull )?;
+        Ok( ResourceAny::try_from_resource( resource, store ).expect( "resource was just pushed" ))
     }
 
-    pub fn from_handle(
+    pub fn from_handle<'a, P: PluginCtxView>(
         handle: ResourceAny,
-        store: &mut impl AsContextMut,
-    ) -> Result<Arc<Self>, ResourceReceiveError> {
-        let lock = RESOURCE_TABLE.lock().map_err(|_| ResourceReceiveError::LockRejected )?;
-        let resource = Resource::try_from_resource_any( handle, store ).map_err(|_| ResourceReceiveError::InvalidHandle )?;
-        let wrapped = lock.get( &resource ).map_err(|_| ResourceReceiveError::InvalidHandle )?;
-        Ok( Arc::clone( wrapped ))
+        store: &'a mut StoreContextMut<P>,
+    ) -> Result<&'a Self, ResourceReceiveError> {
+        let resource = Resource::<Arc<Self>>::try_from_resource_any( handle, &mut *store ).map_err(|_| ResourceReceiveError::InvalidHandle )?;
+        let table = store.data_mut().resource_table();
+        let wrapped = table.get( &resource ).map_err(|_| ResourceReceiveError::InvalidHandle )?;
+        Ok( wrapped )
     }
 
-    pub fn drop<T: PluginData>( _: StoreContextMut<T>, handle: u32 ) -> Result<(), wasmtime::Error> {
+    pub fn drop<P: PluginData>( mut ctx: StoreContextMut<P>, handle: u32 ) -> Result<(), wasmtime::Error> {
         let resource = Resource::<Arc<Self>>::new_own( handle );
-        let mut lock = RESOURCE_TABLE.lock().map_err(|_| wasmtime::Error::new( ResourceReceiveError::LockRejected ))?;
-        lock.delete( resource ).map_err(|_| wasmtime::Error::new( ResourceReceiveError::InvalidHandle ))?;
+        let table = ctx.data_mut().resource_table();
+        table.delete( resource ).map_err(|_| wasmtime::Error::new( ResourceReceiveError::InvalidHandle ))?;
         Ok(())
     }
 

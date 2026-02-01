@@ -1,31 +1,29 @@
 #[macro_export]
 macro_rules! fixtures {
     {
-        const ROOT          = $root:literal ;
-        const INTERFACES    = [ $($interface:literal),* $(,)? ] ;
-        const PLUGINS       = [ $($plugin:literal),* $(,)? ] ;
+        const ROOT       = $root:literal ;
+        interfaces       = [ $($interface:literal),* $(,)? ] ;
+        plugins          = [ $($plugin:literal),* $(,)? ] ;
     } => { mod fixtures {
 
         const FIXTURES_DIR: &'static str = strip_rs( file!() );
 
         pub const ROOT: &'static str = $root ;
-        pub static INTERFACES: std::sync::LazyLock<Vec<InterfaceDir>> =
-            std::sync::LazyLock::new(|| vec![ $(
-                InterfaceDir::new( $interface )
-                    .expect( format!( "Interface {} failed to initialise", $interface ).as_str())
-            ),* ]);
-        pub static PLUGINS: std::sync::LazyLock<Vec<PluginDir>> =
-            std::sync::LazyLock::new(|| vec![ $(
-                PluginDir::new( $plugin )
-                    .expect( format!( "Plugin {} failed to initialise", $plugin ).as_str())
-            ),* ]);
+        pub fn interfaces() -> Vec<InterfaceDir> { vec![ $(
+            InterfaceDir::new( $interface )
+                .expect( format!( "Interface {} failed to initialise", $interface ).as_str())
+        ),* ]}
+        pub fn plugins() -> Vec<PluginDir> { vec![ $(
+            PluginDir::new( $plugin )
+                .expect( format!( "Plugin {} failed to initialise", $plugin ).as_str())
+        ),* ]}
 
         const fn strip_rs( path: &'static str ) -> &'static str {
             match path.as_bytes() {
                 [rest @ .., b'.', b'r', b's'] => {
                     // SAFETY: we just checked that the last three bytes are ".rs",
                     // so the split is at a UTF-8 boundary.
-                    unsafe { core::str::from_utf8_unchecked(rest) }
+                    unsafe { core::str::from_utf8_unchecked( rest ) }
                 }
                 _ => unreachable!(),
             }
@@ -104,12 +102,13 @@ macro_rules! fixtures {
 
         }
 
-        #[derive( Debug, Clone )]
+        #[derive( Debug )]
         pub struct PluginDir {
             id: String,
             plug: String,
             sockets: Vec<String>,
             wasm_path: std::path::PathBuf,
+            resource_table: wasm_link::ResourceTable,
         }
 
         impl PluginDir {
@@ -124,8 +123,20 @@ macro_rules! fixtures {
                 let wasm_path = root_path.join( "root.wasm" );
                 let wasm_path = if wasm_path.exists() { wasm_path } else { root_path.join( "root.wat" ) };
 
-                Ok( Self { id: id.to_string(), plug: manifest_data.plug, sockets: manifest_data.sockets, wasm_path })
+                Ok( Self {
+                    id: id.to_string(),
+                    plug: manifest_data.plug,
+                    sockets: manifest_data.sockets,
+                    wasm_path,
+                    resource_table: wasm_link::ResourceTable::new(),
+                })
 
+            }
+        }
+
+        impl wasm_link::PluginCtxView for PluginDir {
+            fn resource_table( &mut self ) -> &mut wasmtime::component::ResourceTable {
+                &mut self.resource_table
             }
         }
 

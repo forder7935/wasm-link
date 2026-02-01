@@ -1,18 +1,18 @@
 use wasm_link::{ Engine, Linker, PluginTree };
 
 fixtures! {
-    const ROOT          =   "root" ;
-    const INTERFACES    = [ "root" ];
-    const PLUGINS       = [ "startup1", "startup2" ];
+	const ROOT	=   "root" ;
+	interfaces	= [ "root" ];
+	plugins		= [ "startup1", "startup2" ];
 }
 
 #[test]
 fn cardinality_test_any_with_multiple() {
 
     let ( tree, warnings ) = PluginTree::new(
-        fixtures::ROOT.to_string(),
-        fixtures::INTERFACES.clone(),
-        fixtures::PLUGINS.clone(),
+		fixtures::ROOT.to_string(),
+		fixtures::interfaces(),
+		fixtures::plugins(),
     );
     assert_no_warnings!( warnings );
 

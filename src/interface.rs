@@ -7,13 +7,12 @@
 
 /// Trait for accessing interface metadata from a user-defined source.
 ///
-/// Implement this trait to define how interface specifications are loaded. The source
-/// can be anything: WIT files on disk, a database, embedded resources, or generated
-/// at runtime. The framework uses this trait to discover interface contracts when
-/// linking plugins together.
+/// Implement this trait to define how interface specifications are loaded. `wasm_link`
+/// uses this trait to discover interface contracts when linking plugins together.
 ///
 /// # Associated Types
 ///
+/// - `Id`: Unique identifier type for interfaces (e.g., `String`, `&'static str`, `Uuid`)
 /// - `Error`: The error type returned when metadata access fails
 /// - `Function`: The type implementing [`FunctionData`] for function metadata
 /// - `FunctionIter`: Iterator over the functions this interface declares
@@ -65,14 +64,21 @@ pub trait InterfaceData: Sized {
 
 /// Metadata about a function declared by an interface.
 ///
-/// Provides information needed during linking to wire up cross-plugin dispatch,
-/// including the function signature and return kind.
+/// Provides information needed during linking to wire up cross-plugin dispatch.
+/// Each function in an interface needs metadata so `wasm_link` knows how to
+/// handle calls across plugin boundaries.
 pub trait FunctionData {
-    /// Returns the function's name as declared in the interface.
+    /// Returns the function's name as defined per the WebAssembly component model
+	/// specifications and WIT standards (e.g. `get-value`, `[constructor]counter`,
+	/// `[method]counter.increment`).
     fn name( &self ) -> &str ;
-    /// Returns the function's return kind.
+    /// Returns the function's return kind. `wasm_link` may do some mapping on the
+	/// returned value. This can be used to tell it to skip certain setps as it is
+	/// known ahead of the time that they are not needed.
     fn return_kind( &self ) -> ReturnKind ;
     /// Returns `true` if this is a method (has a `self` parameter).
+	/// This changes the behaviour of calling into a non-ExactlyOne cardinality
+	/// to only call into the plugin that created the resource given to this method
     fn is_method( &self ) -> bool ;
 }
 

@@ -4,7 +4,7 @@
 //! It provides access to the root socket - the entry point interface that
 //! the host application calls into.
 
-use std::sync::{ Arc, RwLock };
+use std::sync::{ Arc, Mutex };
 use wasmtime::component::Val ;
 
 use crate::interface::InterfaceData ;
@@ -27,7 +27,7 @@ use crate::DispatchError ;
 pub struct PluginTreeHead<I: InterfaceData, P: PluginData + 'static> {
     /// Retained for future hot-loading support (adding/removing plugins at runtime).
     pub(crate) _interface: Arc<I>,
-    pub(crate) socket: Arc<Socket<RwLock<PluginInstance<P>>, P::Id>>,
+    pub(crate) socket: Arc<Socket<Mutex<PluginInstance<P>>, P::Id>>,
 }
 
 impl<I: InterfaceData, P: PluginData> PluginTreeHead<I, P> {
@@ -51,7 +51,8 @@ impl<I: InterfaceData, P: PluginData> PluginTreeHead<I, P> {
     /// ```
     /// use wasm_link::{
     ///     InterfaceData, InterfaceCardinality, FunctionData, ReturnKind,
-    ///     PluginData, PluginTree, Engine, Component, Linker, Socket, Val,
+    ///     PluginData, PluginCtxView, PluginTree, Socket, 
+    ///     Engine, Component, Linker, ResourceTable, Val,
     /// };
     ///
     /// #[derive( Clone )]
@@ -84,7 +85,10 @@ impl<I: InterfaceData, P: PluginData> PluginTreeHead<I, P> {
     /// #   }
     /// }
     ///
-    /// struct Plugin { id: &'static str, plug: &'static str }
+    /// struct Plugin { id: &'static str, plug: &'static str, resource_table: ResourceTable }
+    /// # impl PluginCtxView for Plugin {
+    /// #   fn resource_table( &mut self ) -> &mut ResourceTable { &mut self.resource_table }
+    /// # }
     /// impl PluginData for Plugin {
     ///     /* ... */
     /// #   type Id = &'static str ;
@@ -108,7 +112,7 @@ impl<I: InterfaceData, P: PluginData> PluginTreeHead<I, P> {
     /// }
     ///
     /// let root_interface_id = "root" ;
-    /// let plugins = [ Plugin { id: "foo", plug: root_interface_id }];
+    /// let plugins = [ Plugin { id: "foo", plug: root_interface_id, resource_table: ResourceTable::new() }];
     /// let interfaces = [ Interface { id: root_interface_id, funcs: vec![
     ///     Func { name: "get-value".to_string(), return_kind: ReturnKind::MayContainResources }
     /// ]}];

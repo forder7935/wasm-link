@@ -6,13 +6,39 @@
 //! other plugins.
 
 use wasmtime::Engine ;
-use wasmtime::component::Component ;
+use wasmtime::component::{ Component, ResourceTable } ;
 
-/// Trait for accessing plugin metadata from a user-defined source.
+/// Trait for accessing a [`ResourceTable`] from the store's data type.
 ///
-/// Implement this trait to define how plugin specifications and WASM binaries are
-/// loaded. The source can be anything: files on disk, a database, network resources,
-/// or embedded binaries.
+/// Resources that flow between plugins need to be wrapped to track ownership.
+/// This trait provides access to the table where those wrapped resources are stored.
+///
+/// # Example
+///
+/// ```
+/// use wasmtime::component::ResourceTable ;
+/// use wasm_link::PluginCtxView ;
+///
+/// struct MyPluginData {
+///     resource_table: ResourceTable,
+///     // ... other fields
+/// }
+///
+/// impl PluginCtxView for MyPluginData {
+///     fn resource_table( &mut self ) -> &mut ResourceTable {
+///         &mut self.resource_table
+///     }
+/// }
+/// ```
+pub trait PluginCtxView {
+    /// Returns a mutable reference to the resource table.
+    fn resource_table( &mut self ) -> &mut ResourceTable ;
+}
+
+/// Trait for accessing plugin metadata and WASM binaries from a user-defined source.
+///
+/// Implement this trait to define how plugins are discovered, how their metadata
+/// is read, and how their WASM binaries are loaded.
 ///
 /// Each plugin declares:
 /// - A **plug**: the interface it implements (what it exports)
@@ -23,9 +49,11 @@ use wasmtime::component::Component ;
 ///
 /// # Associated Types
 ///
+/// - `Id`: Unique identifier type for plugins (e.g., `String`, `Uuid`, `PathBuf`)
+/// - `InterfaceId`: Must match the `Id` type used by your [`InterfaceData`]( crate::InterfaceData ) implementation
 /// - `Error`: The error type returned when metadata access or compilation fails
 /// - `SocketIter`: Iterator over the interface IDs this plugin depends on
-pub trait PluginData: Sized + Send + Sync {
+pub trait PluginData: Sized + Send + PluginCtxView {
 
     /// A type used as a unique identifier for a plugin
     type Id: Clone + std::hash::Hash + Eq + std::fmt::Debug + Send + Sync ;
