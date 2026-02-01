@@ -1,19 +1,23 @@
 use wasm_link::{ Engine, Linker, PluginTree, Val, Socket };
 
-bind_fixtures!( "resource", "single_plugin" );
-use fixtures::{ InterfaceDir, PluginDir, interfaces, plugins };
+fixtures! {
+    const ROOT          =   "root" ;
+    const INTERFACES    = [ "root" ];
+    const PLUGINS       = [ "counter" ];
+}
 
 #[test]
 fn resource_test_method_call() {
 
+    let ( tree, warnings ) = PluginTree::new(
+        fixtures::ROOT.to_string(),
+        fixtures::INTERFACES.clone(),
+        fixtures::PLUGINS.clone(),
+    );
+    assert_no_warnings!( warnings );
+
     let engine = Engine::default();
     let linker = Linker::new( &engine );
-
-    let interfaces = vec![ InterfaceDir::new( interfaces::ROOT ).unwrap() ];
-    let plugins = vec![ PluginDir::new( plugins::COUNTER ).unwrap() ];
-
-    let ( tree, warnings ) = PluginTree::new( interfaces::ROOT.to_string(), interfaces, plugins );
-    assert_no_warnings!( warnings );
 
     let ( tree, warnings ) = tree.load( &engine, &linker ).unwrap();
     assert_no_warnings!( warnings );

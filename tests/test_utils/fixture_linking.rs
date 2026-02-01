@@ -1,6 +1,35 @@
 #[macro_export]
-macro_rules! bind_fixtures {
-    ($( $segment:expr ),+ $(,)?) => { mod fixtures {
+macro_rules! fixtures {
+    {
+        const ROOT          = $root:literal ;
+        const INTERFACES    = [ $($interface:literal),* $(,)? ] ;
+        const PLUGINS       = [ $($plugin:literal),* $(,)? ] ;
+    } => { mod fixtures {
+
+        const FIXTURES_DIR: &'static str = strip_rs( file!() );
+
+        pub const ROOT: &'static str = $root ;
+        pub static INTERFACES: std::sync::LazyLock<Vec<InterfaceDir>> =
+            std::sync::LazyLock::new(|| vec![ $(
+                InterfaceDir::new( $interface )
+                    .expect( format!( "Interface {} failed to initialise", $interface ).as_str())
+            ),* ]);
+        pub static PLUGINS: std::sync::LazyLock<Vec<PluginDir>> =
+            std::sync::LazyLock::new(|| vec![ $(
+                PluginDir::new( $plugin )
+                    .expect( format!( "Plugin {} failed to initialise", $plugin ).as_str())
+            ),* ]);
+
+        const fn strip_rs( path: &'static str ) -> &'static str {
+            match path.as_bytes() {
+                [rest @ .., b'.', b'r', b's'] => {
+                    // SAFETY: we just checked that the last three bytes are ".rs",
+                    // so the split is at a UTF-8 boundary.
+                    unsafe { core::str::from_utf8_unchecked(rest) }
+                }
+                _ => unreachable!(),
+            }
+        }
 
         #[derive( Debug, thiserror::Error )]
         pub enum FixtureError {
@@ -13,13 +42,7 @@ macro_rules! bind_fixtures {
             #[error( "WASM load error: {0}" )] WasmLoad( String ),
         }
 
-        fn fixture_path() -> std::path::PathBuf {
-            std::path::PathBuf::from( env!( "CARGO_MANIFEST_DIR" ))
-                .join( "tests" )
-                $(.join( $segment ))+
-        }
-
-        #[derive( Debug )]
+        #[derive( Debug, Clone )]
         pub struct InterfaceDir {
             id: String,
             cardinality: wasm_link::InterfaceCardinality,
@@ -30,7 +53,7 @@ macro_rules! bind_fixtures {
 
             pub fn new( id: &'static str ) -> Result<Self, FixtureError> {
 
-                let root_path = fixture_path().join( "interfaces" ).join( id );
+                let root_path = std::path::PathBuf::from( FIXTURES_DIR ).join( "interfaces" ).join( id );
                 let manifest_path = root_path.join( "manifest.toml" );
                 let manifest_data: InterfaceManifestData = toml::from_str( &std::fs::read_to_string( manifest_path )?)?;
                 let cardinality = manifest_data.cardinality.into();
@@ -81,7 +104,7 @@ macro_rules! bind_fixtures {
 
         }
 
-        #[derive( Debug )]
+        #[derive( Debug, Clone )]
         pub struct PluginDir {
             id: String,
             plug: String,
@@ -94,7 +117,7 @@ macro_rules! bind_fixtures {
             #[allow( unused )]
             pub fn new( id: &'static str ) -> Result<Self, FixtureError> {
 
-                let root_path = fixture_path().join( "plugins" ).join( id );
+                let root_path = std::path::PathBuf::from( FIXTURES_DIR ).join( "plugins" ).join( id );
                 let manifest_path = root_path.join( "manifest.toml" );
                 let manifest_data: PluginManifestData = toml::from_str( &std::fs::read_to_string( manifest_path )?)?;
 
@@ -158,7 +181,7 @@ macro_rules! bind_fixtures {
             }
         }
 
-        #[derive( Debug )]
+        #[derive( Debug, Clone )]
         struct InterfaceWitData {
             package: String,
             functions: std::collections::HashMap<String, FunctionDataImpl>,
@@ -257,7 +280,5 @@ macro_rules! bind_fixtures {
             })
 
         }
-
-        test_macros::generate_fixture_ids!( $( $segment ),+ );
     }};
 }

@@ -1,7 +1,10 @@
 use wasm_link::{ Engine, Linker, PluginTree, Val, Socket };
 
-bind_fixtures!( "dispatching", "single_plugin_expect_primitive" );
-use fixtures::{ InterfaceDir, PluginDir, interfaces, plugins };
+fixtures! {
+    const ROOT          =   "root" ;
+    const INTERFACES    = [ "root" ];
+    const PLUGINS       = [ "get-value" ];
+}
 
 #[test]
 fn dispatch_test_single_plugin_expect_primitive() {
@@ -9,9 +12,11 @@ fn dispatch_test_single_plugin_expect_primitive() {
     let engine = Engine::default();
     let linker = Linker::new( &engine );
 
-    let interfaces = vec![ InterfaceDir::new( interfaces::ROOT ).unwrap() ];
-    let plugins = vec![ PluginDir::new( plugins::GET_VALUE ).unwrap() ];
-    let ( tree, warnings ) = PluginTree::new( interfaces::ROOT.to_string(), interfaces, plugins );
+    let ( tree, warnings ) = PluginTree::new(
+        fixtures::ROOT.to_string(),
+        fixtures::INTERFACES.clone(),
+        fixtures::PLUGINS.clone(),
+    );
     assert_no_warnings!( warnings );
 
     let ( tree, warnings ) = tree.load( &engine, &linker ).unwrap();
