@@ -1,0 +1,5 @@
+package test:multi-socket ;
+
+interface root {
+  get-value: func() -> u32;
+}

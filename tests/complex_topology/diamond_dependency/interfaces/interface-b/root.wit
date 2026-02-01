@@ -1,0 +1,5 @@
+package test:iface-b ;
+
+interface root {
+  get-b: func() -> u32;
+}

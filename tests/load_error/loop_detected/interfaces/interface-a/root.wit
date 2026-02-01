@@ -1,0 +1,5 @@
+package test:interface-a ;
+
+interface root {
+  func-a: func();
+}

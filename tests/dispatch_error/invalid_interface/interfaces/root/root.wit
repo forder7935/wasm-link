@@ -1,0 +1,5 @@
+package test:dispatch-error ;
+
+interface root {
+  test: func() -> u32;
+}

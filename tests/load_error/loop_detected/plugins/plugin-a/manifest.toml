@@ -1,0 +1,2 @@
+plug = "interface-a"
+sockets = ["interface-b"]

@@ -1,0 +1,29 @@
+use wasm_link::{ Engine, Linker, PluginTree, LoadError, InterfaceCardinality };
+
+fixtures! {
+	const ROOT	=   "root" ;
+	interfaces	= [ "root", "dependency" ];
+	plugins		= [ "consumer" ];
+}
+
+#[test]
+fn cardinality_test_exactly_one_empty_socket() {
+
+    let ( tree, warnings ) = PluginTree::new(
+		fixtures::ROOT.to_string(),
+		fixtures::interfaces(),
+		fixtures::plugins(),
+    );
+    assert_no_warnings!( warnings );
+
+    let engine = Engine::default();
+    let linker = Linker::new( &engine );
+
+    match tree.load( &engine, &linker ) {
+        Err(( LoadError::FailedCardinalityRequirements( InterfaceCardinality::ExactlyOne, 0 ), _ )) => {},
+        Err(( err, warnings )) if warnings.is_empty() => panic!( "{}", err ),
+        Err(( err, warnings )) => panic!( "Failed with warnings: {}\n{:?}", err, warnings ),
+        Ok( _ ) => panic!( "Expected failure" ),
+    };
+
+}

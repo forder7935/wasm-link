@@ -1,0 +1,2 @@
+plug = "root"
+sockets = ["dep-one", "dep-two", "dep-three"]
