@@ -21,6 +21,8 @@
 - composable applications with no interface limitations
 - performant language-agnostic plugin system
 
+IMPORTANT: Future, Stream and ErrorContext are not yet supported, as of now using them will lead to a panic
+
 ## Contents
 
 - [Highlights](#highlights)
