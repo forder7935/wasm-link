@@ -21,7 +21,7 @@
 //! - **Root Socket**: The entry point interface that the host application calls into.
 //!   Other interfaces are internal - only accessible to plugins, not the host.
 //!
-//! # Usage
+//! # Example
 //! ```
 //! use wasm_link::{
 //!     InterfaceData, InterfaceCardinality, FunctionData, ReturnKind,

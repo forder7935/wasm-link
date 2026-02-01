@@ -13,7 +13,6 @@ categories = ["wasm"]
 include = [
 	"src/*",
 	"tests/*",
-	"test_macros/*",
 	"README.md",
 	"LICENSE-APACHE",
 	"LICENSE-MIT",
