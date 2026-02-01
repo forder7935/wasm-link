@@ -3,6 +3,7 @@ name = "wasm-link"
 version = "0.1.0"
 authors = ["Forder7935"]
 edition = "2021"
+rust-version = "1.90.0"
 description = "A WebAssembly plugin runtime based around Wasmtime intended for building fully modular aapplications"
 documentation = "https://docs.rs/wasm-link"
 readme = "README.md"
