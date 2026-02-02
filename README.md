@@ -21,7 +21,7 @@
 - composable applications with no interface limitations
 - performant language-agnostic plugin system
 
-IMPORTANT: Future, Stream and ErrorContext are not yet supported, as of now using them will lead to a panic
+NOTE: Async types (`Future`, `Stream`, `ErrorContext`) are not yet supported for cross-plugin transfer and will return an error if encountered.
 
 ## Contents
 

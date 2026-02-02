@@ -48,6 +48,8 @@ pub enum DispatchError<I: InterfaceData> {
     #[error( "Runtime Exception" )] RuntimeException( wasmtime::Error ),
     /// The provided arguments don't match the function signature.
     #[error( "Invalid Argument List" )] InvalidArgumentList,
+    /// Async types (`Future`, `Stream`, `ErrorContext`) are not yet supported for cross-plugin transfer.
+    #[error( "Unsupported type: {0}" )] UnsupportedType( String ),
     /// Failed to create a resource handle for cross-plugin transfer.
     #[error( "Resource Create Error: {0}" )] ResourceCreationError( #[from] ResourceCreationError ),
     /// Failed to receive a resource handle from another plugin.
@@ -63,6 +65,7 @@ impl<I: InterfaceData> From<DispatchError<I>> for Val {
         DispatchError::MissingResponse => Val::Variant( "missing-response".to_string(), None ),
         DispatchError::RuntimeException( exception ) => Val::Variant( "runtime-exception".to_string(), Some( Box::new( Val::String( exception.to_string() )))),
         DispatchError::InvalidArgumentList => Val::Variant( "invalid-argument-list".to_string(), None ),
+		DispatchError::UnsupportedType( name ) => Val::Variant( "unsupported-type".to_string(), Some( Box::new( Val::String( name )))),
         DispatchError::ResourceCreationError( err ) => err.into(),
         DispatchError::ResourceReceiveError( err ) => err.into(),
     }}

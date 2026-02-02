@@ -7,7 +7,7 @@ use crate::plugin::{ PluginCtxView, PluginData };
 use crate::socket::Socket ;
 use crate::plugin_instance::PluginInstance ;
 use crate::plugin_instance::DispatchError ;
-use super::{ LoadError, ResourceWrapper, ResourceCreationError };
+use super::{ LoadError, ResourceWrapper };
 
 
 
@@ -155,8 +155,9 @@ where
 
 }
 
-fn wrap_resources<T, Id>( val: Val, plugin_id: &Id, store: &mut StoreContextMut<T> ) -> Result<Val, ResourceCreationError>
+fn wrap_resources<I, T, Id>( val: Val, plugin_id: &Id, store: &mut StoreContextMut<T> ) -> Result<Val, DispatchError<I>>
 where
+	I: InterfaceData,
     T: PluginCtxView,
     Id: std::fmt::Debug + Clone + Send + Sync + 'static,
 {
@@ -173,15 +174,18 @@ where
         | Val::Option( None )
         | Val::Result( Ok( Option::None )) | Val::Result( Err( Option::None )) => val,
         Val::List( list ) => Val::List( list.into_iter().map(| item | wrap_resources( item, plugin_id, store )).collect::<Result<_,_>>()? ),
-        Val::Record( entries ) => Val::Record( entries.into_iter().map(|( key, value )| Ok(( key, wrap_resources( value, plugin_id, store )?)) ).collect::<Result<_,_>>()? ),
+        Val::Record( entries ) => Val::Record( entries.into_iter()
+			.map(|( key, value )| Ok::<_, DispatchError<I>>(( key, wrap_resources::<I, _, _>( value, plugin_id, store )?)) )
+			.collect::<Result<_,_>>()?
+		),
         Val::Tuple( list ) => Val::Tuple( list.into_iter().map(| item | wrap_resources( item, plugin_id, store )).collect::<Result<_,_>>()? ),
         Val::Variant( variant, Some( data_box )) => Val::Variant( variant, Some( Box::new( wrap_resources( *data_box, plugin_id, store )? ))),
         Val::Option( Some( data_box )) => Val::Option( Some( Box::new( wrap_resources( *data_box, plugin_id, store )? ))),
         Val::Result( Ok( Some( data_box ))) => Val::Result( Ok( Some( Box::new( wrap_resources( *data_box, plugin_id, store )? )))),
         Val::Result( Err( Some( data_box ))) => Val::Result( Err( Some( Box::new( wrap_resources( *data_box, plugin_id, store )? )))),
         Val::Resource( handle ) => Val::Resource( ResourceWrapper::new( plugin_id.clone(), handle ).attach( store )? ),
-        Val::Future( _ ) => unimplemented!( "'Val::Future' is not yet supported" ),
-        Val::Stream( _ ) => unimplemented!( "'Val::Stream' is not yet supported" ),
-        Val::ErrorContext( _ ) => unimplemented!( "'Val::ErrorContext' is not yet supported" ),
+        Val::Future( _ ) => return Err( DispatchError::UnsupportedType( "future".to_string() )),
+        Val::Stream( _ ) => return Err( DispatchError::UnsupportedType( "stream".to_string() )),
+        Val::ErrorContext( _ ) => return Err( DispatchError::UnsupportedType( "error-context".to_string() )),
     })
 }
