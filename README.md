@@ -1,5 +1,5 @@
 <div align="center">
-  <h1><code>wasm_link</code></h1>
+  <h1><code>wasm-link</code></h1>
 
   <p>
     <strong>A
@@ -10,8 +10,8 @@
   </p>
 
   <p>
+    <a href="https://crates.io/crates/wasm-link"><img src="https://img.shields.io/crates/v/wasm-link" alt="crates.io version" /></a>
     <a href="https://docs.rs/wasm-link/latest/wasm_link"><img src="https://img.shields.io/docsrs/wasm-link" alt="documentation status" /></a>
-    <img src="https://img.shields.io/badge/status-early_alpha-orange.svg" alt="project status" />
     <img src="https://img.shields.io/badge/rustc-stable+-green.svg" alt="supported rustc stable" />
   </p>
 </div>
