@@ -73,7 +73,7 @@ pub trait FunctionData {
 	/// `[method]counter.increment`).
     fn name( &self ) -> &str ;
     /// Returns the function's return kind. `wasm_link` may do some mapping on the
-	/// returned value. This can be used to tell it to skip certain setps as it is
+	/// returned value. This can be used to tell it to skip certain steps as it is
 	/// known ahead of the time that they are not needed.
     fn return_kind( &self ) -> ReturnKind ;
     /// Returns `true` if this is a method (has a `self` parameter).

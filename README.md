@@ -10,7 +10,7 @@
   </p>
 
   <p>
-    <a href="https://docs.rs/wasm-link/latest/wasm_link"><img src="https://img.shields.io/badge/docs-passing-emerald" alt="documentation status" /></a>
+    <a href="https://docs.rs/wasm-link/latest/wasm_link"><img src="https://img.shields.io/docsrs/wasm-link" alt="documentation status" /></a>
     <img src="https://img.shields.io/badge/status-early_alpha-orange.svg" alt="project status" />
     <img src="https://img.shields.io/badge/rustc-stable+-green.svg" alt="supported rustc stable" />
   </p>
@@ -87,7 +87,7 @@ impl PluginData for Plugin {
     fn plug( &self ) -> Result<&Self::InterfaceId, Self::Error> { Ok( &self.plug ) }
     fn sockets( &self ) -> Result<Self::SocketIter<'_>, Self::Error> { Ok( std::iter::empty()) }
     fn component( &self, engine: &Engine ) -> Result<Component, Self::Error> {
-        /* inialise your component here */
+        /* initialise your component here */
     }
 }
 

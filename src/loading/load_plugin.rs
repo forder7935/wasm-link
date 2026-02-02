@@ -55,7 +55,7 @@ where
 
     let mut store = Store::new( engine, plugin );
     let instance = match linker.instantiate( &mut store, &component ) {
-        Ok( instanace_pre ) => instanace_pre,
+        Ok( instance ) => instance,
         Err( err ) => return LoadResult { socket_map, result: Err( LoadError::FailedToLoadComponent( err )), errors },
     };
 

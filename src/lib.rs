@@ -67,7 +67,7 @@
 //!     fn plug( &self ) -> Result<&Self::InterfaceId, Self::Error> { Ok( &self.plug ) }
 //!     fn sockets( &self ) -> Result<Self::SocketIter<'_>, Self::Error> { Ok( std::iter::empty()) }
 //!     fn component( &self, engine: &Engine ) -> Result<Component, Self::Error> {
-//!         /* inialise your component here */
+//!         /* initialise your component here */
 //! #       Ok( Component::new( engine, r#"(component
 //! #           (core module $m (func (export "f") (result i32) i32.const 42))
 //! #           (core instance $i (instantiate $m))
