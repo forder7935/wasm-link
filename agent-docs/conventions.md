@@ -1,7 +1,6 @@
 # Coding Conventions
 
 ## Iterator and Collection Handling
-- Prefer `.map_scan()` from `MapScanTrait` for stateful iterations over manual loops or `fold`.
 - Use `.merge()` and `.merge_all()` from `Merge` for immutable vector extensions instead of `push` on mutable references.
 - Leverage `pipe_trait` for fluent method chaining to promote composition over intermediate variables.
 
