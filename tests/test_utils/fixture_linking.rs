@@ -75,13 +75,12 @@ macro_rules! fixtures {
             fn is_method( &self ) -> bool {
                 match self.function.kind {
                     wit_parser::FunctionKind::Freestanding
+					| wit_parser::FunctionKind::AsyncFreestanding
                     | wit_parser::FunctionKind::Static( _ )
+					| wit_parser::FunctionKind::AsyncStatic( _ )
                     | wit_parser::FunctionKind::Constructor( _ ) => false,
-                    wit_parser::FunctionKind::Method( _ ) => true,
-                    wit_parser::FunctionKind::AsyncFreestanding
-                    | wit_parser::FunctionKind::AsyncMethod( _ )
-                    | wit_parser::FunctionKind::AsyncStatic( _ )
-                    => unimplemented!( "Async functions are not yet implemented" ),
+                    wit_parser::FunctionKind::Method( _ )
+					| wit_parser::FunctionKind::AsyncMethod( _ ) => true,
                 }
             }
         }
