@@ -4,7 +4,7 @@ use pipe_trait::Pipe;
 use wasmtime::Engine;
 use wasmtime::component::Linker ;
 
-use crate::utils::{ MapScanTrait, Merge };
+use crate::utils::Merge ;
 use crate::interface::{ InterfaceData, InterfaceCardinality };
 use crate::plugin::PluginData ;
 use crate::socket::Socket ;
@@ -229,16 +229,13 @@ where
     InterfaceId: Clone + std::hash::Hash + Eq,
 {
 
-    let (( plugins, errors ), socket_map ) = plugins.into_iter().map_scan(
-        socket_map,
-        | plugin, socket_map | match load_plugin( socket_map, engine, default_linker, plugin ) {
-            LoadResult { socket_map, result: Ok( plugin ), errors } => (( Some( plugin ), errors ), socket_map ),
-            LoadResult { socket_map, result: Err( err ), errors } => (( None, errors.merge( err )), socket_map )
+    let ( socket_map, plugins, errors ) = plugins.into_iter().fold(
+		( socket_map, Vec::new(), Vec::new()),
+        |( socket_map, plugins, errors ), plugin | match load_plugin( socket_map, engine, default_linker, plugin ) {
+            LoadResult { socket_map, result: Ok( plugin ), errors: new_errors } => ( socket_map, plugins.merge( plugin ), errors.merge_all( new_errors )),
+            LoadResult { socket_map, result: Err( err ), errors: new_errors } => ( socket_map, plugins, errors.merge_all( new_errors ).merge( err ))
         }
-    ).unzip_get_state::<Vec<_>, Vec<_>>();
-
-    let plugins = plugins.into_iter().flatten().collect::<Vec<_>>();
-    let errors = errors.into_iter().flatten().collect::<Vec<_>>();
+    );
 
     ( socket_map, plugins, errors )
 
