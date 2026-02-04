@@ -1,0 +1,3 @@
+package test:init-error ;
+
+interface root {}

@@ -1,11 +1,10 @@
-//! Plugin metadata types and traits.
+//! Plugin metadata types.
 //!
-//! A plugin is a WASM component that implements one interface (its **plug**) and
-//! may depend on zero or more other interfaces (its **sockets**). The plug declares
-//! what the plugin exports; sockets declare what the plugin expects to import from
-//! other plugins.
+//! A plugin is a WASM component that implements one [`Binding`]( crate::Binding )
+//! (its **plug**) and may depend on zero or more other [`Binding`]( crate::Binding )s
+//! (its **sockets**). The plug declares what the plugin exports; sockets declare what
+//! the plugin expects to import from other plugins.
 
-use wasmtime::Engine ;
 use wasmtime::component::{ Component, ResourceTable } ;
 
 /// Trait for accessing a [`ResourceTable`] from the store's data type.
@@ -17,85 +16,100 @@ use wasmtime::component::{ Component, ResourceTable } ;
 ///
 /// ```
 /// use wasmtime::component::ResourceTable ;
-/// use wasm_link::PluginCtxView ;
+/// use wasm_link::PluginContext ;
 ///
 /// struct MyPluginData {
 ///     resource_table: ResourceTable,
 ///     // ... other fields
 /// }
 ///
-/// impl PluginCtxView for MyPluginData {
+/// impl PluginContext for MyPluginData {
 ///     fn resource_table( &mut self ) -> &mut ResourceTable {
 ///         &mut self.resource_table
 ///     }
 /// }
 /// ```
-pub trait PluginCtxView {
-    /// Returns a mutable reference to the resource table.
+pub trait PluginContext: Send {
+    /// Returns a mutable reference to a resource table.
     fn resource_table( &mut self ) -> &mut ResourceTable ;
 }
 
-/// Trait for accessing plugin metadata and WASM binaries from a user-defined source.
-///
-/// Implement this trait to define how plugins are discovered, how their metadata
-/// is read, and how their WASM binaries are loaded.
+/// A plugin declaration with its WASM component and runtime context.
 ///
 /// Each plugin declares:
-/// - A **plug**: the interface it implements (what it exports)
-/// - Zero or more **sockets**: interfaces it depends on (what it imports)
+/// - A **plug**: the [`Binding`]( crate::Binding ) it implements (what it exports)
+/// - Zero or more **sockets**: the [`Binding`]( crate::Binding )s it depends on (what it imports)
+/// - A **component**: the compiled WASM component
+/// - A **context**: user data that will be provided to any host-exported function (`T` of `Store<T>`)
 ///
-/// During loading, the framework uses this information to build the dependency graph
-/// and link plugins together.
+/// The `context` field is consumed during loading and becomes the wasmtime Store's data.
+/// The Plugin struct itself is not retained after loading.
 ///
-/// # Associated Types
-///
-/// - `Id`: Unique identifier type for plugins (e.g., `String`, `Uuid`, `PathBuf`)
-/// - `InterfaceId`: Must match the `Id` type used by your [`InterfaceData`]( crate::InterfaceData ) implementation
-/// - `Error`: The error type returned when metadata access or compilation fails
-/// - `SocketIter`: Iterator over the interface IDs this plugin depends on
-pub trait PluginData: Sized + Send + PluginCtxView {
+/// # Type Parameters
+/// - `PluginId`: Unique identifier type for the plugin
+/// - `BindingId`: [`Binding`]( crate::Binding ) identifier type (must match the IDs used in [`Binding`]( crate::Binding ))
+/// - `Ctx`: User context type that will be stored in the wasmtime Store
+pub struct Plugin<PluginId, BindingId, Ctx> {
+    /// Unique identifier for this plugin
+    id: PluginId,
+    /// The binding this plugin implements
+    plug: BindingId,
+    /// Bindings this plugin depends on
+    sockets: Vec<BindingId>,
+    /// Compiled WASM component
+    component: Component,
+    /// User context consumed at load time to become `Store<Ctx>`
+    context: Ctx,
+}
 
-    /// A type used as a unique identifier for a plugin
-    type Id: Clone + std::hash::Hash + Eq + std::fmt::Debug + Send + Sync ;
-    /// A type used as a unique identifier for an interface
-    type InterfaceId: Clone + std::hash::Hash + Eq + std::fmt::Display ;
-    /// Error type for metadata access and compilation failures.
-    type Error: std::error::Error ;
-    /// Iterator over interface IDs this plugin depends on (its sockets).
-    type SocketIter<'a>: IntoIterator<Item = &'a Self::InterfaceId> where Self: 'a ;
+impl<PluginId, BindingId, Ctx> Plugin<PluginId, BindingId, Ctx> {
+    /// Creates a new plugin declaration.
+    #[inline]
+    pub fn new(
+        id: PluginId,
+        plug: BindingId,
+        sockets: impl IntoIterator<Item = BindingId>,
+        component: Component,
+        context: Ctx,
+    ) -> Self {
+        Self {
+            id,
+            plug,
+            sockets: sockets.into_iter().collect(),
+            component,
+            context,
+        }
+    }
 
-    /// Returns this plugin's unique identifier.
-    ///
-    /// # Errors
-    /// Implementations may fail if the underlying data source is unavailable.
-    fn id( &self ) -> Result<&Self::Id, Self::Error> ;
+    /// Unique identifier for this plugin.
+    #[inline] pub fn id( &self ) -> &PluginId { &self.id }
 
-    /// Returns the interface ID that this plugin implements (its plug).
-    ///
-    /// The plug declares which interface this plugin provides an implementation for.
-    /// The plugin must export all functions declared by this interface.
-    ///
-    /// # Errors
-    /// Implementations may fail if the underlying data source is unavailable.
-    fn plug( &self ) -> Result<&Self::InterfaceId, Self::Error> ;
+    /// The binding this plugin implements.
+    #[inline] pub fn plug( &self ) -> &BindingId { &self.plug }
 
-    /// Returns the interface IDs that this plugin depends on (its sockets).
-    ///
-    /// Each socket is an interface the plugin expects to call into. During linking,
-    /// these calls are wired to the plugin(s) implementing each interface.
-    ///
-    /// # Errors
-    /// Implementations may fail if the underlying data source is unavailable.
-    fn sockets( &self ) -> Result<Self::SocketIter<'_>, Self::Error> ;
+    /// Bindings this plugin depends on.
+    #[inline] pub fn sockets( &self ) -> &[BindingId] { &self.sockets }
 
-    /// Compiles this plugin's WASM binary into a wasmtime Component.
-    ///
-    /// Called during [`PluginTree::load`]( crate::PluginTree::load ) to compile the plugin. The implementation
-    /// is responsible for locating and reading the WASM binary.
-    ///
-    /// # Errors
-    /// May fail due to I/O errors reading the WASM source, or wasmtime compilation
-    /// errors if the binary is invalid or incompatible.
-    fn component( &self, engine: &Engine ) -> Result<Component, Self::Error> ;
+    /// The compiled WASM component.
+    #[inline] pub fn component( &self ) -> &Component { &self.component }
 
+    /// Consumes the plugin, returning its parts for loading.
+    ///
+    /// Returns `(id, sockets, component, context)`. The `plug` field is excluded
+    /// as it's only needed during plugin tree construction, not loading.
+    #[inline]
+    pub(crate) fn into_parts( self ) -> ( PluginId, Vec<BindingId>, Component, Ctx ) {
+        ( self.id, self.sockets, self.component, self.context )
+    }
+}
+
+impl<PluginId: std::fmt::Debug, BindingId: std::fmt::Debug, Ctx> std::fmt::Debug for Plugin<PluginId, BindingId, Ctx> {
+    fn fmt( &self, f: &mut std::fmt::Formatter<'_> ) -> std::fmt::Result {
+        f.debug_struct( "Plugin" )
+            .field( "id", &self.id )
+            .field( "plug", &self.plug )
+            .field( "sockets", &self.sockets )
+            .field( "component", &"<Component>" )
+            .finish_non_exhaustive()
+    }
 }

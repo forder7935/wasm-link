@@ -4,8 +4,8 @@ use thiserror::Error ;
 use wasmtime::Engine;
 use wasmtime::component::Linker ;
 
-use crate::interface::{ InterfaceData, InterfaceCardinality };
-use crate::plugin::PluginData ;
+use crate::{ Binding, Cardinality };
+use crate::{ Plugin, PluginContext } ;
 use crate::utils::PartialResult ;
 use super::{ load_socket, SocketState, LoadedSocket };
 
@@ -20,36 +20,24 @@ use super::{ load_socket, SocketState, LoadedSocket };
 /// [`PartialResult`]: crate::PartialResult
 /// [`PluginTree::load`]: crate::PluginTree::load
 #[derive( Error )]
-pub enum LoadError<I: InterfaceData, P: PluginData> {
+pub enum LoadError<BindingId> {
 
-    /// A plugin references a socket (dependency) that doesn't exist in the interface set.
+    /// A plugin references a socket (dependency) that isn't present in
+    /// the given [`PluginTree`]( crate::PluginTree )
     #[error( "Invalid socket: {0}" )]
-    InvalidSocket( I::Id ),
+    InvalidSocket( BindingId ),
 
     /// A dependency cycle was detected. Cycles are forbidden in the plugin graph.
     #[error( "Loop detected loading: '{0}'" )]
-    LoopDetected( I::Id ),
+    LoopDetected( BindingId ),
 
-    /// The number of plugins implementing an interface violates its cardinality.
-    /// For example, `ExactlyOne` with 0 or 2+ plugins, or `AtLeastOne` with 0 plugins.
+    /// The number of plugins implementing a binding violates its cardinality requirements.
     #[error( "Failed to meet cardinality requirements: {0}, found {1}" )]
-    FailedCardinalityRequirements( InterfaceCardinality, usize ),
+    FailedCardinalityRequirements( Cardinality, usize ),
 
-    /// Failed to read interface metadata (e.g., couldn't parse WIT or access data source).
-    #[error( "Corrupted interface manifest: {0}" )]
-    CorruptedInterfaceManifest( I::Error ),
-
-    /// Failed to read plugin metadata (e.g., couldn't determine sockets or ID).
-    #[error( "Corrupted plugin manifest: {0}" )]
-    CorruptedPluginManifest( P::Error ),
-
-    /// Wasmtime failed to compile the WASM component (invalid binary or unsupported features).
+    /// Wasmtime failed to instantiate the component.
     #[error( "Failed to load component: {0}" )]
     FailedToLoadComponent( wasmtime::Error ),
-
-    /// I/O error reading the WASM binary.
-    #[error( "Failed to read WASM data: {0}" )]
-    FailedToReadWasm( std::io::Error ),
 
     /// Failed to link the root interface into the plugin.
     #[error( "Failed to link root interface: {0}" )]
@@ -65,16 +53,13 @@ pub enum LoadError<I: InterfaceData, P: PluginData> {
 
 }
 
-impl<I: InterfaceData, P: PluginData> std::fmt::Debug for LoadError<I, P> {
+impl<BindingId: std::fmt::Debug> std::fmt::Debug for LoadError<BindingId> {
     fn fmt( &self, f: &mut std::fmt::Formatter<'_> ) -> std::fmt::Result {
         match self {
             Self::InvalidSocket( id ) => f.debug_tuple( "InvalidSocket" ).field( id ).finish(),
             Self::LoopDetected( id ) => f.debug_tuple( "LoopDetected" ).field( id ).finish(),
             Self::FailedCardinalityRequirements( c, n ) => f.debug_tuple( "FailedCardinalityRequirements" ).field( c ).field( n ).finish(),
-            Self::CorruptedInterfaceManifest( e ) => f.debug_tuple( "CorruptedInterfaceManifest" ).field( e ).finish(),
-            Self::CorruptedPluginManifest( e ) => f.debug_tuple( "CorruptedPluginManifest" ).field( e ).finish(),
             Self::FailedToLoadComponent( e ) => f.debug_tuple( "FailedToLoadComponent" ).field( e ).finish(),
-            Self::FailedToReadWasm( e ) => f.debug_tuple( "FailedToReadWasm" ).field( e ).finish(),
             Self::FailedToLinkInterface( e ) => f.debug_tuple( "FailedToLinkInterface" ).field( e ).finish(),
             Self::FailedToLink( name, e ) => f.debug_tuple( "FailedToLink" ).field( name ).field( e ).finish(),
             Self::AlreadyHandled => f.debug_struct( "AlreadyHandled" ).finish(),
@@ -86,30 +71,36 @@ impl<I: InterfaceData, P: PluginData> std::fmt::Debug for LoadError<I, P> {
 /// The `errors` field contains handled load failures
 /// Convenience abstraction semantically equivalent to:
 /// `( SocketMap, LoadResult<T, LoadError, LoadError> )`
-pub(super) struct LoadResult<T, I: InterfaceData, P: PluginData + 'static> {
-    pub socket_map: HashMap<I::Id, SocketState<I, P>>,
-    pub result: Result<T, LoadError<I, P>>,
-    pub errors: Vec<LoadError<I, P>>,
+pub(super) struct LoadResult<T, BindingId, PluginId, Ctx>
+where
+    BindingId: Clone + std::hash::Hash + Eq,
+    PluginId: Clone,
+    Ctx: PluginContext + 'static,
+{
+    pub socket_map: HashMap<BindingId, SocketState<BindingId, PluginId, Ctx>>,
+    pub result: Result<T, LoadError<BindingId>>,
+    pub errors: Vec<LoadError<BindingId>>,
 }
 
+#[inline]
 #[allow( clippy::type_complexity )]
-#[inline] pub(crate) fn load_plugin_tree<I, P, InterfaceId>(
-    socket_map: HashMap<I::Id, ( I, Vec<P> )>,
+pub(crate) fn load_plugin_tree<BindingId, PluginId, Ctx>(
+    socket_map: HashMap<BindingId, ( Binding<BindingId>, Vec<Plugin<PluginId, BindingId, Ctx>> )>,
     engine: &Engine,
-    default_linker: &Linker<P>,
-    root: I::Id,
-) -> PartialResult<( Arc<I>, Arc<LoadedSocket<P, P::Id>> ), LoadError<I, P>, LoadError<I, P>>
+    default_linker: &Linker<Ctx>,
+    root: BindingId,
+) -> PartialResult<( Arc<Binding<BindingId>>, Arc<LoadedSocket<PluginId, Ctx>> ), LoadError<BindingId>>
 where
-    I: InterfaceData<Id = InterfaceId>,
-    P: PluginData<InterfaceId = InterfaceId>,
-    InterfaceId: Clone + std::hash::Hash + Eq,
+    BindingId: Clone + std::hash::Hash + Eq + std::fmt::Display + std::fmt::Debug,
+    PluginId: Clone + std::hash::Hash + Eq + std::fmt::Debug + Send + Sync + 'static,
+    Ctx: PluginContext + 'static,
 {
     let socket_map = socket_map.into_iter()
-        .map(|( socket_id, ( interface, plugins ))| ( socket_id, SocketState::Unprocessed( interface, plugins )))
+        .map(|( socket_id, ( binding, plugins ))| ( socket_id, SocketState::Unprocessed( binding, plugins )))
         .collect();
 
     match load_socket( socket_map, engine, default_linker, root ) {
-        LoadResult { socket_map: _, result: Ok(( interface, socket )), errors } => Ok((( interface, socket ), errors )),
+        LoadResult { socket_map: _, result: Ok(( binding, socket )), errors } => Ok((( binding, socket ), errors )),
         LoadResult { socket_map: _, result: Err( err ), errors } => Err(( err, errors ))
     }
 

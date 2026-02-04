@@ -9,14 +9,15 @@ fixtures! {
 #[test]
 fn load_error_invalid_socket() {
 
+    let engine = Engine::default();
+
     let ( tree, warnings ) = PluginTree::new(
 		fixtures::ROOT.to_string(),
 		fixtures::interfaces(),
-		fixtures::plugins(),
+		fixtures::plugins( &engine ),
     );
     assert_no_warnings!( warnings );
 
-    let engine = Engine::default();
     let linker = Linker::new( &engine );
 
     match tree.load( &engine, &linker ) {
@@ -24,6 +25,6 @@ fn load_error_invalid_socket() {
         Err(( err, warnings )) if warnings.is_empty() => panic!( "Unexpected error: {}", err ),
         Err(( err, warnings )) => panic!( "Failed with warnings: {}\n{:?}", err, warnings ),
         Ok( _ ) => panic!( "Expected failure" ),
-    };
+    }
 
 }
