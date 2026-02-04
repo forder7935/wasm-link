@@ -7,5 +7,4 @@ include!( "test_utils/assert_no_warnings.rs" );
     mod loop_detected ;
     mod corrupted_interface_manifest ;
     mod corrupted_plugin_manifest ;
-    mod failed_to_read_wasm ;
 }

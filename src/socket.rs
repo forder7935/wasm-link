@@ -1,17 +1,14 @@
 //! Runtime container for plugin instances or dispatch results.
 //!
 //! A [`Socket`] holds values (plugin instances or call results) in a shape that
-//! matches an interface's [`InterfaceCardinality`]. This allows consumers to
+//! matches a binding's [`Cardinality`]( crate::Cardinality ). This allows consumers to
 //! handle results appropriately based on whether they expected one plugin or many.
-//!
-//! [`InterfaceCardinality`]: crate::InterfaceCardinality
 
 use std::collections::HashMap ;
 use std::sync::{ Mutex, MutexGuard, PoisonError };
 use wasmtime::component::Val ;
 
-use crate::plugin::PluginData ;
-use crate::interface::InterfaceData ;
+use crate::plugin::PluginContext ;
 use crate::plugin_instance::PluginInstance ;
 use crate::DispatchError ;
 
@@ -19,7 +16,7 @@ use crate::DispatchError ;
 
 /// Container for plugin instances or dispatch results.
 ///
-/// The variant corresponds directly to the interface's [`InterfaceCardinality`]:
+/// The variant corresponds directly to the interface's [`Cardinality`]( crate::Cardinality ):
 ///
 /// | Cardinality  | Socket Variant           | Contents                                     |
 /// |--------------|--------------------------|----------------------------------------------|
@@ -27,11 +24,6 @@ use crate::DispatchError ;
 /// | `AtMostOne`  | `AtMostOne( Option<T> )` | Optional single value                        |
 /// | `AtLeastOne` | `AtLeastOne( HashMap )`  | Map of plugin ID → value, at least one entry |
 /// | `Any`        | `Any( HashMap )`         | Map of plugin ID → value, may be empty       |
-///
-/// When used with [`PluginTreeHead::dispatch`], `T` is `Result<Val, DispatchError>`.
-///
-/// [`InterfaceCardinality`]: crate::InterfaceCardinality
-/// [`PluginTreeHead::dispatch`]: crate::PluginTreeHead::dispatch
 #[derive( Debug )]
 pub enum Socket<T, Id> {
     /// Zero or one value. Used when cardinality is `AtMostOne`.
@@ -67,10 +59,17 @@ impl<T, Id: Clone + std::hash::Hash + Eq> Socket<T, Id> {
     }
 }
 
-impl<P: PluginData> Socket<Mutex<PluginInstance<P>>, P::Id> {
+impl<PluginId, Ctx> Socket<Mutex<PluginInstance<PluginId, Ctx>>, PluginId>
+where
+    PluginId: Clone + std::hash::Hash + Eq,
+    Ctx: PluginContext,
+{
 
     #[allow( clippy::type_complexity )]
-    pub(crate) fn get( &self, id: &P::Id ) -> Result<Option<&Mutex<PluginInstance<P>>>,PoisonError<MutexGuard<'_, PluginInstance<P>>>> {
+    pub(crate) fn get( &self, id: &PluginId ) -> Result<
+        Option<&Mutex<PluginInstance<PluginId, Ctx>>>,
+        PoisonError<MutexGuard<'_, PluginInstance<PluginId, Ctx>>>
+    > {
         Ok( match self {
             Self::AtMostOne( Option::None ) => None,
             Self::AtMostOne( Some( plugin )) | Self::ExactlyOne( plugin ) => {
@@ -80,15 +79,15 @@ impl<P: PluginData> Socket<Mutex<PluginInstance<P>>, P::Id> {
         })
     }
 
-    pub(crate) fn dispatch_function<I: InterfaceData>(
+    pub(crate) fn dispatch_function(
         &self,
         interface_path: &str,
         function: &str,
         has_return: bool,
         data: &[Val],
-    ) -> Socket<Result<Val, DispatchError<I>>, P::Id> {
+    ) -> Socket<Result<Val, DispatchError>, PluginId> {
         self.map(| plugin | plugin
-            .lock().map_err(|_| DispatchError::Deadlock )
+            .lock().map_err(|_| DispatchError::LockRejected )
             .and_then(| mut lock | lock.dispatch( interface_path, function, has_return, data ))
         )
     }
