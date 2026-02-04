@@ -1,4 +1,4 @@
-use wasm_link::{ Engine, Linker, PluginTree, LoadError, InterfaceCardinality };
+use wasm_link::{ Engine, Linker, PluginTree, LoadError, Cardinality };
 
 fixtures! {
 	const ROOT	=   "root" ;
@@ -9,21 +9,22 @@ fixtures! {
 #[test]
 fn cardinality_test_at_least_one_with_none() {
 
+    let engine = Engine::default();
+
     let ( tree, warnings ) = PluginTree::new(
 		fixtures::ROOT.to_string(),
 		fixtures::interfaces(),
-		fixtures::plugins(),
+		fixtures::plugins( &engine ),
     );
     assert_no_warnings!( warnings );
 
-    let engine = Engine::default();
     let linker = Linker::new( &engine );
 
     match tree.load( &engine, &linker ) {
-        Err(( LoadError::FailedCardinalityRequirements( InterfaceCardinality::AtLeastOne, 0 ), _ )) => {},
+        Err(( LoadError::FailedCardinalityRequirements( Cardinality::AtLeastOne, 0 ), _ )) => {},
         Err(( err, warnings )) if warnings.is_empty() => panic!( "{}", err ),
         Err(( err, warnings )) => panic!( "Failed with warnings: {}\n{:?}", err, warnings ),
         Ok( _ ) => panic!( "Expected failure" ),
-    };
+    }
 
 }

@@ -5,8 +5,8 @@ use wasmtime::Engine;
 use wasmtime::component::Linker ;
 
 use crate::utils::Merge ;
-use crate::interface::{ InterfaceData, InterfaceCardinality };
-use crate::plugin::PluginData ;
+use crate::interface::{ Binding, Cardinality };
+use crate::plugin::{ Plugin, PluginContext } ;
 use crate::socket::Socket ;
 use crate::plugin_instance::PluginInstance ;
 use super::{ LoadResult, LoadError, LoadedSocket };
@@ -15,41 +15,66 @@ use super::load_plugin::load_plugin ;
 
 
 #[derive( Debug, Default )]
-pub(super) enum SocketState<I: InterfaceData, P: PluginData + 'static> {
-    Unprocessed( I, Vec<P> ),
-    Loaded( Arc<I>, Arc<LoadedSocket<P, P::Id>> ),
+pub(super) enum SocketState<BindingId, PluginId, Ctx>
+where
+    BindingId: Clone + std::hash::Hash + Eq,
+    PluginId: Clone,
+    Ctx: PluginContext + 'static,
+{
+    Unprocessed( Binding<BindingId>, Vec<Plugin<PluginId, BindingId, Ctx>> ),
+    Loaded( Arc<Binding<BindingId>>, Arc<LoadedSocket<PluginId, Ctx>> ),
     Failed,
     #[default] Borrowed,
 }
-impl<I: InterfaceData, P: PluginData> From<( I, Vec<P> )> for SocketState<I, P> {
-    fn from(( interface, plugins ): ( I, Vec<P> )) -> Self { Self::Unprocessed( interface, plugins )}
+
+impl<BindingId, PluginId, Ctx> From<( Binding<BindingId>, Vec<Plugin<PluginId, BindingId, Ctx>> )> for SocketState<BindingId, PluginId, Ctx>
+where
+    BindingId: Clone + std::hash::Hash + Eq,
+    PluginId: Clone,
+    Ctx: PluginContext + 'static,
+{
+    fn from(( interface, plugins ): ( Binding<BindingId>, Vec<Plugin<PluginId, BindingId, Ctx>> )) -> Self {
+        Self::Unprocessed( interface, plugins )
+    }
 }
 
 #[allow( clippy::type_complexity )]
-pub(super) fn load_socket<I, P, InterfaceId>(
-    mut socket_map: HashMap<I::Id, SocketState<I, P>>,
+pub(super) fn load_socket<BindingId, PluginId, Ctx>(
+    mut socket_map: HashMap<BindingId, SocketState<BindingId, PluginId, Ctx>>,
     engine: &Engine,
-    default_linker: &Linker<P>,
-    socket_id: I::Id,
-) -> LoadResult<( Arc<I>, Arc<LoadedSocket<P, P::Id>> ), I, P>
+    default_linker: &Linker<Ctx>,
+    socket_id: BindingId,
+) -> LoadResult<( Arc<Binding<BindingId>>, Arc<LoadedSocket<PluginId, Ctx>> ), BindingId, PluginId, Ctx>
 where
-    I: InterfaceData<Id = InterfaceId>,
-    P: PluginData<InterfaceId = InterfaceId>,
-    InterfaceId: Clone + std::hash::Hash + Eq,
+    BindingId: Clone + std::hash::Hash + Eq + std::fmt::Display + std::fmt::Debug,
+    PluginId: Clone + std::hash::Hash + Eq + std::fmt::Debug + Send + Sync + 'static,
+    Ctx: PluginContext + 'static,
 {
 
     // NOTE: do not forget to add the entry back if it's already loaded
     let Some( socket_plugins ) = socket_map.insert( socket_id.clone(), SocketState::Borrowed ) else {
-        return LoadResult { socket_map, result: Err( LoadError::InvalidSocket( socket_id )), errors: Vec::with_capacity( 0 )};
+        return LoadResult {
+            socket_map,
+            result: Err( LoadError::InvalidSocket( socket_id )),
+            errors: Vec::with_capacity( 0 )
+        };
     };
 
     match socket_plugins {
-        SocketState::Borrowed => LoadResult { socket_map, result: Err( LoadError::LoopDetected( socket_id )), errors: Vec::with_capacity( 0 ) },
-        SocketState::Failed => LoadResult { socket_map, result: Err( LoadError::AlreadyHandled ), errors: Vec::with_capacity( 0 ) },
+        SocketState::Borrowed => LoadResult {
+            socket_map,
+            result: Err( LoadError::LoopDetected( socket_id )),
+            errors: Vec::with_capacity( 0 )
+        },
+        SocketState::Failed => LoadResult {
+            socket_map,
+            result: Err( LoadError::AlreadyHandled ),
+            errors: Vec::with_capacity( 0 )
+        },
         SocketState::Loaded( interface, plugins ) => {
             let interface_arc = Arc::clone( &interface );
             let plugins_arc = Arc::clone( &plugins );
-            // NOTE: readding entry since it was taken out to gain ownership
+            // NOTE: readding the entry since it was taken out to gain ownership
             socket_map.insert( socket_id.clone(), SocketState::Loaded( interface, plugins ));
             LoadResult { socket_map, result: Ok(( interface_arc, plugins_arc )), errors: Vec::with_capacity( 0 ) }
         },
@@ -73,49 +98,48 @@ where
 
 }
 
+#[inline]
 #[allow( clippy::type_complexity )]
-#[inline] fn load_socket_unprocessed<I, P, InterfaceId>(
-    socket_map: HashMap<I::Id, SocketState<I, P>>,
-    interface: I,
-    plugins: Vec<P>,
+fn load_socket_unprocessed<BindingId, PluginId, Ctx>(
+    socket_map: HashMap<BindingId, SocketState<BindingId, PluginId, Ctx>>,
+    interface: Binding<BindingId>,
+    plugins: Vec<Plugin<PluginId, BindingId, Ctx>>,
     engine: &Engine,
-    default_linker: &Linker<P>,
-) -> LoadResult<( I, Socket<PluginInstance<P>, P::Id> ), I, P>
+    default_linker: &Linker<Ctx>,
+) -> LoadResult<( Binding<BindingId>, Socket<PluginInstance<PluginId, Ctx>, PluginId> ), BindingId, PluginId, Ctx>
 where
-    I: InterfaceData<Id = InterfaceId>,
-    P: PluginData<InterfaceId = InterfaceId>,
-    InterfaceId: Clone + std::hash::Hash + Eq,
+    BindingId: Clone + std::hash::Hash + Eq + std::fmt::Display + std::fmt::Debug,
+    PluginId: Clone + std::hash::Hash + Eq + std::fmt::Debug + Send + Sync + 'static,
+    Ctx: PluginContext + 'static,
 {
 
-    let cardinality = match interface.cardinality() {
-        Ok( cardinality ) => cardinality,
-        Err( err ) => return LoadResult { socket_map, result: Err( LoadError::CorruptedInterfaceManifest( err )), errors: Vec::with_capacity( 0 ) },
-    };
-
-    match cardinality {
-        InterfaceCardinality::AtMostOne => load_most_one( socket_map, engine, default_linker, plugins )
+    match interface.cardinality() {
+        Cardinality::AtMostOne => load_most_one( socket_map, engine, default_linker, plugins )
             .pipe(| LoadResult { socket_map, result, errors } | match result {
                 Ok( plugin_opt ) => LoadResult { socket_map, result: Ok(( interface, Socket::AtMostOne( plugin_opt ))), errors },
                 Err( err ) => LoadResult { socket_map, result: Err( err ), errors },
             }),
-        InterfaceCardinality::ExactlyOne => load_exact_one( socket_map, engine, default_linker, plugins )
+        Cardinality::ExactlyOne => load_exact_one( socket_map, engine, default_linker, plugins )
             .pipe(| LoadResult { socket_map, result, errors } | match result {
                 Ok( plugin ) => LoadResult { socket_map, result: Ok(( interface, Socket::ExactlyOne( plugin ))), errors },
                 Err( err ) => LoadResult { socket_map, result: Err( err ), errors },
             }),
-        InterfaceCardinality::AtLeastOne => load_at_least_one( socket_map, engine, default_linker, plugins )
+        Cardinality::AtLeastOne => load_at_least_one( socket_map, engine, default_linker, plugins )
             .pipe(| LoadResult { socket_map, result, errors } | match result {
                 Ok( plugins ) => LoadResult {
                     socket_map,
-                    result: Ok(( interface, Socket::AtLeastOne( plugins.into_iter().map(| plugin: PluginInstance<P> | ( plugin.id().clone(), plugin )).collect() ) )),
+                    result: Ok(( interface, Socket::AtLeastOne( plugins.into_iter()
+                        .map(| plugin: PluginInstance<PluginId, Ctx> | ( plugin.id().clone(), plugin ))
+                        .collect()
+                    ))),
                     errors,
                 },
                 Err( err ) => LoadResult { socket_map, result: Err( err ), errors },
             }),
-        InterfaceCardinality::Any => load_any( socket_map, engine, default_linker, plugins )
+        Cardinality::Any => load_any( socket_map, engine, default_linker, plugins )
             .pipe(|( socket_map, plugins, errors )| {
                 let plugins = plugins.into_iter()
-                    .map(| plugin: PluginInstance<P> | ( plugin.id().clone(), plugin ))
+                    .map(| plugin: PluginInstance<PluginId, Ctx> | ( plugin.id().clone(), plugin ))
                     .collect();
                 LoadResult {
                     socket_map,
@@ -126,56 +150,60 @@ where
     }
 }
 
-#[inline] fn load_most_one<I, P, InterfaceId>(
-    socket_map: HashMap<I::Id, SocketState<I, P>>,
+#[inline]
+fn load_most_one<BindingId, PluginId, Ctx>(
+    socket_map: HashMap<BindingId, SocketState<BindingId, PluginId, Ctx>>,
     engine: &Engine,
-    default_linker: &Linker<P>,
-    mut plugins: Vec<P>,
-) -> LoadResult<Option<PluginInstance<P>>, I, P>
+    default_linker: &Linker<Ctx>,
+    mut plugins: Vec<Plugin<PluginId, BindingId, Ctx>>,
+) -> LoadResult<Option<PluginInstance<PluginId, Ctx>>, BindingId, PluginId, Ctx>
 where
-    I: InterfaceData<Id = InterfaceId>,
-    P: PluginData<InterfaceId = InterfaceId>,
-    InterfaceId: Clone + std::hash::Hash + Eq,
+    BindingId: Clone + std::hash::Hash + Eq + std::fmt::Display + std::fmt::Debug,
+    PluginId: Clone + std::hash::Hash + Eq + std::fmt::Debug + Send + Sync + 'static,
+    Ctx: PluginContext + 'static,
 {
     match plugins.pop() {
         Option::None => LoadResult { socket_map, result: Ok( None ), errors: Vec::with_capacity( 0 ) },
         Some( plugin ) => match plugins.pop() {
             Option::None => match load_plugin( socket_map, engine, default_linker, plugin ) {
-                LoadResult { socket_map, result: Ok( plugin ), errors } => LoadResult { socket_map, result: Ok( Some( plugin )), errors },
-                LoadResult { socket_map, result: Err( err ), errors } => LoadResult { socket_map, result: Ok( None ), errors: errors.merge( err ) },
+                LoadResult { socket_map, result: Ok( plugin ), errors }
+                    => LoadResult { socket_map, result: Ok( Some( plugin )), errors },
+                LoadResult { socket_map, result: Err( err ), errors }
+                    => LoadResult { socket_map, result: Ok( None ), errors: errors.merge( err ) },
             },
             Some( _ ) => LoadResult {
                 socket_map,
-                result: Err( LoadError::FailedCardinalityRequirements( InterfaceCardinality::AtMostOne, plugins.len() +2 )),
+                result: Err( LoadError::FailedCardinalityRequirements( Cardinality::AtMostOne, plugins.len() +2 )),
                 errors: Vec::with_capacity( 0 )
             },
         }
     }
 }
 
-#[inline] fn load_exact_one<I, P, InterfaceId>(
-    socket_map: HashMap<I::Id, SocketState<I, P>>,
+#[inline]
+fn load_exact_one<BindingId, PluginId, Ctx>(
+    socket_map: HashMap<BindingId, SocketState<BindingId, PluginId, Ctx>>,
     engine: &Engine,
-    default_linker: &Linker<P>,
-    mut plugins: Vec<P>,
-) -> LoadResult<PluginInstance<P>, I, P>
+    default_linker: &Linker<Ctx>,
+    mut plugins: Vec<Plugin<PluginId, BindingId, Ctx>>,
+) -> LoadResult<PluginInstance<PluginId, Ctx>, BindingId, PluginId, Ctx>
 where
-    I: InterfaceData<Id = InterfaceId>,
-    P: PluginData<InterfaceId = InterfaceId>,
-    InterfaceId: Clone + std::hash::Hash + Eq,
+    BindingId: Clone + std::hash::Hash + Eq + std::fmt::Display + std::fmt::Debug,
+    PluginId: Clone + std::hash::Hash + Eq + std::fmt::Debug + Send + Sync + 'static,
+    Ctx: PluginContext + 'static,
 {
 
     match plugins.pop() {
         Option::None => LoadResult {
             socket_map,
-            result: Err( LoadError::FailedCardinalityRequirements( InterfaceCardinality::ExactlyOne, 0 )),
+            result: Err( LoadError::FailedCardinalityRequirements( Cardinality::ExactlyOne, 0 )),
             errors: Vec::with_capacity( 0 )
         },
         Some( plugin ) => match plugins.pop() {
             Option::None => load_plugin( socket_map, engine, default_linker, plugin ),
             Some( _ ) => LoadResult {
                 socket_map,
-                result: Err( LoadError::FailedCardinalityRequirements( InterfaceCardinality::ExactlyOne, plugins.len() +2 )),
+                result: Err( LoadError::FailedCardinalityRequirements( Cardinality::ExactlyOne, plugins.len() +2 )),
                 errors: Vec::with_capacity( 0 )
             },
         }
@@ -183,21 +211,22 @@ where
 
 }
 
-#[inline] fn load_at_least_one<I, P, InterfaceId>(
-    socket_map: HashMap<I::Id, SocketState<I, P>>,
+#[inline]
+fn load_at_least_one<BindingId, PluginId, Ctx>(
+    socket_map: HashMap<BindingId, SocketState<BindingId, PluginId, Ctx>>,
     engine: &Engine,
-    default_linker: &Linker<P>,
-    plugins: Vec<P>,
-) -> LoadResult<Vec<PluginInstance<P>>, I, P>
+    default_linker: &Linker<Ctx>,
+    plugins: Vec<Plugin<PluginId, BindingId, Ctx>>,
+) -> LoadResult<Vec<PluginInstance<PluginId, Ctx>>, BindingId, PluginId, Ctx>
 where
-    I: InterfaceData<Id = InterfaceId>,
-    P: PluginData<InterfaceId = InterfaceId>,
-    InterfaceId: Clone + std::hash::Hash + Eq,
+    BindingId: Clone + std::hash::Hash + Eq + std::fmt::Display + std::fmt::Debug,
+    PluginId: Clone + std::hash::Hash + Eq + std::fmt::Debug + Send + Sync + 'static,
+    Ctx: PluginContext + 'static,
 {
 
     if plugins.is_empty() { return LoadResult {
         socket_map,
-        result: Err( LoadError::FailedCardinalityRequirements( InterfaceCardinality::AtLeastOne, 0 )),
+        result: Err( LoadError::FailedCardinalityRequirements( Cardinality::AtLeastOne, 0 )),
         errors: Vec::with_capacity( 0 ),
     }}
 
@@ -205,7 +234,7 @@ where
 
     if plugins.is_empty() { return LoadResult {
         socket_map,
-        result: Err( LoadError::FailedCardinalityRequirements( InterfaceCardinality::AtLeastOne, 0 )),
+        result: Err( LoadError::FailedCardinalityRequirements( Cardinality::AtLeastOne, 0 )),
         errors,
     }}
 
@@ -213,24 +242,25 @@ where
 
 }
 
+#[inline]
 #[allow( clippy::type_complexity )]
-#[inline] fn load_any<I, P, InterfaceId>(
-    socket_map: HashMap<I::Id, SocketState<I, P>>,
+fn load_any<BindingId, PluginId, Ctx>(
+    socket_map: HashMap<BindingId, SocketState<BindingId, PluginId, Ctx>>,
     engine: &Engine,
-    default_linker: &Linker<P>,
-    plugins: Vec<P>,
+    default_linker: &Linker<Ctx>,
+    plugins: Vec<Plugin<PluginId, BindingId, Ctx>>,
 ) -> (
-    HashMap<I::Id, SocketState<I, P>>,
-    Vec<PluginInstance<P>>,
-    Vec<LoadError<I, P>>,
+    HashMap<BindingId, SocketState<BindingId, PluginId, Ctx>>,
+    Vec<PluginInstance<PluginId, Ctx>>,
+    Vec<LoadError<BindingId>>,
 ) where
-    I: InterfaceData<Id = InterfaceId>,
-    P: PluginData<InterfaceId = InterfaceId>,
-    InterfaceId: Clone + std::hash::Hash + Eq,
+    BindingId: Clone + std::hash::Hash + Eq + std::fmt::Display + std::fmt::Debug,
+    PluginId: Clone + std::hash::Hash + Eq + std::fmt::Debug + Send + Sync + 'static,
+    Ctx: PluginContext + 'static,
 {
 
     let ( socket_map, plugins, errors ) = plugins.into_iter().fold(
-		( socket_map, Vec::new(), Vec::new()),
+        ( socket_map, Vec::new(), Vec::new()),
         |( socket_map, plugins, errors ), plugin | match load_plugin( socket_map, engine, default_linker, plugin ) {
             LoadResult { socket_map, result: Ok( plugin ), errors: new_errors } => ( socket_map, plugins.merge( plugin ), errors.merge_all( new_errors )),
             LoadResult { socket_map, result: Err( err ), errors: new_errors } => ( socket_map, plugins, errors.merge_all( new_errors ).merge( err ))

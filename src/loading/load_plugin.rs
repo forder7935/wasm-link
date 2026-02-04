@@ -4,8 +4,8 @@ use wasmtime::{ Engine, Store };
 use wasmtime::component::Linker ;
 
 use crate::utils::Merge ;
-use crate::interface::InterfaceData ;
-use crate::plugin::PluginData ;
+use crate::interface::Binding ;
+use crate::plugin::{ Plugin, PluginContext } ;
 use crate::plugin_instance::PluginInstance ;
 use super::{ LoadResult, LoadError, LoadedSocket };
 use super::load_socket::{ SocketState, load_socket };
@@ -13,24 +13,22 @@ use super::link_socket ;
 
 
 
-#[inline] pub fn load_plugin<I, P, InterfaceId>(
-    socket_map: HashMap<I::Id, SocketState<I, P>>,
+#[inline]
+pub fn load_plugin<BindingId, PluginId, Ctx>(
+    socket_map: HashMap<BindingId, SocketState<BindingId, PluginId, Ctx>>,
     engine: &Engine,
-    default_linker: &Linker<P>,
-    plugin: P,
-) -> LoadResult<PluginInstance<P>, I, P>
+    default_linker: &Linker<Ctx>,
+    plugin: Plugin<PluginId, BindingId, Ctx>,
+) -> LoadResult<PluginInstance<PluginId, Ctx>, BindingId, PluginId, Ctx>
 where
-    I: InterfaceData<Id = InterfaceId>,
-    P: PluginData<InterfaceId = InterfaceId>,
-    InterfaceId: Clone + std::hash::Hash + Eq,
+    BindingId: Clone + std::hash::Hash + Eq + std::fmt::Display + std::fmt::Debug,
+    PluginId: Clone + std::hash::Hash + Eq + std::fmt::Debug + Send + Sync + 'static,
+    Ctx: PluginContext + 'static,
 {
 
-    let socket_ids = match plugin.sockets() {
-        Ok( ids ) => ids,
-        Err( err ) => return LoadResult { socket_map, result: Err( LoadError::CorruptedPluginManifest( err ) ), errors: Vec::with_capacity( 0 ) }
-    };
+    let ( id, socket_ids, component, context ) = plugin.into_parts();
 
-    let ( socket_map, sockets, errors ): ( _, _, _ ) = match load_child_sockets( socket_ids, socket_map, engine, default_linker ) {
+    let ( socket_map, sockets, errors ): ( _, _, _ ) = match load_child_sockets( socket_ids.iter(), socket_map, engine, default_linker ) {
         LoadResult { socket_map, result: Ok( sockets ), errors } => ( socket_map, sockets, errors ),
         LoadResult { socket_map, result: Err( err ), errors } => return LoadResult { socket_map, result: Err( err ), errors },
     };
@@ -43,25 +41,14 @@ where
         Err( err ) => return LoadResult { socket_map, result: Err( err ), errors },
     };
 
-    let component = match plugin.component( engine ) {
-        Ok( component ) => component,
-        Err( err ) => return LoadResult { socket_map, result: Err( LoadError::CorruptedPluginManifest( err )), errors }
-    };
-
-    let plugin_id = match plugin.id() {
-        Ok( id ) => id.clone(),
-        Err( err ) => return LoadResult { socket_map, result: Err( LoadError::CorruptedPluginManifest( err )), errors },
-    };
-
-    let mut store = Store::new( engine, plugin );
+    let mut store = Store::new( engine, context );
     let instance = match linker.instantiate( &mut store, &component ) {
         Ok( instance ) => instance,
         Err( err ) => return LoadResult { socket_map, result: Err( LoadError::FailedToLoadComponent( err )), errors },
     };
 
     let lazy_plugin = PluginInstance {
-        id: plugin_id,
-        _component: component,
+        id,
         store,
         instance,
     };
@@ -70,20 +57,21 @@ where
 
 }
 
+#[inline]
 #[allow( clippy::type_complexity )]
-#[inline] fn load_child_sockets<'a, I, P, InterfaceId>(
-    socket_ids: impl IntoIterator<Item = &'a I::Id>,
-    socket_map: HashMap<I::Id, SocketState<I, P>>,
+fn load_child_sockets<'a, BindingId, PluginId, Ctx>(
+    socket_ids: impl IntoIterator<Item = &'a BindingId>,
+    socket_map: HashMap<BindingId, SocketState<BindingId, PluginId, Ctx>>,
     engine: &Engine,
-    default_linker: &Linker<P>,
-) -> LoadResult<Vec<( Arc<I>, Arc<LoadedSocket<P, P::Id>> )>, I, P>
+    default_linker: &Linker<Ctx>,
+) -> LoadResult<Vec<( Arc<Binding<BindingId>>, Arc<LoadedSocket<PluginId, Ctx>> )>, BindingId, PluginId, Ctx>
 where
-    I: InterfaceData<Id = InterfaceId> + 'a,
-    P: PluginData<InterfaceId = InterfaceId>,
-    InterfaceId: 'a + Clone + std::hash::Hash + Eq,
+    BindingId: 'a + Clone + std::hash::Hash + Eq + std::fmt::Display + std::fmt::Debug,
+    PluginId: Clone + std::hash::Hash + Eq + std::fmt::Debug + Send + Sync + 'static,
+    Ctx: PluginContext + 'static,
 {
     match socket_ids.into_iter().try_fold(
-        ( socket_map, Vec::<( _, _ )>::new(), Vec::<LoadError<I, P>>::new() ),
+        ( socket_map, Vec::<( _, _ )>::new(), Vec::<LoadError<BindingId>>::new() ),
         |( socket_map, sockets, errors ): ( _, Vec<_>, Vec<_> ), socket_id |
             match load_socket( socket_map, engine, default_linker, socket_id.clone() ) {
                 LoadResult { socket_map, result: Ok( socket ), errors: new_errors } =>
@@ -96,3 +84,4 @@ where
         Err(( socket_map, err, errors )) => LoadResult { socket_map, result: Err( err ), errors },
     }
 }
+

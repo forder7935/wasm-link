@@ -1,9 +1,7 @@
 //! Plugin dependency tree construction.
 //!
-//! The [`PluginTree`] represents an unloaded plugin dependency tree. Internally,
-//! multiple plugins may share a dependency (so it's technically a DAG), but this
-//! is an implementation detail - conceptually it's a tree rooted at the entry
-//! interface, and cycles are forbidden.
+//! The [`PluginTree`] represents an unloaded plugin dependency tree. Multiple plugins
+//! may share a dependency (so it's technically a graph), though cycles are forbidden.
 //!
 //! Call [`PluginTree::load`] to compile the WASM components and link them together.
 
@@ -13,11 +11,14 @@ use thiserror::Error ;
 use wasmtime::Engine ;
 use wasmtime::component::Linker ;
 
-use crate::interface::{ InterfaceData };
-use crate::plugin::PluginData ;
+use crate::interface::Binding ;
+use crate::plugin::{ Plugin, PluginContext } ;
 use crate::plugin_tree_head::PluginTreeHead ;
 use crate::loading::{ LoadError, load_plugin_tree };
-use crate::utils::{ PartialSuccess, PartialResult, Merge };
+use crate::utils::PartialResult ;
+
+/// Type alias for the socket map used in plugin tree construction.
+type SocketMap<BindingId, PluginId, Ctx> = HashMap<BindingId, ( Binding<BindingId>, Vec<Plugin<PluginId, BindingId, Ctx>> )>;
 
 
 
@@ -26,222 +27,150 @@ use crate::utils::{ PartialSuccess, PartialResult, Merge };
 /// These errors occur in [`PluginTree::new`] when building the dependency graph,
 /// before any WASM compilation happens.
 #[derive( Debug, Error )]
-pub enum PluginTreeError<I: InterfaceData, P: PluginData> {
-    /// Failed to read interface metadata (e.g., couldn't determine the interface's id).
-    #[error( "InterfaceData error: {0}" )] InterfaceDataError( I::Error ),
-    /// Failed to read plugin metadata (e.g., couldn't determine the plugin's plug).
-    #[error( "PluginData error: {0}" )] PluginDataError( P::Error ),
-    /// Plugins reference an interface that wasn't provided in the interfaces list.
-    #[error( "Missing interface {} required by {} plugins", interface_id, plugins.len() )]
-    MissingInterface { interface_id: I::Id, plugins: Vec<P> },
+pub enum PluginTreeError<BindingId, PluginId>
+where
+    BindingId: std::fmt::Display,
+    PluginId: std::fmt::Display,
+{
+    /// Plugins reference an interface binding that wasn't provided in the bindings list.
+    #[error( "Missing interface binding {} required by {} plugins", binding_id, plugins.len() )]
+    MissingBinding { binding_id: BindingId, plugins: Vec<PluginId> },
 }
 
 
 
 /// An unloaded plugin dependency tree.
 ///
-/// Built from a list of plugins by grouping them according to the interfaces
+/// Built from a list of plugins by grouping them according to the interface bindings
 /// they implement (their plug) and depend on (their sockets). The structure
-/// has a single root interface and cycles are forbidden, so it can be thought
-/// of as a tree (though internally, multiple plugins may share a dependency).
+/// has a single root binding, shared dependencies are allowed but cycles are forbidden.
 ///
 /// This is the pre-compilation representation - no WASM has been loaded yet.
 ///
-/// Call [`load`]( Self::load ) to compile WASM components and link dependencies,
+/// Call [`load`]( Self::load ) to instantiate WASM components and link dependencies,
 /// producing a [`PluginTreeHead`] for dispatching function calls.
 ///
 /// # Type Parameters
-/// - `I`: [`InterfaceData`] implementation for loading interface metadata
-/// - `P`: [`PluginData`] implementation for loading plugin metadata
-///
-/// # Example
-///
-/// ```
-/// use wasm_link::{
-///     InterfaceData, InterfaceCardinality, FunctionData, ReturnKind,
-///     PluginData, PluginCtxView, PluginTree, Engine, Component, Linker, ResourceTable,
-/// };
-///
-/// # #[derive( Clone )]
-/// # struct Func { name: &'static str, return_kind: ReturnKind }
-/// # impl FunctionData for Func {
-/// #   fn name( &self ) -> &str { unreachable!() }
-/// #   fn return_kind( &self ) -> ReturnKind { unreachable!() }
-/// #   fn is_method( &self ) -> bool { unreachable!() }
-/// # }
-/// #
-/// struct Interface { id: &'static str, funcs: Vec<Func> }
-/// impl InterfaceData for Interface {
-///     /* ... */
-/// #   type Id = &'static str ;
-/// #   type Error = std::convert::Infallible ;
-/// #   type Function = Func ;
-/// #   type FunctionIter<'a> = std::slice::Iter<'a, Func> ;
-/// #   type ResourceIter<'a> = std::iter::Empty<&'a String> ;
-/// #   fn id( &self ) -> Result<&Self::Id, Self::Error> { Ok( &self.id ) }
-/// #   fn cardinality( &self ) -> Result<&InterfaceCardinality, Self::Error> {
-/// #       Ok( &InterfaceCardinality::ExactlyOne )
-/// #   }
-/// #   fn package_name( &self ) -> Result<&str, Self::Error> { Ok( "my:package/example" ) }
-/// #   fn functions( &self ) -> Result<Self::FunctionIter<'_>, Self::Error> {
-/// #       Ok( self.funcs.iter())
-/// #   }
-/// #   fn resources( &self ) -> Result<Self::ResourceIter<'_>, Self::Error> {
-/// #       Ok( std::iter::empty())
-/// #   }
-/// }
-///
-/// struct Plugin { id: &'static str, plug: &'static str, resource_table: ResourceTable }
-/// # impl PluginCtxView for Plugin {
-/// #   fn resource_table( &mut self ) -> &mut ResourceTable { &mut self.resource_table }
-/// # }
-/// impl PluginData for Plugin {
-///     /* ... */
-/// #   type Id = &'static str ;
-/// #   type InterfaceId = &'static str ;
-/// #   type Error = std::convert::Infallible ;
-/// #   type SocketIter<'a> = std::iter::Empty<&'a Self::InterfaceId> ;
-/// #   fn id( &self ) -> Result<&Self::Id, Self::Error> { Ok( &self.id ) }
-/// #   fn plug( &self ) -> Result<&Self::InterfaceId, Self::Error> { Ok( &self.plug ) }
-/// #   fn sockets( &self ) -> Result<Self::SocketIter<'_>, Self::Error> {
-/// #       Ok( std::iter::empty())
-/// #   }
-/// #   fn component( &self, engine: &Engine ) -> Result<Component, Self::Error> {
-/// #       Ok( Component::new( engine, r#"(component
-/// #           (core module $m)
-/// #           (core instance $i (instantiate $m))
-/// #           (instance $inst)
-/// #           (export "my:package/example" (instance $inst))
-/// #       )"# ).unwrap())
-/// #   }
-/// }
-///
-/// let root_interface_id = "root" ;
-/// let plugins = [ Plugin { id: "foo", plug: root_interface_id, resource_table: ResourceTable::new() }];
-/// let interfaces = [ Interface { id: root_interface_id, funcs: vec![] }];
-///
-/// // Build the dependency graph
-/// let ( tree, build_errors ) = PluginTree::new( root_interface_id, interfaces, plugins );
-/// assert!( build_errors.is_empty() );
-///
-/// // Compile and link the plugins
-/// let engine = Engine::default();
-/// let linker = Linker::new( &engine );
-/// let ( tree_head, load_errors ) = tree.load( &engine, &linker ).unwrap();
-/// assert!( load_errors.is_empty() );
-/// ```
-pub struct PluginTree<I: InterfaceData, P: PluginData> {
-    root_interface_id: I::Id,
-    socket_map: HashMap<I::Id, ( I, Vec<P> )>,
+/// - `BindingId`: Identifier type for interface bindings
+/// - `PluginId`: Identifier type for plugins
+/// - `Ctx`: User context type stored in wasmtime Store
+pub struct PluginTree<BindingId, PluginId, Ctx> {
+    root_binding_id: BindingId,
+    socket_map: SocketMap<BindingId, PluginId, Ctx>,
 }
 
-impl<I: InterfaceData, P: PluginData, InterfaceId> PluginTree<I, P>
+impl<BindingId, PluginId, Ctx> PluginTree<BindingId, PluginId, Ctx>
 where
-    I: InterfaceData<Id = InterfaceId>,
-    P: PluginData<InterfaceId = InterfaceId>,
-    InterfaceId: Clone + std::hash::Hash + Eq + std::fmt::Display,
+    BindingId: Clone + std::hash::Hash + Eq + std::fmt::Display + std::fmt::Display + std::fmt::Debug,
+    PluginId: Clone + std::hash::Hash + Eq + std::fmt::Debug + Send + Sync + std::fmt::Display + std::fmt::Debug + 'static,
+    Ctx: PluginContext + 'static,
 {
 
-    /// Builds a plugin dependency graph from the given interfaces and plugins.
+    /// Builds a plugin dependency graph from the given interface bindings and plugins.
     ///
-    /// Plugins are grouped by the interface they implement ( via [`PluginData::plug`] ).
-    /// Interfaces are indexed by their [`PluginData::id`] method.
+    /// Plugins are grouped by the binding they implement (via `Plugin.plug`).
+    /// Bindings are indexed by their `id` field.
     ///
-    /// The `root_interface_id` specifies the entry point of the tree - the interface
+    /// The `root_binding_id` specifies the entry point of the tree - the binding
     /// whose plugins will be directly accessible via [`PluginTreeHead::dispatch`] after loading.
     ///
-    /// Does not validate all interfaces required for linking are present.
+    /// Does not validate all bindings required for linking are present.
     /// Does not validate cardinality requirements.
     ///
     /// # Partial Success
-    /// Attempts to construct a tree for all plugins it received valid data for. Returns a list
-    /// of errors alongside the loaded `PluginTree` is any of the following occurs:
-    /// - An Interface mentioned in a plugin's plug is not passed in
-    /// - Calling [`PluginData::plug`] returns an error
+    /// Returns a list of errors for plugins whose plug binding wasn't provided.
     ///
     /// # Panics
-    /// Panics if an interface with id `root_interface_id` is not present in `interfaces`.
+    /// Panics if a binding with id `root_binding_id` is not present in `bindings`.
     pub fn new(
-        root_interface_id: I::Id,
-        interfaces: impl IntoIterator<Item = I>,
-        plugins: impl IntoIterator<Item = P>,
-    ) -> PartialSuccess<Self, PluginTreeError<I, P>> {
+        root_binding_id: impl Into<BindingId>,
+        bindings: impl IntoIterator<Item = Binding<BindingId>>,
+        plugins: impl IntoIterator<Item = Plugin<PluginId, BindingId, Ctx>>,
+    ) -> ( Self, Vec<PluginTreeError<BindingId, PluginId>> ) {
 
-        let ( interface_map, interface_errors ) = interfaces.into_iter()
-            .map(| i | Ok::<_, PluginTreeError<I, P>>(( i.id().map_err(| err | PluginTreeError::InterfaceDataError( err ))?.clone(), i )))
-            .partition_result::<HashMap<_, _ >, Vec<_>, _, _>();
+        let root_binding_id = root_binding_id.into();
+
+        let bindings = bindings.into_iter()
+            .map(| binding | ( binding.id().clone(), binding ))
+            .collect::<HashMap<_, _>>();
 
         assert!(
-            interface_map.contains_key( &root_interface_id ),
-            "Root interface {} must be provided in interfaces list",
-            root_interface_id,
+            bindings.contains_key( &root_binding_id ),
+            "Root binding {} must be provided in bindings list",
+            root_binding_id,
         );
 
-        let ( entries, plugin_errors ) = plugins.into_iter()
-            .map(| plugin | Ok(( plugin.plug().map_err( PluginTreeError::PluginDataError )?.clone(), plugin )))
-            .partition_result::<Vec<_>, Vec<_>, _, _>();
+        let plugin_groups = plugins.into_iter()
+            .map(| plugin | ( plugin.plug().clone(), plugin ))
+            .into_group_map();
 
-        let plugin_groups = entries.into_iter().into_group_map();
-        let mut interface_map = interface_map ;
+        let mut bindings = bindings ;
 
-        let ( socket_entries, missing_errors ) = plugin_groups.into_iter()
-            .map(|( id, plugins )| match interface_map.remove( &id ) {
+        let ( socket_entries, errors ) = plugin_groups.into_iter()
+            .map(|( id, plugins )| match bindings.remove( &id ) {
                 Some( interface ) => Ok(( id, ( interface, plugins ))),
-                None => Err( PluginTreeError::MissingInterface { interface_id: id, plugins }),
+                None => Err( PluginTreeError::MissingBinding {
+                    binding_id: id,
+                    plugins: plugins.iter()
+                        .map(| plugin | plugin.id().clone())
+                        .collect()
+                }),
             })
             .partition_result::<Vec<_>, Vec<_>, _, _>();
 
-        // Include remaining interfaces with no plugins. Does not overwrite any
-        // entries since interfaces for sockets that had plugins on them were
+        // Include remaining bindings with no plugins. Does not overwrite any
+        // entries since bindings for sockets that had plugins on them were
         // already removed from the map.
         let socket_map = socket_entries.into_iter()
-            .chain( interface_map.into_iter().map(|( id, interface )| ( id, ( interface, Vec::new() ))))
+            .chain( bindings.into_iter().map(|( id, binding )| ( id, ( binding, Vec::with_capacity( 0 ) ))))
             .collect::<HashMap<_, _>>();
 
-        ( Self { root_interface_id, socket_map }, interface_errors.merge_all( plugin_errors ).merge_all( missing_errors ))
+        ( Self { root_binding_id, socket_map }, errors )
 
     }
 
     /// Creates a plugin tree directly from a pre-built socket map.
     ///
-    /// Does not validate all interfaces required for linking are present.
+    /// Does not validate all bindings required for linking are present.
     /// Does not validate cardinality requirements.
     ///
     /// # Panics
-    /// Panics if an interface with id `root_interface_id` is not present in `interfaces`.
-    pub fn from_socket_map(
-        root_interface_id: I::Id,
-        socket_map: HashMap<I::Id, ( I, Vec<P> )>,
+    /// Panics if a binding with id `root_binding_id` is not present in `socket_map`.
+    pub fn from_hash_map(
+        root_binding_id: impl Into<BindingId>,
+        socket_map: SocketMap<BindingId, PluginId, Ctx>,
     ) -> Self {
 
+        let root_binding_id = root_binding_id.into();
+
         assert!(
-            socket_map.contains_key( &root_interface_id ),
-            "Root interface {} must be provided in interfaces list",
-            root_interface_id,
+            socket_map.contains_key( &root_binding_id ),
+            "Root binding {} must be provided in socket map",
+            root_binding_id,
         );
 
-        Self { root_interface_id, socket_map }
+        Self { root_binding_id, socket_map }
+
     }
 
     /// Compiles and links all plugins in the tree, returning a loaded tree head.
     ///
-    /// This recursively loads plugins starting from the root interface, compiling
+    /// This recursively loads plugins starting from the root binding, instantiating
     /// WASM components and linking their dependencies.
     ///
     /// # Errors
     /// Returns `LoadError` variants for:
-    /// - Invalid or missing socket interfaces
+    /// - Invalid or missing socket bindings
     /// - Dependency cycles between plugins
-    /// - Cardinality violations (too few/many plugins for an interface)
-    /// - Corrupted interface or plugin manifests
-    /// - WASM compilation or linking failures
+    /// - Cardinality violations (too few/many plugins for a binding)
+    /// - WASM instantiation or linking failures
     pub fn load(
         self,
         engine: &Engine,
-        exports: &Linker<P>,
-    ) -> PartialResult<PluginTreeHead<I, P>, LoadError<I, P>, LoadError<I, P>> {
-        match load_plugin_tree( self.socket_map, engine, exports, self.root_interface_id ) {
-            Ok((( interface, socket ), errors )) => Ok(( PluginTreeHead { _interface: interface, socket }, errors )),
+        exports: &Linker<Ctx>,
+    ) -> PartialResult<PluginTreeHead<BindingId, PluginId, Ctx>, LoadError<BindingId>> {
+        match load_plugin_tree( self.socket_map, engine, exports, self.root_binding_id ) {
+            Ok((( binding, socket ), errors )) => Ok(( PluginTreeHead { binding, socket }, errors )),
             Err(( err, errors )) => Err(( err , errors )),
         }
     }

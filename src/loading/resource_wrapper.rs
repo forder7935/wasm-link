@@ -3,7 +3,7 @@ use thiserror::Error ;
 use wasmtime::component::{ Resource, ResourceAny, Val };
 use wasmtime::StoreContextMut ;
 
-use crate::plugin::{ PluginCtxView, PluginData };
+use crate::PluginContext ;
 
 
 
@@ -50,18 +50,18 @@ impl<Id: 'static + std::fmt::Debug + Send + Sync> ResourceWrapper<Id> {
         Self { plugin_id, resource_handle }
     }
 
-    pub fn attach<P: PluginCtxView>(
+    pub fn attach<Ctx: PluginContext>(
         self,
-        store: &mut StoreContextMut<P>,
+        store: &mut StoreContextMut<Ctx>,
     ) -> Result<ResourceAny, ResourceCreationError> {
         let table = store.data_mut().resource_table();
         let resource = table.push( Arc::new( self )).map_err(|_| ResourceCreationError::ResourceTableFull )?;
         Ok( ResourceAny::try_from_resource( resource, store ).expect( "resource was just pushed" ))
     }
 
-    pub fn from_handle<'a, P: PluginCtxView>(
+    pub fn from_handle<'a, Ctx: PluginContext>(
         handle: ResourceAny,
-        store: &'a mut StoreContextMut<P>,
+        store: &'a mut StoreContextMut<Ctx>,
     ) -> Result<&'a Self, ResourceReceiveError> {
         let resource = Resource::<Arc<Self>>::try_from_resource_any( handle, &mut *store ).map_err(|_| ResourceReceiveError::InvalidHandle )?;
         let table = store.data_mut().resource_table();
@@ -69,7 +69,7 @@ impl<Id: 'static + std::fmt::Debug + Send + Sync> ResourceWrapper<Id> {
         Ok( wrapped )
     }
 
-    pub fn drop<P: PluginData>( mut ctx: StoreContextMut<P>, handle: u32 ) -> Result<(), wasmtime::Error> {
+    pub fn drop<Ctx: PluginContext>( mut ctx: StoreContextMut<Ctx>, handle: u32 ) -> Result<(), wasmtime::Error> {
         let resource = Resource::<Arc<Self>>::new_own( handle );
         let table = ctx.data_mut().resource_table();
         table.delete( resource ).map_err(|_| wasmtime::Error::new( ResourceReceiveError::InvalidHandle ))?;

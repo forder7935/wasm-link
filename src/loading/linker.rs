@@ -1,123 +1,132 @@
 use std::sync::{ Arc, Mutex };
 use wasmtime::StoreContextMut ;
-use wasmtime::component::{ Linker, ResourceType, Val };
+use wasmtime::component::{ Linker, LinkerInstance, ResourceType, Val };
 
-use crate::interface::{ InterfaceData, FunctionData, ReturnKind };
-use crate::plugin::{ PluginCtxView, PluginData };
-use crate::socket::Socket ;
+use crate::{ Binding, Interface, Function, ReturnKind, Socket, PluginContext, DispatchError };
 use crate::plugin_instance::PluginInstance ;
-use crate::plugin_instance::DispatchError ;
 use super::{ LoadError, ResourceWrapper };
 
 
 
-pub type LoadedSocket<P, Id> = Socket<Mutex<PluginInstance<P>>, Id> ;
+pub type LoadedSocket<PluginId, Ctx> = Socket<Mutex<PluginInstance<PluginId, Ctx>>, PluginId> ;
 
-#[inline] pub fn link_socket<I, P>(
-    mut linker: Linker<P>,
-    interface: &Arc<I>,
-    socket: &Arc<LoadedSocket<P, P::Id>>,
-) -> Result<Linker<P>, LoadError<I, P>>
+#[inline]
+pub fn link_socket<BindingId, PluginId, Ctx>(
+    mut linker: Linker<Ctx>,
+    binding: &Arc<Binding<BindingId>>,
+    socket: &Arc<LoadedSocket<PluginId, Ctx>>,
+) -> Result<Linker<Ctx>, LoadError<BindingId>>
 where
-    I: InterfaceData,
-    P: PluginData,
+    BindingId: Clone + std::hash::Hash + Eq + std::fmt::Display + std::fmt::Debug,
+    PluginId: Clone + std::hash::Hash + Eq + std::fmt::Debug + Send + Sync + 'static,
+    Ctx: PluginContext + 'static,
 {
-
-    let package = match interface.package_name() {
-        Ok( package ) => package,
-        Err( err ) => return Err( LoadError::CorruptedInterfaceManifest( err )),
-    };
-    let interface_ident = format!( "{}/root", package );
-
     let mut root = linker.root();
-    let mut linker_instance = root.instance( &interface_ident ).map_err( LoadError::FailedToLinkInterface )?;
 
-    match interface.functions() {
-        Ok( functions ) => functions.into_iter().try_for_each(| function | -> Result<(), LoadError<I, P>> {
-
-            let function_clone = function.clone();
-            let interface_ident_clone = interface_ident.clone();
-            let socket_arc_clone = Arc::clone( socket );
-
-            macro_rules! link {( $dispatch: expr ) => {
-                linker_instance.func_new( function.name(), move | ctx, _ty, args, results | Ok(
-                    results[0] = $dispatch( &socket_arc_clone, ctx, &interface_ident_clone, &function_clone, args )
-                )).map_err(| err | LoadError::FailedToLink( function.name().to_string(), err ) )
-            }}
-
-            match function.is_method() {
-                false => link!( dispatch_all::<I, P> ),
-                true => link!( dispatch_method::<I, P> ),
-            }
-
-        })?,
-        Err( err ) => return Err( LoadError::CorruptedInterfaceManifest( err )),
-    }
-
-    match interface.resources() {
-        Ok( resources ) => resources.into_iter().try_for_each(| resource | linker_instance
-            .resource( resource.as_str(), ResourceType::host::<Arc<ResourceWrapper<P::Id>>>(), ResourceWrapper::<P::Id>::drop )
-            .map_err(| err | LoadError::FailedToLink( resource.clone(), err ))
-        )?,
-        Err( err ) => return Err( LoadError::CorruptedInterfaceManifest( err )),
-    }
+    binding.interfaces().iter().try_for_each(| interface | {
+        let interface_ident = format!( "{}/{}", binding.package_name(), interface.name() );
+        let linker_instance = root.instance( &interface_ident ).map_err( LoadError::FailedToLinkInterface )?;
+        let _ = link_socket_interface( linker_instance, interface, &interface_ident, socket )?;
+        Ok(())
+    })?;
 
     Ok( linker )
+}
+
+#[inline]
+fn link_socket_interface<'a, BindingId, PluginId, Ctx>(
+    mut linker_instance: LinkerInstance<'a, Ctx>,
+    interface: &Interface,
+    interface_ident: &str,
+    socket: &Arc<LoadedSocket<PluginId, Ctx>>,
+) -> Result<LinkerInstance<'a, Ctx>, LoadError<BindingId>>
+where
+    BindingId: Clone + std::hash::Hash + Eq + std::fmt::Display + std::fmt::Debug,
+    PluginId: Clone + std::hash::Hash + Eq + std::fmt::Debug + Send + Sync + 'static,
+    Ctx: PluginContext + 'static,
+{
+
+    interface.functions().iter().try_for_each(| function | -> Result<(), LoadError<BindingId>> {
+
+        let function_clone = function.clone();
+        let interface_ident_clone = interface_ident.to_string();
+        let socket_arc_clone = Arc::clone( socket );
+
+        macro_rules! link {( $dispatch: expr ) => {
+            linker_instance.func_new( function.name(), move | ctx, _ty, args, results | Ok(
+                results[0] = $dispatch( &socket_arc_clone, ctx, &interface_ident_clone, &function_clone, args )
+            )).map_err(| err | LoadError::FailedToLink( function.name().to_string(), err ) )
+        }}
+
+        match function.is_method() {
+            false => link!( dispatch_all ),
+            true => link!( dispatch_method ),
+        }
+
+    })?;
+
+    interface.resources().iter().try_for_each(| resource | linker_instance
+        .resource( resource.as_str(), ResourceType::host::<Arc<ResourceWrapper<PluginId>>>(), ResourceWrapper::<PluginId>::drop )
+        .map_err(| err | LoadError::FailedToLink( resource.clone(), err ))
+    )?;
+
+    Ok( linker_instance )
 
 }
 
 /// Dispatches a non-method function call to all plugins
-pub(crate) fn dispatch_all<I, P>(
-    socket: &Arc<LoadedSocket<P, P::Id>>,
-    mut ctx: StoreContextMut<P>,
+pub(crate) fn dispatch_all<PluginId, Ctx>(
+    socket: &Arc<LoadedSocket<PluginId, Ctx>>,
+    mut ctx: StoreContextMut<Ctx>,
     interface_path: &str,
-    function: &I::Function,
+    function: &Function,
     data: &[Val],
 ) -> Val
 where
-    I: InterfaceData,
-    P: PluginData,
+    PluginId: Clone + std::hash::Hash + Eq + std::fmt::Debug + Send + Sync + 'static,
+    Ctx: PluginContext,
 {
     debug_assert!( !function.is_method() );
-    socket.map(| plugin | Val::Result( match dispatch_of::<I, P>( &mut ctx, plugin, interface_path, function, data ) {
+    socket.map(| plugin | Val::Result( match dispatch_of::<PluginId, Ctx>( &mut ctx, plugin, interface_path, function, data ) {
         Ok( val ) => Ok( Some( Box::new( val ))),
         Err( err ) => Err( Some( Box::new( err.into() ))),
     })).into()
 }
 
 /// Dispatches a method function call, routing to the correct plugin.
-pub(crate) fn dispatch_method<I, P>(
-    socket: &Arc<LoadedSocket<P, P::Id>>,
-    ctx: StoreContextMut<P>,
+pub(crate) fn dispatch_method<PluginId, Ctx>(
+    socket: &Arc<LoadedSocket<PluginId, Ctx>>,
+    ctx: StoreContextMut<Ctx>,
     interface_path: &str,
-    function: &I::Function,
+    function: &Function,
     data: &[Val],
 ) -> Val
 where
-    I: InterfaceData,
-    P: PluginData,
+    PluginId: Clone + std::hash::Hash + Eq + std::fmt::Debug + Send + Sync + 'static,
+    Ctx: PluginContext,
 {
     debug_assert!( function.is_method() );
-    Val::Result( match route_method::<I, P>( socket, ctx, interface_path, function, data ) {
+    Val::Result( match route_method::<PluginId, Ctx>( socket, ctx, interface_path, function, data ) {
         Ok( val ) => Ok( Some( Box::new( val ))),
         Err( err ) => Err( Some( Box::new( err.into() ))),
     })
 }
 
-#[inline] fn dispatch_of<I, P>(
-    ctx: &mut StoreContextMut<P>,
-    plugin: &Mutex<PluginInstance<P>>,
+#[inline]
+fn dispatch_of<PluginId, Ctx>(
+    ctx: &mut StoreContextMut<Ctx>,
+    plugin: &Mutex<PluginInstance<PluginId, Ctx>>,
     interface_path: &str,
-    function: &I::Function,
+    function: &Function,
     data: &[Val],
-) -> Result<Val, DispatchError<I>>
+) -> Result<Val, DispatchError>
 where
-    I: InterfaceData,
-    P: PluginData,
+    PluginId: Clone + std::hash::Hash + Eq + std::fmt::Debug + Send + Sync + 'static,
+    Ctx: PluginContext,
 {
 
-    let mut lock = plugin.lock().map_err(|_| DispatchError::Deadlock )?;
-    let has_return = function.return_kind() != ReturnKind::Void;
+    let mut lock = plugin.lock().map_err(|_| DispatchError::LockRejected )?;
+    let has_return = function.return_kind() != ReturnKind::Void ;
     let result = lock.dispatch( interface_path, function.name(), has_return, data )?;
 
     Ok( match function.return_kind() {
@@ -126,16 +135,17 @@ where
     })
 }
 
-#[inline] fn route_method<I, P>(
-    socket: &LoadedSocket<P, P::Id>,
-    mut ctx: StoreContextMut<P>,
+#[inline]
+fn route_method<PluginId, Ctx>(
+    socket: &LoadedSocket<PluginId, Ctx>,
+    mut ctx: StoreContextMut<Ctx>,
     interface_path: &str,
-    function: &I::Function,
+    function: &Function,
     data: &[Val],
-) -> Result<Val, DispatchError<I>>
+) -> Result<Val, DispatchError>
 where
-    I: InterfaceData,
-    P: PluginData,
+    PluginId: Clone + std::hash::Hash + Eq + std::fmt::Debug + Send + Sync + 'static,
+    Ctx: PluginContext,
 {
 
     let handle = match data.first() {
@@ -145,7 +155,7 @@ where
 
     let resource = ResourceWrapper::from_handle( *handle, &mut ctx )?;
     let plugin = socket.get( &resource.plugin_id )
-        .map_err(|_| DispatchError::Deadlock )?
+        .map_err(|_| DispatchError::LockRejected )?
         .ok_or( DispatchError::InvalidArgumentList )?;
 
     let mut data = Vec::from( data );
@@ -155,10 +165,9 @@ where
 
 }
 
-fn wrap_resources<I, T, Id>( val: Val, plugin_id: &Id, store: &mut StoreContextMut<T> ) -> Result<Val, DispatchError<I>>
+fn wrap_resources<T, Id>( val: Val, plugin_id: &Id, store: &mut StoreContextMut<T> ) -> Result<Val, DispatchError>
 where
-	I: InterfaceData,
-    T: PluginCtxView,
+    T: PluginContext,
     Id: std::fmt::Debug + Clone + Send + Sync + 'static,
 {
     Ok( match val {
@@ -175,9 +184,9 @@ where
         | Val::Result( Ok( Option::None )) | Val::Result( Err( Option::None )) => val,
         Val::List( list ) => Val::List( list.into_iter().map(| item | wrap_resources( item, plugin_id, store )).collect::<Result<_,_>>()? ),
         Val::Record( entries ) => Val::Record( entries.into_iter()
-			.map(|( key, value )| Ok::<_, DispatchError<I>>(( key, wrap_resources::<I, _, _>( value, plugin_id, store )?)) )
-			.collect::<Result<_,_>>()?
-		),
+            .map(|( key, value )| Ok::<_, DispatchError>(( key, wrap_resources( value, plugin_id, store )?)) )
+            .collect::<Result<_,_>>()?
+        ),
         Val::Tuple( list ) => Val::Tuple( list.into_iter().map(| item | wrap_resources( item, plugin_id, store )).collect::<Result<_,_>>()? ),
         Val::Variant( variant, Some( data_box )) => Val::Variant( variant, Some( Box::new( wrap_resources( *data_box, plugin_id, store )? ))),
         Val::Option( Some( data_box )) => Val::Option( Some( Box::new( wrap_resources( *data_box, plugin_id, store )? ))),

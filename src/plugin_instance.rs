@@ -1,21 +1,19 @@
 use thiserror::Error ;
-use wasmtime::component::{ Component, Instance, Val };
+use wasmtime::component::{ Instance, Val };
 use wasmtime::Store ;
 
-use crate::plugin::PluginData ;
-use crate::interface::InterfaceData ;
+use crate::PluginContext ;
 use crate::loading::{ ResourceCreationError, ResourceReceiveError };
 
 
 
-pub struct PluginInstance<P: PluginData + 'static> {
-    pub(crate) id: P::Id,
-    pub(crate) _component: Component,
-    pub(crate) store: Store<P>,
+pub struct PluginInstance<PluginId, Ctx: 'static> {
+    pub(crate) id: PluginId,
+    pub(crate) store: Store<Ctx>,
     pub(crate) instance: Instance,
 }
 
-impl<P: PluginData + std::fmt::Debug> std::fmt::Debug for PluginInstance<P> {
+impl<PluginId: std::fmt::Debug, Ctx: std::fmt::Debug + 'static> std::fmt::Debug for PluginInstance<PluginId, Ctx> {
     fn fmt( &self, f: &mut std::fmt::Formatter<'_> ) -> std::result::Result<(), std::fmt::Error> {
         f.debug_struct( "Plugin Instance" )
             .field( "id", &self.id )
@@ -33,13 +31,11 @@ impl<P: PluginData + std::fmt::Debug> std::fmt::Debug for PluginInstance<P> {
 /// [`Socket`]: crate::Socket
 /// [`PluginTreeHead::dispatch`]: crate::PluginTreeHead::dispatch
 #[derive( Error, Debug )]
-pub enum DispatchError<I: InterfaceData> {
+pub enum DispatchError {
     /// Failed to acquire lock on plugin instance (another call is in progress).
-    #[error( "Deadlock" )] Deadlock,
-    /// Failed to parse interface metadata during dispatch.
-    #[error( "Interface Error: {0}")] WitParserError( I::Error ),
+    #[error( "Lock Rejected" )] LockRejected,
     /// The specified interface path doesn't match any known interface.
-    #[error( "Invalid Interface: {0}" )] InvalidInterface( String ),
+    #[error( "Invalid Interface Path: {0}" )] InvalidInterfacePath( String ),
     /// The specified function doesn't exist on the interface.
     #[error( "Invalid Function: {0}" )] InvalidFunction( String ),
     /// Function was expected to return a value but didn't.
@@ -56,34 +52,33 @@ pub enum DispatchError<I: InterfaceData> {
     #[error( "Resource Receive Error: {0}" )] ResourceReceiveError( #[from] ResourceReceiveError ),
 }
 
-impl<I: InterfaceData> From<DispatchError<I>> for Val {
-    fn from( error: DispatchError<I> ) -> Val { match error {
-        DispatchError::Deadlock => Val::Variant( "deadlock".to_string(), None ),
-        DispatchError::WitParserError( err ) => Val::Variant( "wit-parser-error".to_string(), Some( Box::new( Val::String( err.to_string() )))),
-        DispatchError::InvalidInterface( package ) => Val::Variant( "invalid-interface".to_string(), Some( Box::new( Val::String( package )))),
+impl From<DispatchError> for Val {
+    fn from( error: DispatchError ) -> Val { match error {
+        DispatchError::LockRejected => Val::Variant( "lock-rejected".to_string(), None ),
+        DispatchError::InvalidInterfacePath( package ) => Val::Variant( "invalid-interface-path".to_string(), Some( Box::new( Val::String( package )))),
         DispatchError::InvalidFunction( function ) => Val::Variant( "invalid-function".to_string(), Some( Box::new( Val::String( function )))),
         DispatchError::MissingResponse => Val::Variant( "missing-response".to_string(), None ),
         DispatchError::RuntimeException( exception ) => Val::Variant( "runtime-exception".to_string(), Some( Box::new( Val::String( exception.to_string() )))),
         DispatchError::InvalidArgumentList => Val::Variant( "invalid-argument-list".to_string(), None ),
-		DispatchError::UnsupportedType( name ) => Val::Variant( "unsupported-type".to_string(), Some( Box::new( Val::String( name )))),
+        DispatchError::UnsupportedType( name ) => Val::Variant( "unsupported-type".to_string(), Some( Box::new( Val::String( name )))),
         DispatchError::ResourceCreationError( err ) => err.into(),
         DispatchError::ResourceReceiveError( err ) => err.into(),
     }}
 }
 
-impl<P: PluginData> PluginInstance<P> {
+impl<PluginId, Ctx: PluginContext + 'static> PluginInstance<PluginId, Ctx> {
 
-    pub fn id( &self ) -> &P::Id { &self.id }
+    pub fn id( &self ) -> &PluginId { &self.id }
 
     const PLACEHOLDER_VAL: Val = Val::Tuple( vec![] );
 
-    pub(crate) fn dispatch<I: InterfaceData>(
+    pub(crate) fn dispatch(
         &mut self,
         interface_path: &str,
         function: &str,
         returns: bool,
         data: &[Val],
-    ) -> Result<Val, DispatchError<I>> {
+    ) -> Result<Val, DispatchError> {
 
         let mut buffer = match returns {
             true => vec![ Self::PLACEHOLDER_VAL ],
@@ -92,7 +87,7 @@ impl<P: PluginData> PluginInstance<P> {
 
         let interface_index = self.instance
             .get_export_index( &mut self.store, None, interface_path )
-            .ok_or( DispatchError::InvalidInterface( interface_path.to_string() ))?;
+            .ok_or( DispatchError::InvalidInterfacePath( interface_path.to_string() ))?;
         let func_index = self.instance
             .get_export_index( &mut self.store, Some( &interface_index ), function )
             .ok_or( DispatchError::InvalidFunction( format!( "{}:{}", interface_path, function )))?;

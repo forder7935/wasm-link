@@ -9,4 +9,4 @@ pub type PartialSuccess<T, E> = ( T, Vec<E> );
 /// Represents an operation that may partially succeed or fail.
 /// Ok: Core success data plus errors from partial failures that allowed completion.
 /// Err: Primary failure cause plus errors that likely contributed to the overall failure.
-pub type PartialResult<T, F, E> = Result<( T, Vec<E> ), ( F, Vec<E> )>;
+pub type PartialResult<T, E> = Result<( T, Vec<E> ), ( E, Vec<E> )>;
