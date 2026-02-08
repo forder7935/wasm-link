@@ -1,5 +1,0 @@
-package test:dep-three ;
-
-interface root {
-  get-three: func() -> u32;
-}

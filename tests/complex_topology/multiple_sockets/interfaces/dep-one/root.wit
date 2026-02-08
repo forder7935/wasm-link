@@ -1,5 +1,0 @@
-package test:dep-one ;
-
-interface root {
-  get-one: func() -> u32;
-}

@@ -1,12 +1,7 @@
-//! Runtime container for plugin instances or dispatch results.
-//!
-//! A [`Socket`] holds values (plugin instances or call results) in a shape that
-//! matches a binding's [`Cardinality`]( crate::Cardinality ). This allows consumers to
-//! handle results appropriately based on whether they expected one plugin or many.
-
 use std::collections::HashMap ;
-use std::sync::{ Mutex, MutexGuard, PoisonError };
+use std::sync::Mutex ;
 use wasmtime::component::Val ;
+use nonempty_collections::{ NEMap, NonEmptyIterator, IntoNonEmptyIterator };
 
 use crate::plugin::PluginContext ;
 use crate::plugin_instance::PluginInstance ;
@@ -14,69 +9,61 @@ use crate::DispatchError ;
 
 
 
-/// Container for plugin instances or dispatch results.
+/// Runtime container for plugin instances or dispatch results.
 ///
-/// The variant corresponds directly to the interface's [`Cardinality`]( crate::Cardinality ):
-///
-/// | Cardinality  | Socket Variant           | Contents                                     |
-/// |--------------|--------------------------|----------------------------------------------|
-/// | `ExactlyOne` | `ExactlyOne( T )`        | Single value, guaranteed present             |
-/// | `AtMostOne`  | `AtMostOne( Option<T> )` | Optional single value                        |
-/// | `AtLeastOne` | `AtLeastOne( HashMap )`  | Map of plugin ID → value, at least one entry |
-/// | `Any`        | `Any( HashMap )`         | Map of plugin ID → value, may be empty       |
+/// A [`Socket`] holds values (plugin instances or call results) in a shape that
+/// encodes cardinality constraints directly in the type system. The enum variant
+/// determines how many values are present, allowing consumers to handle results
+/// appropriately based on whether they expected one plugin or many.
 #[derive( Debug )]
 pub enum Socket<T, Id> {
-    /// Zero or one value. Used when cardinality is `AtMostOne`.
-    AtMostOne( Option<T> ),
-    /// Exactly one value, guaranteed present. Used when cardinality is `ExactlyOne`.
-    ExactlyOne( T ),
+    /// Zero or one value with ID. Used when cardinality is `AtMostOne`.
+    AtMostOne( Option<( Id, T )> ),
+    /// Exactly one value with ID, guaranteed present. Used when cardinality is `ExactlyOne`.
+    ExactlyOne( Id, T ),
     /// One or more values keyed by plugin ID. Used when cardinality is `AtLeastOne`.
-    AtLeastOne( HashMap<Id, T> ),
+    AtLeastOne( NEMap<Id, T> ),
     /// Zero or more values keyed by plugin ID. Used when cardinality is `Any`.
     Any( HashMap<Id, T> ),
 }
 
-impl<T, Id: Clone + std::hash::Hash + Eq> Socket<T, Id> {
+impl<T, Id: std::hash::Hash + Eq> Socket<T, Id> {
 
-    pub(crate) fn map<N>( &self, mut map: impl FnMut( &T ) -> N ) -> Socket<N, Id> {
+    pub(crate) fn map<N>( &self, mut map: impl FnMut( &Id, &T ) -> N ) -> Socket<N, Id> where Id: Clone {
         match self {
             Self::AtMostOne( Option::None ) => Socket::AtMostOne( Option::None ),
-            Self::AtMostOne( Some( t ) ) => Socket::AtMostOne( Some( map( t ))),
-            Self::ExactlyOne( t ) => Socket::ExactlyOne( map( t )),
-            Self::AtLeastOne( vec ) => Socket::AtLeastOne( vec.iter().map(|( id, item ): ( &Id, _ )| ( id.clone(), map( item ) )).collect() ),
-            Self::Any( vec ) => Socket::Any( vec.iter().map(|( id, item ): ( &Id, _ )| ( id.clone(), map( item ) )).collect() ),
+            Self::AtMostOne( Some(( id, t ))) => Socket::AtMostOne( Some(( id.clone(), map( id, t )))),
+            Self::ExactlyOne( id, t ) => Socket::ExactlyOne( id.clone(), map( id, t )),
+            Self::AtLeastOne( vec ) => Socket::AtLeastOne( vec.nonempty_iter().map(|( id, item )| ( id.clone(), map( id, item ))).collect() ),
+            Self::Any( vec ) => Socket::Any( vec.iter().map(|( id, item )| ( id.clone(), map( id, item ))).collect() ),
         }
     }
 
     pub(crate) fn map_mut<N>( self, mut map: impl FnMut(T) -> N ) -> Socket<N, Id> {
         match self {
             Self::AtMostOne( Option::None ) => Socket::AtMostOne( Option::None ),
-            Self::AtMostOne( Some( t )) => Socket::AtMostOne( Some( map( t ))),
-            Self::ExactlyOne( t ) => Socket::ExactlyOne( map( t )),
-            Self::AtLeastOne( vec ) => Socket::AtLeastOne( vec.into_iter().map(|( id, item )| ( id, map( item ) )).collect() ),
+            Self::AtMostOne( Some(( id, t ))) => Socket::AtMostOne( Some(( id, map( t )))),
+            Self::ExactlyOne( id, t ) => Socket::ExactlyOne( id, map( t )),
+            Self::AtLeastOne( vec ) => Socket::AtLeastOne( vec.into_nonempty_iter().map(|( id, item )| ( id, map( item ))).collect() ),
             Self::Any( vec ) => Socket::Any( vec.into_iter().map(|( id, item )| ( id, map( item ))).collect() ),
         }
     }
 }
 
-impl<PluginId, Ctx> Socket<Mutex<PluginInstance<PluginId, Ctx>>, PluginId>
+impl<PluginId, Ctx> Socket<Mutex<PluginInstance<Ctx>>, PluginId>
 where
     PluginId: Clone + std::hash::Hash + Eq,
     Ctx: PluginContext,
 {
 
-    #[allow( clippy::type_complexity )]
-    pub(crate) fn get( &self, id: &PluginId ) -> Result<
-        Option<&Mutex<PluginInstance<PluginId, Ctx>>>,
-        PoisonError<MutexGuard<'_, PluginInstance<PluginId, Ctx>>>
-    > {
-        Ok( match self {
+    /// Note, if cardinality is `AtMostOne` or `ExactlyOne`, the id is ignored
+    pub(crate) fn get( &self, id: &PluginId ) -> Option<&Mutex<PluginInstance<Ctx>>> {
+        match self {
             Self::AtMostOne( Option::None ) => None,
-            Self::AtMostOne( Some( plugin )) | Self::ExactlyOne( plugin ) => {
-                if &plugin.lock()?.id == id { Some( plugin ) } else { None }
-            },
-            Self::AtLeastOne( plugins ) | Self::Any( plugins ) => plugins.get( id ),
-        })
+            Self::AtMostOne( Some(( _, plugin ))) | Self::ExactlyOne( _, plugin ) => Some( plugin ),
+            Self::AtLeastOne( plugins ) => plugins.get( id ),
+            Self::Any( plugins ) => plugins.get( id ),
+        }
     }
 
     pub(crate) fn dispatch_function(
@@ -86,21 +73,29 @@ where
         has_return: bool,
         data: &[Val],
     ) -> Socket<Result<Val, DispatchError>, PluginId> {
-        self.map(| plugin | plugin
+        self.map(| _, plugin | plugin
             .lock().map_err(|_| DispatchError::LockRejected )
             .and_then(| mut lock | lock.dispatch( interface_path, function, has_return, data ))
         )
     }
 }
 
-impl<Id> From<Socket<Val, Id>> for Val {
+impl<Id: std::hash::Hash + Eq + Into<Val>> From<Socket<Val, Id>> for Val {
     fn from( socket: Socket<Val, Id> ) -> Self {
         match socket {
             Socket::AtMostOne( Option::None ) => Val::Option( Option::None ),
-            Socket::AtMostOne( Some( val )) => Val::Option( Some( Box::new( val ))),
-            Socket::ExactlyOne( val ) => val,
-            Socket::AtLeastOne( items )
-            | Socket::Any( items ) => Val::List( items.into_values().collect() ),
+            Socket::AtMostOne( Some(( _, val ))) => Val::Option( Some( Box::new( val ))),
+            Socket::ExactlyOne( _, val ) => val,
+            Socket::AtLeastOne( items ) => Val::List(
+                items.into_iter()
+                    .map(|( id, val )| Val::Tuple( vec![ id.into(), val ]))
+                    .collect()
+            ),
+            Socket::Any( items ) => Val::List(
+                items.into_iter()
+                    .map(|( id, val )| Val::Tuple( vec![ id.into(), val ]))
+                    .collect()
+            ),
         }
     }
 }
