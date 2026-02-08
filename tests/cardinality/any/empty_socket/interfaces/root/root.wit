@@ -1,5 +1,0 @@
-package test:empty-socket ;
-
-interface root {
-  test: func();
-}

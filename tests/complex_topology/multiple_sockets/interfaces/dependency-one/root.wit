@@ -1,0 +1,5 @@
+package test:dependency-one ;
+
+interface root {
+  get-one: func() -> u32;
+}

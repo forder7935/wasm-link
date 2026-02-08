@@ -1,4 +1,5 @@
-use wasm_link::{ Engine, Linker, PluginTree, Val, Socket };
+use std::collections::HashMap;
+use wasm_link::{ Binding, Engine, Linker, Val, Socket };
 
 fixtures! {
 	const ROOT	=   "root" ;
@@ -10,22 +11,31 @@ fixtures! {
 fn dispatch_test_dependant_plugins_expect_primitive() {
 
 	let engine = Engine::default();
-
-    let ( tree, warnings ) = PluginTree::new(
-		fixtures::ROOT.to_string(),
-		fixtures::interfaces(),
-		fixtures::plugins( &engine ),
-    );
-    assert_no_warnings!( warnings );
-
 	let linker = Linker::new( &engine );
 
-    let ( tree, warnings ) = tree.load( &engine, &linker ).unwrap();
-    assert_no_warnings!( warnings );
+	let child_instance = fixtures::plugin( "child", &engine ).plugin
+		.instantiate( &engine, &linker )
+		.expect( "Failed to instantiate child plugin" );
+	let interface_dependency = fixtures::interface( "dependency" );
+	let dependency_binding = Binding::new(
+		interface_dependency.package,
+		HashMap::from([( interface_dependency.name, interface_dependency.interface )]),
+		Socket::ExactlyOne( "_".to_string(), child_instance ),
+	);
 
-    match tree.dispatch( "root", "get-primitive", true, &[] ) {
-        Socket::ExactlyOne( Ok( Val::U32( 42 ) )) => {}
-        value => panic!( "Expected ExactlyOne( Ok( U32( 42 ))), found: {:#?}", value ),
-    }
+	let startup_instance = fixtures::plugin( "startup", &engine ).plugin
+		.link( &engine, linker.clone(), vec![ dependency_binding ])
+		.expect( "Failed to link startup plugin" );
+	let interface_root = fixtures::interface( "root" );
+	let root_binding = Binding::new(
+		interface_root.package,
+		HashMap::from([( interface_root.name, interface_root.interface )]),
+		Socket::ExactlyOne( "_".to_string(), startup_instance ),
+	);
+
+	match root_binding.dispatch( "root", "get-primitive", &[] ) {
+		Ok( Socket::ExactlyOne( _, Ok( Val::U32( 42 )))) => {}
+		value => panic!( "Expected Ok( ExactlyOne( Ok( U32( 42 )))), found: {:#?}", value ),
+	}
 
 }
