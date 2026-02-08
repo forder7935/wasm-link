@@ -13,59 +13,6 @@
   (alias export $resource_inst "[constructor]counter" (func $ctor_wrapped))
   (alias export $resource_inst "[method]counter.get-value" (func $get_wrapped))
 
-  ;; Main core module - defines everything including memory
-  (core module $main
-    ;; Placeholders for imports - will be filled by lowered functions
-    (import "resource" "ctor" (func $ctor (param i32)))
-    (import "resource" "get" (func $get (param i32 i32)))
-
-    (memory (export "memory") 1)
-
-    ;; Realloc for canonical ABI
-    (func (export "realloc") (param i32 i32 i32 i32) (result i32)
-      i32.const 256  ;; Simple bump allocator
-    )
-
-    ;; Our exported get-value function
-    (func (export "get-value") (result i32)
-      ;; Call constructor with retptr = 0
-      ;; Memory layout at 0: discriminant (i32), handle/payload (i32)
-      i32.const 0
-      call $ctor
-      
-      ;; Load handle from offset 4 (discriminant at 0 should be 0 for ok)
-      ;; Call get-value with handle and retptr = 8
-      (call $get
-        (i32.load (i32.const 4))  ;; handle
-        (i32.const 8)             ;; retptr for result
-      )
-      
-      ;; Load result from offset 8: discriminant at 8, value at 12
-      ;; Return the value at offset 12
-      (i32.load (i32.const 12))
-    )
-  )
-
-  ;; We need to instantiate the main module twice - first without imports to get
-  ;; memory and realloc, then lower functions using those, then instantiate for real.
-  ;; But we can't do that directly. Instead, use a two-phase approach with a separate
-  ;; memory provider.
-
-  ;; Alternative: Use the core module directly but with a trick - define memory
-  ;; in a separate module, import it into main, and use it for lowering.
-
-  ;; Let's try a different approach: define everything in components
-
-  ;; Actually, the standard pattern is to have the main module export memory/realloc,
-  ;; instantiate it with stubs, get the exports, then use them for lowering,
-  ;; then reinstantiate properly.
-
-  ;; But WAT component model doesn't allow re-instantiation. We need to use
-  ;; a single instantiation with proper memory sharing.
-
-  ;; The trick: have one module that just provides memory, import that memory
-  ;; into the main module.
-
   ;; Memory provider module
   (core module $mem_module
     (memory (export "memory") 1)

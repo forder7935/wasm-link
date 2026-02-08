@@ -3,20 +3,18 @@ use wasmtime::component::{ Instance, Val };
 use wasmtime::Store ;
 
 use crate::PluginContext ;
-use crate::loading::{ ResourceCreationError, ResourceReceiveError };
+use crate::resource_wrapper::{ ResourceCreationError, ResourceReceiveError };
 
 
 
-pub struct PluginInstance<PluginId, Ctx: 'static> {
-    pub(crate) id: PluginId,
+pub struct PluginInstance<Ctx: 'static> {
     pub(crate) store: Store<Ctx>,
     pub(crate) instance: Instance,
 }
 
-impl<PluginId: std::fmt::Debug, Ctx: std::fmt::Debug + 'static> std::fmt::Debug for PluginInstance<PluginId, Ctx> {
+impl<Ctx: std::fmt::Debug + 'static> std::fmt::Debug for PluginInstance<Ctx> {
     fn fmt( &self, f: &mut std::fmt::Formatter<'_> ) -> std::result::Result<(), std::fmt::Error> {
-        f.debug_struct( "Plugin Instance" )
-            .field( "id", &self.id )
+        f.debug_struct( "PluginInstance" )
             .field( "data", &self.store.data() )
             .field( "store", &self.store )
             .finish_non_exhaustive()
@@ -25,11 +23,9 @@ impl<PluginId: std::fmt::Debug, Ctx: std::fmt::Debug + 'static> std::fmt::Debug 
 
 /// Errors that can occur when dispatching a function call to plugins.
 ///
-/// Returned inside the [`Socket`] from [`PluginTreeHead::dispatch`] when a
-/// function call fails at runtime.
-///
-/// [`Socket`]: crate::Socket
-/// [`PluginTreeHead::dispatch`]: crate::PluginTreeHead::dispatch
+/// Returned inside [`Socket`]( crate::socket::Socket ) From
+/// [`Binding::dispatch`]( crate::binding::Binding::dispatch )
+/// when a function call fails at runtime.
 #[derive( Error, Debug )]
 pub enum DispatchError {
     /// Failed to acquire lock on plugin instance (another call is in progress).
@@ -66,9 +62,7 @@ impl From<DispatchError> for Val {
     }}
 }
 
-impl<PluginId, Ctx: PluginContext + 'static> PluginInstance<PluginId, Ctx> {
-
-    pub fn id( &self ) -> &PluginId { &self.id }
+impl<Ctx: PluginContext + 'static> PluginInstance<Ctx> {
 
     const PLACEHOLDER_VAL: Val = Val::Tuple( vec![] );
 

@@ -1,5 +1,0 @@
-package test:dependency ;
-
-interface root {
-  get-value: func() -> u32;
-}

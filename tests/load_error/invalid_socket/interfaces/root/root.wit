@@ -1,5 +1,0 @@
-package test:load-error ;
-
-interface root {
-  test: func();
-}

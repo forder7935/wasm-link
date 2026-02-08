@@ -1,5 +1,0 @@
-package test:iface-d ;
-
-interface root {
-  get-d: func() -> u32;
-}

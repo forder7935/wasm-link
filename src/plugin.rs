@@ -5,7 +5,11 @@
 //! (its **sockets**). The plug declares what the plugin exports; sockets declare what
 //! the plugin expects to import from other plugins.
 
-use wasmtime::component::{ Component, ResourceTable } ;
+use wasmtime::{ Engine, Store };
+use wasmtime::component::{ Component, ResourceTable, Linker, Val };
+
+use crate::Binding ;
+use crate::plugin_instance::PluginInstance;
 
 /// Trait for accessing a [`ResourceTable`] from the store's data type.
 ///
@@ -34,82 +38,79 @@ pub trait PluginContext: Send {
     fn resource_table( &mut self ) -> &mut ResourceTable ;
 }
 
-/// A plugin declaration with its WASM component and runtime context.
+/// A WASM component bundled with its runtime context.
 ///
-/// Each plugin declares:
-/// - A **plug**: the [`Binding`]( crate::Binding ) it implements (what it exports)
-/// - Zero or more **sockets**: the [`Binding`]( crate::Binding )s it depends on (what it imports)
-/// - A **component**: the compiled WASM component
-/// - A **context**: user data that will be provided to any host-exported function (`T` of `Store<T>`)
+/// The component's exports (its **plug**) and imports (its **sockets**) are defined through
+/// the [`Binding`], not by this struct.
 ///
-/// The `context` field is consumed during loading and becomes the wasmtime Store's data.
-/// The Plugin struct itself is not retained after loading.
+/// The `context` is consumed during linking to become the wasmtime `Store`'s data.
 ///
 /// # Type Parameters
-/// - `PluginId`: Unique identifier type for the plugin
-/// - `BindingId`: [`Binding`]( crate::Binding ) identifier type (must match the IDs used in [`Binding`]( crate::Binding ))
 /// - `Ctx`: User context type that will be stored in the wasmtime Store
-pub struct Plugin<PluginId, BindingId, Ctx> {
-    /// Unique identifier for this plugin
-    id: PluginId,
-    /// The binding this plugin implements
-    plug: BindingId,
-    /// Bindings this plugin depends on
-    sockets: Vec<BindingId>,
+pub struct Plugin<Ctx> {
     /// Compiled WASM component
     component: Component,
     /// User context consumed at load time to become `Store<Ctx>`
     context: Ctx,
 }
 
-impl<PluginId, BindingId, Ctx> Plugin<PluginId, BindingId, Ctx> {
+impl<Ctx> Plugin<Ctx>
+where
+    Ctx: PluginContext + 'static,
+{
+
     /// Creates a new plugin declaration.
+    ///
+    /// Note that the plugin ID is not specified here - it's provided when constructing
+    /// the [`Socket`]( crate::socket::Socket ) that holds this plugin. This is done to prevent duplicate ids.
     #[inline]
     pub fn new(
-        id: PluginId,
-        plug: BindingId,
-        sockets: impl IntoIterator<Item = BindingId>,
         component: Component,
         context: Ctx,
     ) -> Self {
-        Self {
-            id,
-            plug,
-            sockets: sockets.into_iter().collect(),
-            component,
-            context,
-        }
+        Self { component, context }
     }
 
-    /// Unique identifier for this plugin.
-    #[inline] pub fn id( &self ) -> &PluginId { &self.id }
-
-    /// The binding this plugin implements.
-    #[inline] pub fn plug( &self ) -> &BindingId { &self.plug }
-
-    /// Bindings this plugin depends on.
-    #[inline] pub fn sockets( &self ) -> &[BindingId] { &self.sockets }
-
-    /// The compiled WASM component.
-    #[inline] pub fn component( &self ) -> &Component { &self.component }
-
-    /// Consumes the plugin, returning its parts for loading.
+    /// Links this plugin with its socket bindings and instantiates it.
     ///
-    /// Returns `(id, sockets, component, context)`. The `plug` field is excluded
-    /// as it's only needed during plugin tree construction, not loading.
-    #[inline]
-    pub(crate) fn into_parts( self ) -> ( PluginId, Vec<BindingId>, Component, Ctx ) {
-        ( self.id, self.sockets, self.component, self.context )
+    /// # Errors
+    /// Returns an error if linking or instantiation fails.
+    #[inline] pub fn link<PluginId>(
+        self,
+        engine: &Engine,
+        mut linker: Linker<Ctx>,
+        sockets: impl IntoIterator<Item = Binding<PluginId, Ctx>>,
+    ) -> Result<PluginInstance<Ctx>, wasmtime::Error>
+    where
+        PluginId: Eq + std::hash::Hash + Clone + std::fmt::Debug + Send + Sync + Into<Val> + 'static,
+    {
+        sockets.into_iter().try_for_each(| binding | Binding::add_to_linker( &binding, &mut linker ))?;
+        let mut store = Store::new( engine, self.context );
+        let instance = linker.instantiate( &mut store, &self.component )?;
+        Ok( PluginInstance { store, instance })
     }
+
+    /// A convenience alias for [`Plugin::link`] with 0 sockets
+    ///
+    /// # Errors
+    /// Returns an error if instantiation fails.
+    #[inline] pub fn instantiate(
+        self,
+        engine: &Engine,
+        linker: &Linker<Ctx>
+    ) -> Result<PluginInstance<Ctx>, wasmtime::Error> {
+        let mut store = Store::new( engine, self.context );
+        let instance = linker.instantiate( &mut store, &self.component )?;
+        Ok( PluginInstance { store, instance })
+    }
+
 }
 
-impl<PluginId: std::fmt::Debug, BindingId: std::fmt::Debug, Ctx> std::fmt::Debug for Plugin<PluginId, BindingId, Ctx> {
+impl<Ctx: std::fmt::Debug> std::fmt::Debug for Plugin<Ctx> {
     fn fmt( &self, f: &mut std::fmt::Formatter<'_> ) -> std::fmt::Result {
         f.debug_struct( "Plugin" )
-            .field( "id", &self.id )
-            .field( "plug", &self.plug )
-            .field( "sockets", &self.sockets )
             .field( "component", &"<Component>" )
+            .field( "context", &self.context )
             .finish_non_exhaustive()
     }
 }

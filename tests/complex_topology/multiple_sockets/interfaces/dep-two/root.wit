@@ -1,5 +1,0 @@
-package test:dep-two ;
-
-interface root {
-  get-two: func() -> u32;
-}

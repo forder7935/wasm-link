@@ -3,35 +3,49 @@
 //! Plugins are small, single-purpose WASM components that connect through abstract
 //! bindings. Each plugin declares a **plug** (the binding it implements) and
 //! zero or more **sockets** (bindings it depends on). `wasm_link` links these
-//! into a dependency tree and handles cross-plugin dispatch.
+//! into a directed acyclic graph (DAG) and handles cross-plugin dispatch.
 //!
 //! # Core Concepts
 //!
-//! - [`Binding`]: A contract declaring what an implementer exports and what a
-//!   consumer may import.
+//! - [`Binding`]: An abstract contract declaring what an implementer exports and what a
+//!   consumer may import. Contains a package name, a set of interfaces, and plugged-in
+//!   plugin instances.
+//!
+//! - [`Interface`]: A single WIT interface with functions and resources. Note that
+//!   interfaces don't have a name field; their names are provided as keys of a `HashMap`
+//!   when constructing a [`Binding`]. This prevents duplicate interface names.
+//!
+//! - [`Plugin`]: A struct containing a wasm component and the runtime context made available
+//!   to host exports; their ids are provided as keys of a `HashMap` when constructing a
+//!   [`Binding`]. This prevents duplicate ids.
 //!
 //! - **Plug**: A plugin's declaration that it implements a [`Binding`].
 //!
-//! - **Socket**: A plugin's declaration that it depends on a [`Binding`].
+//! - **Socket**: A plugin's declaration that it depends on a [`Binding`]. Sockets are
+//!   represented by the [`Socket`] enum, whose variant encodes **cardinality** - how many
+//!   plugins may implement the dependency:
+//!   - `ExactlyOne( Id, T )` - exactly one plugin, guaranteed present
+//!   - `AtMostOne( Option<( Id, T )> )` - zero or one plugin
+//!   - `AtLeastOne( HashMap<Id, T> )` - one or more plugins
+//!   - `Any( HashMap<Id, T> )` - zero or more plugins
 //!
-//! - [`Cardinality`]: Each binding specifies how many plugins may implement it.
-//!   This affects how dispatch results are returned.
-//!
-//! - **Root Binding**: The entry point [`Binding`] that the host application calls into.
-//!   Other bindings are internal - only accessible to plugins, not the host.
+//!   While cardinality is conceptually a property of bindings, it is represented by
+//!   variants of the [`Socket`] enum due to how the DAG is constructed.
 //!
 //! # Example
+//!
 //! ```
+//! use std::collections::{ HashMap, HashSet };
 //! use wasm_link::{
-//!     Binding, Interface, Function, Cardinality, ReturnKind,
-//!     Plugin, PluginContext, PluginTree, Socket,
+//!     Binding, Interface, Function, ReturnKind,
+//!     Plugin, PluginContext, Socket,
 //!     Engine, Component, Linker, ResourceTable, Val,
 //! };
 //!
-//! // Define a context that implements PluginContext
-//! struct Context {
-//!     resource_table: ResourceTable,
-//! }
+//! // First, declare a plugin context, the data stored inside wasmtime `Store<T>`.
+//! // It must contain a resource table to implement `PluginContext` which is needed
+//! // for ownership tracking of wasm component model resources.
+//! struct Context { resource_table: ResourceTable }
 //!
 //! impl PluginContext for Context {
 //!     fn resource_table( &mut self ) -> &mut ResourceTable {
@@ -40,29 +54,38 @@
 //! }
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! // You create your own endine. This allows you to define your config but note that
+//! // not all options are compatible. As a general rule of thumb, if an option changes
+//! // the way you interact with wasm, it is likely not compatible since this is managed
+//! // by `wasm_link` directly. If the option makes sense, it will likely be supported
+//! // in the future through wasm_link options.
 //! let engine = Engine::default();
 //!
-//! // Start by defining your root binding that will be used to interface with the plugin tree
-//! const ROOT_BINDING: &str = "root" ;
-//! const EXAMPLE_INTERFACE: &str = "example" ;
-//! const GET_VALUE: &str = "get-value" ;
+//! // Similarily you may create your own linker, which you can add any exports into.
+//! // Such exports will be available to all the plugins. It is your responsibility to
+//! // make sure these don't conflict with re-exports of plugins that some other plugin
+//! // depends on as these too have to be added to the same linker.
+//! let linker = Linker::new( &engine );
 //!
-//! let binding = Binding::new(
-//!     ROOT_BINDING,
-//!     Cardinality::ExactlyOne,
-//!     "my:package",
-//!     vec![ Interface::new(
-//!         EXAMPLE_INTERFACE,
-//!         vec![ Function::new( GET_VALUE, ReturnKind::MayContainResources, false ) ],
-//!         Vec::<String>::with_capacity( 0 ),
-//!     )],
+//! // Build the DAG bottom-up: start with plugins that have no dependencies.
+//! // Note that for plugins that don't require linking, you only need to pass in
+//! // a reference to a linker. For plugins that have dependencies, the linker is mutated.
+//! // Plugin IDs are specified in the Socket variant to prevent duplicate ids.
+//! let leaf = Plugin::new(
+//!     Component::new( &engine, "(component)" )?,
+//!     Context { resource_table: ResourceTable::new() },
+//! ).instantiate( &engine, &linker )?;
+//!
+//! // Bindings expose a plugin's exports to other plugins.
+//! // Socket variant sets cardinality: ExactlyOne, AtMostOne (0-1), AtLeastOne (1+), Any (0+).
+//! let leaf_binding = Binding::new(
+//!     "empty:package",
+//!     HashMap::new(),
+//!     Socket::ExactlyOne( "leaf".to_string(), leaf ),
 //! );
 //!
-//! // Now create a plugin that implements this binding
-//! let plugin = Plugin::new(
-//!     "foo",
-//!     ROOT_BINDING,
-//!     Vec::with_capacity( 0 ),
+//! // `link()` wires up dependencies - this plugin can now import from leaf_binding.
+//! let root = Plugin::new(
 //!     Component::new( &engine, r#"(component
 //!         (core module $m (func (export "f") (result i32) i32.const 42))
 //!         (core instance $i (instantiate $m))
@@ -71,52 +94,149 @@
 //!         (export "my:package/example" (instance $inst))
 //!     )"# )?,
 //!     Context { resource_table: ResourceTable::new() },
+//! ).link( &engine, linker, vec![ leaf_binding ])?;
+//!
+//! // Interface tells `wasm_link` which functions exist and how to handle returns.
+//! let root_binding = Binding::new(
+//!     "my:package",
+//!     HashMap::from([( "example".to_string(), Interface::new(
+//!         HashMap::from([
+//!             ( "get-value".into(), Function::new( ReturnKind::MayContainResources, false ))
+//!        ]),
+//!         HashSet::new(),
+//!     ))]),
+//!     Socket::ExactlyOne( "root".to_string(), root ),
 //! );
 //!
-//! // First you need to tell `wasm_link` about your plugins, bindings and where you want
-//! // the execution to begin. `wasm_link` will try it's best to load in all the plugins,
-//! // upon encountering an error, it will try to salvage as much of the remaining data
-//! // as possible returning a list of failures alongside the `PluginTree`.
-//! let ( tree, init_errors ) = PluginTree::new( ROOT_BINDING, vec![ binding ], vec![ plugin ] );
-//! assert!( init_errors.is_empty() );
-//!
-//! // Once you've got your `PluginTree` constructed, you can link the plugins together
-//! // Since some plugins may fail to load, it is only at this point that the cardinality
-//! // requirements are validated depending on the plugins that managed to get loaded,
-//! // otherwise it tries to salvage as much of the tree as can be loaded returning a list
-//! // of failures alongside the loaded `PluginTreeHead` - the root node of the `PluginTree`.
-//! let linker = Linker::new( &engine );
-//! let ( tree_head, load_errors ) = tree.load( &engine, &linker ).map_err(|( e, _ )| e )?;
-//! assert!( load_errors.is_empty() );
-//!
-//! // Dispatch a function call to plugins implementing the root binding
-//! let result = tree_head.dispatch( EXAMPLE_INTERFACE, GET_VALUE, true, &[] );
+//! // Now you can call into the plugin graph from the host.
+//! let result = root_binding.dispatch( "example", "get-value", &[ /* args */ ] )?;
 //! match result {
-//!     Socket::ExactlyOne( Ok( Val::U32( n ))) => assert_eq!( n, 42 ),
-//!     Socket::ExactlyOne( Err( err )) => panic!( "dispatch error: {}", err ),
-//!     _ => panic!( "unexpected cardinality" ),
+//!     Socket::ExactlyOne( _, Ok( Val::U32( n ))) => assert_eq!( n, 42 ),
+//!     Socket::ExactlyOne( _, Err( err )) => panic!( "dispatch error: {}", err ),
+//!     _ => unreachable!(),
+//! }
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! # Shared Dependencies
+//!
+//! Sometimes multiple plugins need to depend on the same binding. Since `Binding`
+//! is a handle type, cloning it creates another reference to the same underlying
+//! binding rather than duplicating it.
+//!
+//! ```
+//! # use std::collections::HashMap ;
+//! # use wasm_link::{ Binding, Plugin, PluginContext, Socket, Engine, Component, Linker, ResourceTable };
+//! # struct Context { resource_table: ResourceTable }
+//! # impl PluginContext for Context {
+//! #     fn resource_table( &mut self ) -> &mut ResourceTable { &mut self.resource_table }
+//! # }
+//! # impl Context {
+//! #   pub fn new() -> Self { Self { resource_table: ResourceTable::new() } }
+//! # }
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! # let engine = Engine::default();
+//! # let linker = Linker::new( &engine );
+//! let plugin_d = Plugin::new( Component::new( &engine, "(component)" )?, Context::new())
+//!     .instantiate( &engine, &linker )?;
+//! let binding_d = Binding::new( "d:pkg", HashMap::new(), Socket::ExactlyOne( "D".to_string(), plugin_d ));
+//!
+//! // Both B and C import from D. Clone the binding handle so both can reference it.
+//! let plugin_b = Plugin::new( Component::new( &engine, "(component)" )?, Context::new())
+//!     .link( &engine, linker.clone(), vec![ binding_d.clone() ])?;
+//! let plugin_c = Plugin::new( Component::new( &engine, "(component)" )?, Context::new())
+//!     .link( &engine, linker.clone(), vec![ binding_d ])?;
+//!
+//! let binding_b = Binding::new( "b:pkg", HashMap::new(), Socket::ExactlyOne( "B".to_string(), plugin_b ));
+//! let binding_c = Binding::new( "c:pkg", HashMap::new(), Socket::ExactlyOne( "C".to_string(), plugin_c ));
+//!
+//! let plugin_a = Plugin::new( Component::new( &engine, "(component)" )?, Context::new())
+//!     .link( &engine, linker, vec![ binding_b, binding_c ])?;
+//! # let _ = plugin_a ;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! # Multiple Plugins Per Binding
+//!
+//! A single binding can have multiple plugin implementations. Use `Socket::AtLeastOne`
+//! when at least one implementation is required, or `Socket::Any` when zero is acceptable.
+//! When you dispatch to such a binding, you get results from all plugins.
+//!
+//! ```
+//! # use std::collections::{ HashMap, HashSet };
+//! # use wasm_link::{
+//! #     Binding, Interface, Function, ReturnKind, Plugin, PluginContext,
+//! #     Socket, Engine, Component, Linker, ResourceTable, Val,
+//! # };
+//! # struct Context { resource_table: ResourceTable }
+//! # impl Context {
+//! #   pub fn new() -> Self { Self { resource_table: ResourceTable::new() } }
+//! # }
+//! # impl PluginContext for Context {
+//! #     fn resource_table( &mut self ) -> &mut ResourceTable { &mut self.resource_table }
+//! # }
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! # let engine = Engine::default();
+//! # let linker = Linker::new( &engine );
+//! // Plugin IDs are specified through the HashMap keys for Socket::Any.
+//! let plugin1 = Plugin::new( Component::new( &engine, r#"(component
+//!     (core module $m (func (export "f") (result i32) i32.const 1))
+//!     (core instance $i (instantiate $m))
+//!     (func $f (result u32) (canon lift (core func $i "f")))
+//!     (instance $inst (export "get-value" (func $f)))
+//!     (export "pkg:interface/root" (instance $inst))
+//! )"# )?, Context::new()).instantiate( &engine, &linker )?;
+//!
+//! let plugin2 = Plugin::new( Component::new( &engine, r#"(component
+//!     (core module $m (func (export "f") (result i32) i32.const 2))
+//!     (core instance $i (instantiate $m))
+//!     (func $f (result u32) (canon lift (core func $i "f")))
+//!     (instance $inst (export "get-value" (func $f)))
+//!     (export "pkg:interface/root" (instance $inst))
+//! )"# )?, Context::new()).instantiate( &engine, &linker )?;
+//!
+//! let binding = Binding::new(
+//!     "pkg:interface",
+//!     HashMap::from([( "root".to_string(), Interface::new(
+//!         HashMap::from([( "get-value".into(), Function::new( ReturnKind::MayContainResources, false ))]),
+//!         HashSet::new(),
+//!     ))]),
+//!     Socket::Any( HashMap::from([
+//!         ( "p1".to_string(), plugin1 ),
+//!         ( "p2".to_string(), plugin2 ),
+//!     ])),
+//! );
+//!
+//! // Dispatch calls all plugins; the result Socket variant matches what you passed in.
+//! let results = binding.dispatch( "root", "get-value", &[] )?;
+//! match results {
+//!     Socket::Any( map ) => {
+//!         assert_eq!( map.len(), 2 );
+//!         assert!( matches!( map.get( "p1" ), Some( Ok( Val::U32( 1 )))));
+//!         assert!( matches!( map.get( "p2" ), Some( Ok( Val::U32( 2 )))));
+//!     },
+//!     _ => unreachable!(),
 //! }
 //! # Ok(())
 //! # }
 //! ```
 
+mod binding ;
 mod interface ;
 mod plugin ;
-mod loading ;
-mod plugin_tree ;
-mod plugin_tree_head ;
-mod socket ;
 mod plugin_instance ;
-mod utils ;
+mod socket ;
+mod linker ;
+mod resource_wrapper ;
 
 pub use wasmtime::Engine ;
 pub use wasmtime::component::{ Component, Linker, ResourceTable, Val };
+pub use nonempty_collections::{ NEMap, nem };
 
-pub use interface::{ Binding, Interface, Function, Cardinality, ReturnKind };
+pub use binding::Binding ;
+pub use interface::{ Interface, Function, ReturnKind };
 pub use plugin::{ PluginContext, Plugin };
-pub use loading::LoadError ;
-pub use plugin_tree::{ PluginTree, PluginTreeError };
-pub use plugin_tree_head::PluginTreeHead ;
 pub use socket::Socket ;
 pub use plugin_instance::DispatchError ;
-pub use utils::{ PartialSuccess, PartialResult };

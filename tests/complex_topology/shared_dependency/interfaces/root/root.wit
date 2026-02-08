@@ -1,0 +1,5 @@
+package test:shared ;
+
+interface root {
+  get-value: func() -> u32;
+}

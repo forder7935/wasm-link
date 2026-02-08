@@ -1,5 +1,0 @@
-package test:iface-c ;
-
-interface root {
-  get-c: func() -> u32;
-}

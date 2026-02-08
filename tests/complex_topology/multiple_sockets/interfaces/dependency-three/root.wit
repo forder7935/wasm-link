@@ -1,0 +1,5 @@
+package test:dependency-three ;
+
+interface root {
+  get-three: func() -> u32;
+}

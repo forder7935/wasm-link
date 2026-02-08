@@ -18,8 +18,8 @@
 
 ## Highlights
 
-- composable applications with no interface limitations
-- performant language-agnostic plugin system
+- Composable applications with no interface limitations
+- Performant language-agnostic plugin system
 
 NOTE: Async types (`Future`, `Stream`, `ErrorContext`) are not yet supported for cross-plugin transfer and will return an error if encountered.
 
@@ -28,7 +28,7 @@ NOTE: Async types (`Future`, `Stream`, `ErrorContext`) are not yet supported for
 - [Highlights](#highlights)
 - [Contents](#contents)
 - [Project Philosophy](#project-philosophy)
-- [Example](#example)
+- [Quick Start](#quick-start)
 - [Goals](#goals)
 - [License](#license)
 - [Contribution](#contribution)
@@ -36,23 +36,24 @@ NOTE: Async types (`Future`, `Stream`, `ErrorContext`) are not yet supported for
 ## Project Philosophy
 
 - **Single tool, single task:** Apps should be broken up into small chunks that are meant to be composed together to create a whole.
-- **Build around your workflow, not services:** Everything **You** use for a single task should be working together instead of you trying to duct-tape it together yourself.
+- **Build around your workflow, not services:** Everything **you** use for a single task should be working together instead of you trying to duct-tape it together yourself.
 - **The client belongs to the user:** Any part should be able to be easily added, removed or switched out for something else.
-- **Zero-trust by default:** Don't just use something and expect it behaves, assume malice and constraint it to the minimum capabilities required.
+- **Zero-trust by default:** Don't just use something and expect it behaves, assume malice and constrain it to the minimum capabilities required.
 
-## Example
+## Quick Start
 
-```rs
+```rust
+use std::collections::{ HashMap, HashSet };
 use wasm_link::{
-    Binding, Interface, Function, Cardinality, ReturnKind,
-    Plugin, PluginContext, PluginTree, Socket,
+    Binding, Interface, Function, ReturnKind,
+    Plugin, PluginContext, Socket,
     Engine, Component, Linker, ResourceTable, Val,
 };
 
-// Define a context that implements PluginContext
-struct Context {
-    resource_table: ResourceTable,
-}
+// First, declare a plugin context, the data stored inside wasmtime `Store<T>`.
+// It must contain a resource table to implement `PluginContext` which is needed
+// for ownership tracking of wasm component model resources.
+struct Context { resource_table: ResourceTable }
 
 impl PluginContext for Context {
     fn resource_table( &mut self ) -> &mut ResourceTable {
@@ -60,29 +61,36 @@ impl PluginContext for Context {
     }
 }
 
+// You create your own endine. This allows you to define your config but note that
+// not all options are compatible. As a general rule of thumb, if an option changes
+// the way you interact with wasm, it is likely not compatible since this is managed
+// by `wasm_link` directly. If the option makes sense, it will likely be supported
+// in the future through wasm_link options.
 let engine = Engine::default();
 
-// Start by defining your root binding that will be used to interface with the plugin tree
-const ROOT_BINDING: &str = "root" ;
-const EXAMPLE_INTERFACE: &str = "example" ;
-const GET_VALUE: &str = "get-value" ;
+// Similarily you may create your own linker, which you can add any exports into.
+// Such exports will be available to all the plugins. It is your responsibility to
+// make sure these don't conflict with re-exports of plugins that some other plugin
+// depends on as these too have to be added to the same linker.
+let linker = Linker::new( &engine );
 
-let binding = Binding::new(
-    ROOT_BINDING,
-    Cardinality::ExactlyOne,
-    "my:package",
-    vec![ Interface::new(
-        EXAMPLE_INTERFACE,
-        vec![ Function::new( GET_VALUE, ReturnKind::MayContainResources, false ) ],
-        Vec::<String>::with_capacity( 0 ),
-    )],
+// Build the DAG bottom-up: start with plugins that have no dependencies.
+// Plugin IDs are specified in the Socket variant to prevent duplicate ids.
+let leaf = Plugin::new(
+    Component::new( &engine, "(component)" )?,
+    Context { resource_table: ResourceTable::new() },
+).instantiate( &engine, linker.clone())?;
+
+// Bindings expose a plugin's exports to other plugins.
+// Socket variant sets cardinality: ExactlyOne, AtMostOne (0-1), AtLeastOne (1+), Any (0+).
+let leaf_binding = Binding::new(
+    "empty:package",
+    HashMap::new(),
+    Socket::ExactlyOne( "leaf".to_string(), leaf ),
 );
 
-// Now create a plugin that implements this binding
-let plugin = Plugin::new(
-    "foo",
-    ROOT_BINDING,
-    Vec::with_capacity( 0 ),
+// `link()` wires up dependencies - this plugin can now import from leaf_binding.
+let root = Plugin::new(
     Component::new( &engine, r#"(component
         (core module $m (func (export "f") (result i32) i32.const 42))
         (core instance $i (instantiate $m))
@@ -91,41 +99,38 @@ let plugin = Plugin::new(
         (export "my:package/example" (instance $inst))
     )"# )?,
     Context { resource_table: ResourceTable::new() },
+).link( &engine, linker, vec![ leaf_binding ])?;
+
+// Interface tells `wasm_link` which functions exist and how to handle returns.
+let root_binding = Binding::new(
+    "my:package",
+    HashMap::from([( "example".to_string(), Interface::new(
+        HashMap::from([
+            ( "get-value".into(), Function::new( ReturnKind::MayContainResources, false ))
+        ]),
+        HashSet::new(),
+    ))]),
+    Socket::ExactlyOne( "root".to_string(), root ),
 );
 
-// First you need to tell `wasm_link` about your plugins, bindings and where you want
-// the execution to begin. `wasm_link` will try it's best to load in all the plugins,
-// upon encountering an error, it will try to salvage as much of the remaining data
-// as possible returning a list of failures alongside the `PluginTree`.
-let ( tree, init_errors ) = PluginTree::new( ROOT_BINDING, vec![ binding ], vec![ plugin ] );
-assert!( init_errors.is_empty() );
-
-// Once you've got your `PluginTree` constructed, you can link the plugins together
-// Since some plugins may fail to load, it is only at this point that the cardinality
-// requirements are validated depending on the plugins that managed to get loaded,
-// otherwise it tries to salvage as much of the tree as can be loaded returning a list
-// of failures alongside the loaded `PluginTreeHead` - the root node of the `PluginTree`.
-let linker = Linker::new( &engine );
-let ( tree_head, load_errors ) = tree.load( &engine, &linker ).map_err(|( e, _ )| e )?;
-assert!( load_errors.is_empty() );
-
-// Dispatch a function call to plugins implementing the root binding
-let result = tree_head.dispatch( EXAMPLE_INTERFACE, GET_VALUE, true, &[] );
+// Now you can call into the plugin graph from the host.
+let result = root_binding.dispatch( "example", "get-value", &[ /* args */ ] )?;
 match result {
-    Socket::ExactlyOne( Ok( Val::U32( n ))) => assert_eq!( n, 42 ),
-    Socket::ExactlyOne( Err( err )) => panic!( "dispatch error: {}", err ),
-    _ => panic!( "unexpected cardinality" ),
+    Socket::ExactlyOne( _, Ok( Val::U32( n ))) => assert_eq!( n, 42 ),
+    Socket::ExactlyOne( _, Err( err )) => panic!( "dispatch error: {}", err ),
+    _ => unreachable!(),
 }
 ```
 
 ## Goals
 
-- [x] basic plugin linking
-- [x] component model support
-- [x] resource support
-- [ ] async, streams and threads
+- ✅ Basic plugin linking
+- ✅ Component model support
+- ✅ Resource support
+- 🚧 Epoch interrupt and fuel
+- ⬛ Async, streams and threads
 
-Further goals are yet to be determined
+Further goals are yet to be determined.
 
 ## License
 
@@ -146,7 +151,7 @@ Unless you explicitly state otherwise, any contribution intentionally submitted
 for inclusion in the work by you, as defined in the Apache-2.0 license, shall be
 dual licensed as above, without any additional terms or conditions.
 
-### Quick Start
+### Development Setup
 
 #### Using Nix (Recommended)
 
@@ -158,4 +163,4 @@ nix develop
 
 #### Manual Setup
 
-Running this project will only require installing the [Rust toolchain](https://www.rust-lang.org/learn/get-started/)
+You should most likely be fine with just the [Rust toolchain](https://www.rust-lang.org/learn/get-started/)
