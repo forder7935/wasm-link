@@ -73,6 +73,13 @@ where
 
     /// Links this plugin with its socket bindings and instantiates it.
     ///
+    /// Takes ownership of the `linker` because socket bindings are added to it. If you need
+    /// to reuse the same linker for multiple plugins, clone it before passing it in.
+    ///
+    /// # Type Parameters
+    /// - `PluginId`: Must implement `Into<Val>` so plugin IDs can be passed to WASM when
+    ///   dispatching to multi-plugin sockets (the ID identifies which plugin produced each result).
+    ///
     /// # Errors
     /// Returns an error if linking or instantiation fails.
     #[inline] pub fn link<PluginId>(
