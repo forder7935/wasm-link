@@ -14,7 +14,7 @@ use crate::plugin_instance::PluginInstance ;
 
 
 #[derive( Debug )]
-pub struct BindingInner<PluginId, Ctx>
+struct BindingInner<PluginId, Ctx>
 where
     PluginId: std::hash::Hash + Eq + Clone + Send + Sync + 'static,
     Ctx: PluginContext + 'static,
