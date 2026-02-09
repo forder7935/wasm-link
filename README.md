@@ -61,14 +61,14 @@ impl PluginContext for Context {
     }
 }
 
-// You create your own endine. This allows you to define your config but note that
+// You create your own engine. This allows you to define your config but note that
 // not all options are compatible. As a general rule of thumb, if an option changes
 // the way you interact with wasm, it is likely not compatible since this is managed
 // by `wasm_link` directly. If the option makes sense, it will likely be supported
 // in the future through wasm_link options.
 let engine = Engine::default();
 
-// Similarily you may create your own linker, which you can add any exports into.
+// Similarly you may create your own linker, which you can add any exports into.
 // Such exports will be available to all the plugins. It is your responsibility to
 // make sure these don't conflict with re-exports of plugins that some other plugin
 // depends on as these too have to be added to the same linker.
