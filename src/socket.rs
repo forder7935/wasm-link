@@ -5,7 +5,7 @@ use nonempty_collections::{ NEMap, NonEmptyIterator, IntoNonEmptyIterator };
 
 use crate::plugin::PluginContext ;
 use crate::plugin_instance::PluginInstance ;
-use crate::DispatchError ;
+use crate::{ DispatchError, Function };
 
 
 
@@ -69,13 +69,22 @@ where
     pub(crate) fn dispatch_function(
         &self,
         interface_path: &str,
-        function: &str,
-        has_return: bool,
+        function_name: &str,
+        function: &Function,
+        default_fuel: Option<u64>,
+        default_epoch: Option<u64>,
         data: &[Val],
     ) -> Socket<Result<Val, DispatchError>, PluginId> {
         self.map(| _, plugin | plugin
             .lock().map_err(|_| DispatchError::LockRejected )
-            .and_then(| mut lock | lock.dispatch( interface_path, function, has_return, data ))
+            .and_then(| mut lock | lock.dispatch(
+                interface_path,
+                function_name,
+                function,
+                default_fuel,
+                default_epoch,
+                data,
+            ))
         )
     }
 }

@@ -1,12 +1,9 @@
-# Agents Instructions
+# Agent Instructions
 
-Wasm Compose is a framework for building fully modular applications based around WebAssembly plugins.
+wasm-link is a runtime for loading and linking WebAssembly plugins. Plugins connect through abstract bindings, forming a DAG where each plugin can expose functionality to others and call into its dependencies.
 
 ## Essentials
-- Package manager: `nix develop`
-- Non-standard commands: `cargo test`, `clippy`
-- Apply functional programming style: Avoid explicit for-loops; use iterators instead. Avoid `mut` unless it incurs a performance penalty; prefer mut abstractions from `@src/utils/`.
-- Important: Never create commits. After completing a task (including adding and running tests), inform the user that the work is ready for review and manual commit.
+- Commands: `nix develop --command <cmd>` or `nix-shell -p {package} --run` for single-use packages. Use these for all commands except built-in tools (ls, grep, etc.).
 - Always strive for concise, simple solutions
 - If a problem can be solved in a simpler way, propose it
 - If asked to do too much work at once, stop and state that clearly
@@ -16,12 +13,12 @@ Wasm Compose is a framework for building fully modular applications based around
 - At the end of each plan, give me a list of unresolved questions to answer, if any.
 
 ## Build Mode
-- Make sure to run clippy after changes
-- Run tests after changes using `cargo test`
-- Execute all commands via `nix develop --command` or `nix run` to verify flake.nix completeness
-- Never install dependencies except by modifying flake.nix
+- ALWAYS run `cargo clippy` and `cargo test` after changes
+- make sure to update documentation and the README.md once the api is established
 
 ## Detailed Guidelines
-- [Philosophy & Architecture](agent-docs/philosophy.md)
-- [Coding Conventions](agent-docs/conventions.md)
-- [Testing](agent-docs/testing.md)
+Make sure to read these files when performing related tasks:
+
+- [Conventions](agent-docs/conventions.md) - read before writing or modifying any code
+- [Testing](agent-docs/testing.md) - read before writing or modifying tests
+- [Documentation](agent-docs/writing-documentation.md) - read before writing or modifying rustdoc comments or updating the README.md
