@@ -19,8 +19,7 @@
 //!   to host exports; their ids are provided as keys of a `HashMap` when constructing a
 //!   [`Binding`]. This prevents duplicate ids.
 //!
-//! - [`PluginInstance`]( plugin_instance::PluginInstance ): An instantiated plugin with its
-//!   store and instance, ready for dispatch.
+//! - [`PluginInstance`]: An instantiated plugin with its store and instance, ready for dispatch.
 //!
 //! - **Plug**: A plugin's declaration that it implements a [`Binding`].
 //!
