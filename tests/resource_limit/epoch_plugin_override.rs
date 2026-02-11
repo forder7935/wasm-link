@@ -5,7 +5,7 @@ use wasm_link::{ Binding, Engine, Function, Interface, Linker, ReturnKind, Socke
 use wasmtime::Config;
 
 fixtures! {
-    const ROOT  = "root";
+    const ROOT  =   "root" ;
     interfaces  = [ "root" ];
     plugins     = [ "burn-fuel" ];
 }
@@ -41,19 +41,24 @@ fn dispatch_with_override( plugin_override: Option<u64>, concurrent_ticker: bool
 
     if concurrent_ticker {
         let stop = Arc::new( AtomicBool::new( false ));
+        let started = Arc::new( AtomicBool::new( false ));
         let stop_clone = Arc::clone( &stop );
+        let started_clone = Arc::clone( &started );
         let engine_clone = engine.clone();
         let handle = thread::spawn( move || {
-            while !stop_clone.load( Ordering::Relaxed ) {
+            while !stop_clone.load( Ordering::Acquire ) {
                 engine_clone.increment_epoch();
+				started_clone.store( true, Ordering::Release );
                 thread::yield_now();
             }
         });
-        thread::yield_now();
+		while !started.load( Ordering::Acquire ) {
+			thread::yield_now();
+		}
 
         let result = binding.dispatch( "root", "burn", &[] );
 
-        stop.store( true, Ordering::Relaxed );
+        stop.store( true, Ordering::Release );
         let _ = handle.join();
         result
     } else {
