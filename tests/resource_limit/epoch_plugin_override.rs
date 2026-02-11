@@ -18,12 +18,13 @@ fn dispatch_with_override( plugin_override: Option<u64>, concurrent_ticker: bool
     let engine = Engine::new( &config ).expect( "failed to create engine" );
     let linker = Linker::new( &engine );
 
-    let mut plugin = fixtures::plugin( "burn-fuel", &engine ).plugin;
-    if let Some( deadline ) = plugin_override {
-        plugin = plugin.with_epoch_deadline_overrides( HashMap::from([
-            ( "test:fuel/root".to_string(), HashMap::from([( "burn".to_string(), deadline )]))
-        ]));
-    }
+	let plugin = fixtures::plugin( "burn-fuel", &engine ).plugin;
+	let plugin = match plugin_override {
+		Some( deadline ) => plugin.with_epoch_deadline_overrides( HashMap::from([
+			( "test:fuel/root".to_string(), HashMap::from([( "burn".to_string(), deadline )]))
+		])),
+		Option::None => plugin,
+	};
     let plugin_instance = plugin
         .instantiate( &engine, &linker )
         .expect( "failed to instantiate plugin" );
