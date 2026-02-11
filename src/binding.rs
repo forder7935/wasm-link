@@ -63,9 +63,8 @@ where
     /// at call time.
     ///
     /// Look at [`wasmtime`] documentation for more detail.
-    pub fn with_default_fuel( mut self, fuel: u64 ) -> Self {
-        self.default_fuel = Some( fuel );
-        self
+    pub fn with_default_fuel( self, fuel: u64 ) -> Self {
+        Self { default_fuel: Some( fuel ), ..self }
     }
 
     /// Sets the default epoch deadline for all functions in this binding.
@@ -77,9 +76,8 @@ where
     /// enabled, the deadline is silently ignored.
     ///
     /// Look at [`wasmtime`] documentation for more detail.
-    pub fn with_default_epoch_deadline( mut self, ticks: u64 ) -> Self {
-        self.default_epoch_deadline = Some( ticks );
-        self
+    pub fn with_default_epoch_deadline( self, ticks: u64 ) -> Self {
+        Self { default_epoch_deadline: Some( ticks ), ..self }
     }
 
     /// Builds the final [`Binding`].
@@ -100,7 +98,7 @@ where
 /// to the same underlying binding, enabling shared dependencies where multiple
 /// plugins depend on the same binding.
 ///
-/// For bindings with extra configuration, use [`BindingBuilder`] instead.
+/// For bindings with extra configuration, use [`Binding::build`] instead.
 ///
 /// ```
 /// # use std::collections::HashMap;
@@ -173,8 +171,8 @@ where
 
     /// Creates a builder for adding extra configuration to a binding
     ///
-    /// Returns a [`BindingBuilder`] that can be configured with `with_*` methods
-    /// before calling `.build()` to create the final `Binding`.
+    /// Returns [`BindingData`] that can be configured with `with_*` methods
+    /// before calling `.build()` to create the final [`Binding`].
     ///
     /// ```
     /// # use std::collections::HashMap;

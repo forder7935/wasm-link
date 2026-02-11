@@ -193,16 +193,7 @@ where
         PluginId: Eq + std::hash::Hash + Clone + std::fmt::Debug + Send + Sync + Into<Val> + 'static,
     {
         sockets.into_iter().try_for_each(| binding | Binding::add_to_linker( &binding, &mut linker ))?;
-        let mut store = Store::new( engine, self.context );
-        let instance = linker.instantiate( &mut store, &self.component )?;
-        Ok( PluginInstance {
-            store,
-            instance,
-            fuel_multiplier: self.fuel_multiplier,
-            epoch_deadline_multiplier: self.epoch_deadline_multiplier,
-            fuel_overrides: self.fuel_overrides,
-            epoch_deadline_overrides: self.epoch_deadline_overrides,
-        })
+        Self::instantiate( self, engine, &linker )
     }
 
     /// A convenience alias for [`Plugin::link`] with 0 sockets
