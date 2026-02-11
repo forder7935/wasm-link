@@ -19,6 +19,9 @@
 //!   to host exports; their ids are provided as keys of a `HashMap` when constructing a
 //!   [`Binding`]. This prevents duplicate ids.
 //!
+//! - [`PluginInstance`]( plugin_instance::PluginInstance ): An instantiated plugin with its
+//!   store and instance, ready for dispatch.
+//!
 //! - **Plug**: A plugin's declaration that it implements a [`Binding`].
 //!
 //! - **Socket**: A plugin's declaration that it depends on a [`Binding`]. Sockets are
@@ -102,7 +105,7 @@
 //!     HashMap::from([( "example".to_string(), Interface::new(
 //!         HashMap::from([
 //!             ( "get-value".into(), Function::new( ReturnKind::MayContainResources, false ))
-//!        ]),
+//!         ]),
 //!         HashSet::new(),
 //!     ))]),
 //!     Socket::ExactlyOne( "root".to_string(), root ),
@@ -222,6 +225,90 @@
 //! # Ok(())
 //! # }
 //! ```
+//!
+//! # Resource Limits (Fuel & Epochs)
+//!
+//! Plugins may run untrusted code, so `wasm_link` supports Wasmtime's fuel and epoch
+//! mechanisms to prevent runaway execution. Both must be enabled in your
+//! [`Engine`] configuration:
+//!
+//! - **Fuel** counts WebAssembly instructions. When fuel runs out, execution traps.
+//!   Enable with [`Config::consume_fuel`]( wasmtime::Config::consume_fuel ).
+//!
+//! - **Epochs** count external timer ticks. When the deadline is reached, execution
+//!   traps. Enable with [`Config::epoch_interruption`]( wasmtime::Config::epoch_interruption ).
+//!
+//! ## Setting Limits
+//!
+//! Limits can be set at three levels, listed from lowest to highest precedence:
+//!
+//! 1. **Binding default** - applies to all functions in the binding
+//! 2. **Function-specific** - overrides the binding default for one function
+//! 3. **Plugin override** - highest precedence, set per-plugin per-function
+//!
+//! Plugins can also set a **multiplier** that scales the base value (from function
+//! or binding).
+//!
+//! ```
+//! # use std::collections::{ HashMap, HashSet };
+//! # use wasm_link::{ Binding, Interface, Function, ReturnKind, Plugin, PluginContext, Socket, Component, Linker, ResourceTable };
+//! # use wasmtime::{ Config, Engine };
+//! # struct Context { resource_table: ResourceTable }
+//! # impl Context { fn new() -> Self { Self { resource_table: ResourceTable::new() }}}
+//! # impl PluginContext for Context {
+//! #     fn resource_table( &mut self ) -> &mut ResourceTable { &mut self.resource_table }
+//! # }
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! // Enable fuel consumption in the engine
+//! let mut config = Config::new();
+//! config.consume_fuel( true );
+//! let engine = Engine::new( &config )?;
+//! let linker = Linker::new( &engine );
+//!
+//! # let component = Component::new( &engine, "(component)" )?;
+//! // Slower plugin gets double the fuel
+//! let slow = Plugin::new( component, Context::new() )
+//!     .with_fuel_multiplier( 2.0 )
+//!     .instantiate( &engine, &linker )?;
+//!
+//! // Binding with a default fuel limit; "expensive-fn" gets more
+//! let binding = Binding::<String, _>::build(
+//!     "my:pkg",
+//!     HashMap::from([( "api".into(), Interface::new(
+//!         HashMap::from([
+//!             ( "cheap-fn".into(), Function::new( ReturnKind::Void, false )),
+//!             ( "expensive-fn".into(), Function::new( ReturnKind::Void, false )
+//!                 .with_fuel( 100_000 )), // Override for this function
+//!         ]),
+//!         HashSet::new(),
+//!     ))]),
+//!     Socket::ExactlyOne( "plugin".into(), slow ),
+//! )
+//!     .with_default_fuel( 10_000 ) // Binding-wide default
+//!     .build();
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! ## Important Notes
+//!
+//! **Engine configuration is required.** Fuel and epoch limits only work when enabled
+//! in the [`Engine`] configuration. For more information, look into [`wasmtime`] docs.
+//!
+//! **Fuel and epoch are independent.** A function can have both a fuel limit and an
+//! epoch deadline. They are resolved and applied separately; whichever is exhausted
+//! first causes a trap.
+//!
+//! **Invalid override keys are silently ignored.** If a plugin specifies a fuel or
+//! epoch override for an `(interface, function)` pair that doesn't exist, the override
+//! is never used. No error is raised.
+//!
+//! **Engine enabled but no limits set.** If you enable fuel/epochs in the [`Engine`]
+//! but don't set any limits in `wasm_link`, the behavior mimics the wasmtime behaviour.
+//! - *Fuel*: A fresh [`Store`]( wasmtime::Store ) starts with 0 fuel, so the first
+//!   instruction immediately traps. This is likely not what you want.
+//! - *Epochs*: No deadline is set, so execution runs indefinitely regardless of epoch
+//!   ticks.
 
 mod binding ;
 mod interface ;
@@ -238,5 +325,5 @@ pub use nonempty_collections::{ NEMap, nem };
 pub use binding::Binding ;
 pub use interface::{ Interface, Function, ReturnKind };
 pub use plugin::{ PluginContext, Plugin };
+pub use plugin_instance::{ PluginInstance, DispatchError };
 pub use socket::Socket ;
-pub use plugin_instance::DispatchError ;

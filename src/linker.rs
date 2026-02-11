@@ -2,7 +2,7 @@ use std::sync::Mutex ;
 use wasmtime::StoreContextMut ;
 use wasmtime::component::Val ;
 
-use crate::{ Binding, Function, ReturnKind,  PluginContext, DispatchError };
+use crate::{ Binding, Function, ReturnKind, PluginContext, DispatchError };
 use crate::plugin_instance::PluginInstance ;
 use super::resource_wrapper::ResourceWrapper ;
 
@@ -22,8 +22,20 @@ where
     Ctx: PluginContext,
 {
     debug_assert!( !function.is_method() );
+    let default_fuel = binding.default_fuel();
+    let default_epoch = binding.default_epoch_deadline();
     binding.plugins().map(| plugin_id, plugin | Val::Result(
-        match dispatch_of( &mut ctx, plugin_id.clone(), plugin, interface_path, function_name, function, data ) {
+        match dispatch_of(
+            &mut ctx,
+            plugin_id.clone(),
+            plugin,
+            interface_path,
+            function_name,
+            function,
+            default_fuel,
+            default_epoch,
+            data,
+        ) {
             Ok( val ) => Ok( Some( Box::new( val ))),
             Err( err ) => Err( Some( Box::new( err.into() ))),
         }
@@ -44,13 +56,25 @@ where
     Ctx: PluginContext,
 {
     debug_assert!( function.is_method() );
-    Val::Result( match route_method( binding, ctx, interface_path, function_name, function, data ) {
+    let default_fuel = binding.default_fuel();
+    let default_epoch = binding.default_epoch_deadline();
+    Val::Result( match route_method(
+        binding,
+        ctx,
+        interface_path,
+        function_name,
+        function,
+        default_fuel,
+        default_epoch,
+        data,
+    ) {
         Ok( val ) => Ok( Some( Box::new( val ))),
         Err( err ) => Err( Some( Box::new( err.into() ))),
     })
 }
 
 #[inline]
+#[allow( clippy::too_many_arguments )]
 fn dispatch_of<PluginId, Ctx>(
     ctx: &mut StoreContextMut<Ctx>,
     plugin_id: PluginId,
@@ -58,6 +82,8 @@ fn dispatch_of<PluginId, Ctx>(
     interface_path: &str,
     function_name: &str,
     function: &Function,
+    default_fuel: Option<u64>,
+    default_epoch: Option<u64>,
     data: &[Val],
 ) -> Result<Val, DispatchError>
 where
@@ -66,8 +92,7 @@ where
 {
 
     let mut lock = plugin.lock().map_err(|_| DispatchError::LockRejected )?;
-    let has_return = function.return_kind() != ReturnKind::Void ;
-    let result = lock.dispatch( interface_path, function_name, has_return, data )?;
+    let result = lock.dispatch( interface_path, function_name, function, default_fuel, default_epoch, data )?;
 
     Ok( match function.return_kind() {
         ReturnKind::Void | ReturnKind::AssumeNoResources => result,
@@ -76,12 +101,15 @@ where
 }
 
 #[inline]
+#[allow( clippy::too_many_arguments )]
 fn route_method<PluginId, Ctx>(
     binding: &Binding<PluginId, Ctx>,
     mut ctx: StoreContextMut<Ctx>,
     interface_path: &str,
     function_name: &str,
     function: &Function,
+    default_fuel: Option<u64>,
+    default_epoch: Option<u64>,
     data: &[Val],
 ) -> Result<Val, DispatchError>
 where
@@ -101,7 +129,17 @@ where
     let mut data = Vec::from( data );
     data[0] = Val::Resource( resource.resource_handle );
 
-    dispatch_of( &mut ctx, plugin_id, plugin, interface_path, function_name, function, &data )
+    dispatch_of(
+        &mut ctx,
+        plugin_id,
+        plugin,
+        interface_path,
+        function_name,
+        function,
+        default_fuel,
+        default_epoch,
+        &data,
+    )
 
 }
 

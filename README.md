@@ -75,11 +75,13 @@ let engine = Engine::default();
 let linker = Linker::new( &engine );
 
 // Build the DAG bottom-up: start with plugins that have no dependencies.
+// Note that for plugins that don't require linking, you only need to pass in
+// a reference to a linker. For plugins that have dependencies, the linker is mutated.
 // Plugin IDs are specified in the Socket variant to prevent duplicate ids.
 let leaf = Plugin::new(
     Component::new( &engine, "(component)" )?,
     Context { resource_table: ResourceTable::new() },
-).instantiate( &engine, linker.clone())?;
+).instantiate( &engine, &linker )?;
 
 // Bindings expose a plugin's exports to other plugins.
 // Socket variant sets cardinality: ExactlyOne, AtMostOne (0-1), AtLeastOne (1+), Any (0+).
@@ -127,7 +129,7 @@ match result {
 - ✅ Basic plugin linking
 - ✅ Component model support
 - ✅ Resource support
-- 🚧 Epoch interrupt and fuel
+- ✅ Epoch interrupt and fuel
 - ⬛ Async, streams and threads
 
 Further goals are yet to be determined.
