@@ -100,27 +100,6 @@ impl Interface {
 /// Metadata about a function declared by an interface.
 ///
 /// Provides information needed during linking to wire up cross-plugin dispatch.
-/// Functions can also specify resource limits (fuel and epoch deadlines) that
-/// constrain execution when dispatching to plugins. These limits may be modified
-/// for each plugin separately by either a multiplier or specific overrides. If
-/// no limit is specified, the [`Binding`] default is used.
-///
-/// # Resource Limits
-///
-/// Fuel and epoch deadlines prevent runaway or malicious plugins from consuming
-/// unlimited resources.
-///
-/// ```
-/// use wasm_link::{ Function, ReturnKind };
-///
-/// // A function with a fuel limit of 10,000 instructions
-/// let compute_fn = Function::new( ReturnKind::AssumeNoResources, false )
-///     .with_fuel( 10_000 );
-///
-/// // A function with an epoch deadline of 5 ticks
-/// let io_fn = Function::new( ReturnKind::AssumeNoResources, false )
-///     .with_epoch_deadline( 5 );
-/// ```
 #[derive( Debug, Clone )]
 pub struct Function {
     /// The function's return kind for dispatch handling
@@ -130,10 +109,6 @@ pub struct Function {
     /// Methods route to the specific plugin that created the resource,
     /// rather than broadcasting to all plugins.
     is_method: bool,
-    /// Fuel limit for this specific function (overrides binding default)
-    fuel: Option<u64>,
-    /// Epoch deadline for this specific function (overrides binding default)
-    epoch_deadline: Option<u64>,
 }
 
 impl Function {
@@ -142,51 +117,7 @@ impl Function {
         return_kind: ReturnKind,
         is_method: bool,
     ) -> Self {
-        Self { return_kind, is_method, fuel: None, epoch_deadline: None }
-    }
-
-    /// Sets the fuel limit for this function.
-    ///
-    /// Fuel limits bound how many WebAssembly instructions a function can execute.
-    /// When fuel runs out, execution traps with a [`RuntimeException`]( crate::DispatchError::RuntimeException ).
-    ///
-    /// This value overrides the binding's default fuel. Plugins can further modify
-    /// this via multipliers or per-function overrides.
-    ///
-    /// Fuel and epoch limits are independent—a function can have both, and whichever
-    /// is exhausted first causes a trap.
-    ///
-    /// **Warning:** Fuel consumption must be enabled in the [`Engine`]( wasmtime::Engine )
-    /// via [`Config::consume_fuel`]( wasmtime::Config::consume_fuel ). If not enabled,
-    /// dispatch will fail with a [`RuntimeException`]( crate::DispatchError::RuntimeException )
-    /// at call time, not at setup time.
-    ///
-    /// Look at [`wasmtime`] documentation for more detail.
-    pub fn with_fuel( mut self, fuel: u64 ) -> Self {
-        self.fuel = Some( fuel );
-        self
-    }
-
-    /// Sets the epoch deadline for this function.
-    ///
-    /// Epoch deadlines bound wall-clock time by counting "ticks" incremented by an
-    /// external timer. When the deadline is reached, execution traps with a
-    /// [`RuntimeException`]( crate::DispatchError::RuntimeException ).
-    ///
-    /// This value overrides the binding's default epoch deadline. Plugins can further
-    /// modify this via multipliers or per-function overrides.
-    ///
-    /// Fuel and epoch limits are independent—a function can have both, and whichever
-    /// is exhausted first causes a trap.
-    ///
-    /// **Warning:** Epoch interruption must be enabled in the [`Engine`]( wasmtime::Engine )
-    /// via [`Config::epoch_interruption`]( wasmtime::Config::epoch_interruption ). If not
-    /// enabled, the deadline is silently ignored.
-    ///
-    /// Look at [`wasmtime`] documentation for more detail.
-    pub fn with_epoch_deadline( mut self, ticks: u64 ) -> Self {
-        self.epoch_deadline = Some( ticks );
-        self
+        Self { return_kind, is_method }
     }
 
     /// The function's return kind for dispatch handling.
@@ -194,12 +125,6 @@ impl Function {
 
     /// Whether this function is a method (has a `self` parameter).
     pub fn is_method( &self ) -> bool { self.is_method }
-
-    /// The fuel limit for this function, if set.
-    pub fn fuel( &self ) -> Option<u64> { self.fuel }
-
-    /// The epoch deadline for this function, if set.
-    pub fn epoch_deadline( &self ) -> Option<u64> { self.epoch_deadline }
 
 }
 

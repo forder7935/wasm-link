@@ -11,12 +11,14 @@ fixtures! {
 }
 
 fn dispatch_with_epoch( deadline: u64, concurrent_ticker: bool ) -> Result<Socket<Result<Val, wasm_link::DispatchError>, String>, wasm_link::DispatchError> {
+
     let mut config = Config::new();
     config.epoch_interruption( true );
     let engine = Engine::new( &config ).expect( "failed to create engine" );
     let linker = Linker::new( &engine );
 
     let plugin_instance = fixtures::plugin( "burn-fuel", &engine ).plugin
+        .with_epoch_limiter( move | _store, _interface, _function, _metadata | deadline )
         .instantiate( &engine, &linker )
         .expect( "failed to instantiate plugin" );
 
@@ -24,7 +26,7 @@ fn dispatch_with_epoch( deadline: u64, concurrent_ticker: bool ) -> Result<Socke
     let binding = Binding::new(
         interface.package,
         HashMap::from([( interface.name, Interface::new(
-            HashMap::from([( "burn".into(), Function::new( ReturnKind::AssumeNoResources, false ).with_epoch_deadline( deadline ))]),
+            HashMap::from([( "burn".into(), Function::new( ReturnKind::AssumeNoResources, false ))]),
             HashSet::new(),
         ))]),
         Socket::ExactlyOne( "_".to_string(), plugin_instance ),
