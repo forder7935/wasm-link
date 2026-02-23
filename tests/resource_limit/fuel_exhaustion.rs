@@ -15,6 +15,7 @@ fn dispatch_with_fuel( fuel: u64 ) -> Result<Socket<Result<Val, wasm_link::Dispa
     let linker = Linker::new( &engine );
 
     let plugin_instance = fixtures::plugin( "burn-fuel", &engine ).plugin
+        .with_fuel_limiter( move | _store, _interface, _function, _metadata | fuel )
         .instantiate( &engine, &linker )
         .expect( "failed to instantiate plugin" );
 
@@ -22,7 +23,7 @@ fn dispatch_with_fuel( fuel: u64 ) -> Result<Socket<Result<Val, wasm_link::Dispa
     let binding = Binding::new(
         interface.package,
         HashMap::from([( interface.name, Interface::new(
-            HashMap::from([( "burn".into(), Function::new( ReturnKind::AssumeNoResources, false ).with_fuel( fuel ))]),
+            HashMap::from([( "burn".into(), Function::new( ReturnKind::AssumeNoResources, false ))]),
             HashSet::new(),
         ))]),
         Socket::ExactlyOne( "_".to_string(), plugin_instance ),
