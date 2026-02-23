@@ -22,8 +22,6 @@ where
     Ctx: PluginContext,
 {
     debug_assert!( !function.is_method() );
-    let default_fuel = binding.default_fuel();
-    let default_epoch = binding.default_epoch_deadline();
     binding.plugins().map(| plugin_id, plugin | Val::Result(
         match dispatch_of(
             &mut ctx,
@@ -32,8 +30,6 @@ where
             interface_path,
             function_name,
             function,
-            default_fuel,
-            default_epoch,
             data,
         ) {
             Ok( val ) => Ok( Some( Box::new( val ))),
@@ -56,16 +52,12 @@ where
     Ctx: PluginContext,
 {
     debug_assert!( function.is_method() );
-    let default_fuel = binding.default_fuel();
-    let default_epoch = binding.default_epoch_deadline();
     Val::Result( match route_method(
         binding,
         ctx,
         interface_path,
         function_name,
         function,
-        default_fuel,
-        default_epoch,
         data,
     ) {
         Ok( val ) => Ok( Some( Box::new( val ))),
@@ -74,7 +66,6 @@ where
 }
 
 #[inline]
-#[allow( clippy::too_many_arguments )]
 fn dispatch_of<PluginId, Ctx>(
     ctx: &mut StoreContextMut<Ctx>,
     plugin_id: PluginId,
@@ -82,8 +73,6 @@ fn dispatch_of<PluginId, Ctx>(
     interface_path: &str,
     function_name: &str,
     function: &Function,
-    default_fuel: Option<u64>,
-    default_epoch: Option<u64>,
     data: &[Val],
 ) -> Result<Val, DispatchError>
 where
@@ -92,7 +81,7 @@ where
 {
 
     let mut lock = plugin.lock().map_err(|_| DispatchError::LockRejected )?;
-    let result = lock.dispatch( interface_path, function_name, function, default_fuel, default_epoch, data )?;
+    let result = lock.dispatch( interface_path, function_name, function, data )?;
 
     Ok( match function.return_kind() {
         ReturnKind::Void | ReturnKind::AssumeNoResources => result,
@@ -101,15 +90,12 @@ where
 }
 
 #[inline]
-#[allow( clippy::too_many_arguments )]
 fn route_method<PluginId, Ctx>(
     binding: &Binding<PluginId, Ctx>,
     mut ctx: StoreContextMut<Ctx>,
     interface_path: &str,
     function_name: &str,
     function: &Function,
-    default_fuel: Option<u64>,
-    default_epoch: Option<u64>,
     data: &[Val],
 ) -> Result<Val, DispatchError>
 where
@@ -136,8 +122,6 @@ where
         interface_path,
         function_name,
         function,
-        default_fuel,
-        default_epoch,
         &data,
     )
 

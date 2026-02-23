@@ -239,14 +239,9 @@
 //!
 //! ## Setting Limits
 //!
-//! Limits can be set at three levels, listed from lowest to highest precedence:
-//!
-//! 1. **Binding default** - applies to all functions in the binding
-//! 2. **Function-specific** - overrides the binding default for one function
-//! 3. **Plugin override** - highest precedence, set per-plugin per-function
-//!
-//! Plugins can also set a **multiplier** that scales the base value (from function
-//! or binding).
+//! Limits are set per-plugin via closures that receive the store, interface path,
+//! function name, and function metadata. This gives you full control over the
+//! limit for every call.
 //!
 //! ```
 //! # use std::collections::{ HashMap, HashSet };
@@ -265,26 +260,22 @@
 //! let linker = Linker::new( &engine );
 //!
 //! # let component = Component::new( &engine, "(component)" )?;
-//! // Slower plugin gets double the fuel
-//! let slow = Plugin::new( component, Context::new() )
-//!     .with_fuel_multiplier( 2.0 )
+//! // Give this plugin a flat fuel budget per call
+//! let plugin = Plugin::new( component, Context::new() )
+//!     .with_fuel_limiter(| _store, _interface, _function, _metadata | 100_000 )
 //!     .instantiate( &engine, &linker )?;
 //!
-//! // Binding with a default fuel limit; "expensive-fn" gets more
-//! let binding = Binding::<String, _>::build(
+//! let binding = Binding::<String, _>::new(
 //!     "my:pkg",
 //!     HashMap::from([( "api".into(), Interface::new(
 //!         HashMap::from([
 //!             ( "cheap-fn".into(), Function::new( ReturnKind::Void, false )),
-//!             ( "expensive-fn".into(), Function::new( ReturnKind::Void, false )
-//!                 .with_fuel( 100_000 )), // Override for this function
+//!             ( "expensive-fn".into(), Function::new( ReturnKind::Void, false )),
 //!         ]),
 //!         HashSet::new(),
 //!     ))]),
-//!     Socket::ExactlyOne( "plugin".into(), slow ),
-//! )
-//!     .with_default_fuel( 10_000 ) // Binding-wide default
-//!     .build();
+//!     Socket::ExactlyOne( "plugin".into(), plugin ),
+//! );
 //! # Ok(())
 //! # }
 //! ```
@@ -295,15 +286,11 @@
 //! in the [`Engine`] configuration. For more information, look into [`wasmtime`] docs.
 //!
 //! **Fuel and epoch are independent.** A function can have both a fuel limit and an
-//! epoch deadline. They are resolved and applied separately; whichever is exhausted
-//! first causes a trap.
+//! epoch deadline. They are applied separately; whichever is exhausted first causes
+//! a trap.
 //!
-//! **Invalid override keys are silently ignored.** If a plugin specifies a fuel or
-//! epoch override for an `(interface, function)` pair that doesn't exist, the override
-//! is never used. No error is raised.
-//!
-//! **Engine enabled but no limits set.** If you enable fuel/epochs in the [`Engine`]
-//! but don't set any limits in `wasm_link`, the behavior mimics the wasmtime behaviour.
+//! **Engine enabled but no limiter set.** If you enable fuel/epochs in the [`Engine`]
+//! but don't set a limiter on the [`Plugin`], the behavior mimics the wasmtime default.
 //! - *Fuel*: A fresh [`Store`]( wasmtime::Store ) starts with 0 fuel, so the first
 //!   instruction immediately traps. This is likely not what you want.
 //! - *Epochs*: No deadline is set, so execution runs indefinitely regardless of epoch

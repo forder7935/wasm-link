@@ -71,8 +71,6 @@ where
         interface_path: &str,
         function_name: &str,
         function: &Function,
-        default_fuel: Option<u64>,
-        default_epoch: Option<u64>,
         data: &[Val],
     ) -> Socket<Result<Val, DispatchError>, PluginId> {
         self.map(| _, plugin | plugin
@@ -81,8 +79,6 @@ where
                 interface_path,
                 function_name,
                 function,
-                default_fuel,
-                default_epoch,
                 data,
             ))
         )
