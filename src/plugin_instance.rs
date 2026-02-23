@@ -1,4 +1,3 @@
-use std::collections::HashMap ;
 use thiserror::Error ;
 use wasmtime::component::{ Instance, Val };
 use wasmtime::Store ;
@@ -16,12 +15,10 @@ use crate::resource_wrapper::{ ResourceCreationError, ResourceReceiveError };
 pub struct PluginInstance<Ctx: 'static> {
     pub(crate) store: Store<Ctx>,
     pub(crate) instance: Instance,
-    pub(crate) fuel_multiplier: Option<f64>,
-    pub(crate) epoch_deadline_multiplier: Option<f64>,
-    /// Nested map: interface -> function -> fuel
-    pub(crate) fuel_overrides: HashMap<String, HashMap<String, u64>>,
-    /// Nested map: interface -> function -> epoch deadline
-    pub(crate) epoch_deadline_overrides: HashMap<String, HashMap<String, u64>>,
+    #[allow( clippy::type_complexity )]
+    pub(crate) fuel_limiter: Option<Box<dyn FnMut( &mut Store<Ctx>, &str, &str, &Function ) -> u64 + Send>>,
+    #[allow( clippy::type_complexity )]
+    pub(crate) epoch_limiter: Option<Box<dyn FnMut( &mut Store<Ctx>, &str, &str, &Function ) -> u64 + Send>>,
 }
 
 impl<Ctx: std::fmt::Debug + 'static> std::fmt::Debug for PluginInstance<Ctx> {
@@ -29,10 +26,8 @@ impl<Ctx: std::fmt::Debug + 'static> std::fmt::Debug for PluginInstance<Ctx> {
         f.debug_struct( "PluginInstance" )
             .field( "data", &self.store.data() )
             .field( "store", &self.store )
-            .field( "fuel_multiplier", &self.fuel_multiplier )
-            .field( "epoch_deadline_multiplier", &self.epoch_deadline_multiplier )
-            .field( "fuel_overrides", &self.fuel_overrides )
-            .field( "epoch_deadline_overrides", &self.epoch_deadline_overrides )
+            .field( "fuel_limiter", &self.fuel_limiter.as_ref().map(| _ | "<closure>" ))
+            .field( "epoch_limiter", &self.epoch_limiter.as_ref().map(| _ | "<closure>" ))
             .finish_non_exhaustive()
     }
 }
@@ -87,8 +82,6 @@ impl<Ctx: PluginContext + 'static> PluginInstance<Ctx> {
         interface_path: &str,
         function_name: &str,
         function: &Function,
-        default_fuel: Option<u64>,
-        default_epoch: Option<u64>,
         data: &[Val],
     ) -> Result<Val, DispatchError> {
 
@@ -97,12 +90,16 @@ impl<Ctx: PluginContext + 'static> PluginInstance<Ctx> {
             false => Vec::with_capacity( 0 ),
         };
 
-        // Resolve and apply fuel/epoch limits
-        let fuel_was_set = if let Some( fuel ) = self.resolve_fuel( interface_path, function_name, function, default_fuel ) {
+        let fuel_was_set = if let Some( mut limiter ) = self.fuel_limiter.take() {
+            let fuel = limiter( &mut self.store, interface_path, function_name, function );
+            self.fuel_limiter = Some( limiter );
             self.store.set_fuel( fuel ).map_err( DispatchError::RuntimeException )?;
             true
         } else { false };
-        if let Some( ticks ) = self.resolve_epoch_deadline( interface_path, function_name, function, default_epoch ) {
+
+        if let Some( mut limiter ) = self.epoch_limiter.take() {
+            let ticks = limiter( &mut self.store, interface_path, function_name, function );
+            self.epoch_limiter = Some( limiter );
             self.store.set_epoch_deadline( ticks );
         }
 
@@ -129,69 +126,5 @@ impl<Ctx: PluginContext + 'static> PluginInstance<Ctx> {
         })
 
     }
-
-    /// Resolves the fuel limit for a function call.
-    ///
-    /// Precedence: plugin override > (multiplier * function fuel) > (multiplier * binding default)
-    fn resolve_fuel( &self, interface: &str, function_name: &str, function: &Function, default_fuel: Option<u64> ) -> Option<u64> {
-        self.fuel_overrides.get( interface )
-            .and_then(| fns | fns.get( function_name ))
-            .copied()
-            .or_else(|| {
-                let base = function.fuel().or( default_fuel )?;
-                Some( match self.fuel_multiplier {
-                    Some( multiplier ) => scale_u64( base, multiplier ),
-                    None => base,
-                })
-            })
-    }
-
-    /// Resolves the epoch deadline for a function call.
-    ///
-    /// Precedence: plugin override > (multiplier * function epoch) > (multiplier * binding default)
-    fn resolve_epoch_deadline( &self, interface: &str, function_name: &str, function: &Function, default_ticks: Option<u64> ) -> Option<u64> {
-        self.epoch_deadline_overrides.get( interface )
-            .and_then(| fns | fns.get( function_name ))
-            .copied()
-            .or_else(|| {
-                let base = function.epoch_deadline().or( default_ticks )?;
-                Some( match self.epoch_deadline_multiplier {
-                    Some( multiplier ) => scale_u64( base, multiplier ),
-                    None => base,
-                })
-            })
-    }
-
-}
-
-/// Scales a u64 by a f64 multiplier.
-///
-/// # Quirks
-///
-/// - **NaN, zero, or negative multipliers** → returns 0
-/// - **Integer multipliers** (1.0, 2.0, etc.) → uses exact integer multiplication
-/// - **Non-integer multipliers with base > 2^53** → base is truncated to fit f64's
-///   52-bit mantissa before multiplication. Least significant bits are lost.
-/// - **Overflow** → clamps to `u64::MAX`
-#[allow( clippy::cast_precision_loss, clippy::cast_possible_truncation, clippy::cast_sign_loss )]
-fn scale_u64( base: u64, multiplier: f64 ) -> u64 {
-
-    if multiplier.is_nan() || multiplier <= 0.0 || base == 0 {
-        return 0;
-    }
-
-    // Integer multipliers use exact integer arithmetic (no f64 conversion of base)
-    if multiplier.fract() == 0.0 {
-        if multiplier > u64::MAX as f64 {
-            return u64::MAX;
-        }
-        return base.saturating_mul( multiplier as u64 );
-    }
-
-    // Non-integer multipliers: base is converted to f64 (truncates if > 2^53)
-    let result = ( base as f64 ) * multiplier ;
-    if result <= 0.0 { 0 }
-    else if result >= u64::MAX as f64 { u64::MAX }
-    else { result as u64 }
 
 }
