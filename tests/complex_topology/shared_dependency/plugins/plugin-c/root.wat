@@ -1,6 +1,6 @@
 (component
   ;; Import interface-d dependency
-  (import "test:interface-d/root" (instance $interface_d
+  (import "test:binding-d/root" (instance $interface_d
     (export "get-d" (func (result (result u32))))
   ))
 
@@ -39,5 +39,5 @@
   (alias core export $main_inst "get-c" (core func $core_get_c))
   (func $lifted_get_c (result u32) (canon lift (core func $core_get_c)))
   (instance $inst (export "get-c" (func $lifted_get_c)))
-  (export "test:interface-c/root" (instance $inst))
+  (export "test:binding-c/root" (instance $inst))
 )

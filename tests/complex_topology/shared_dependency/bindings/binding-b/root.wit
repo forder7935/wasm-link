@@ -1,0 +1,5 @@
+package test:binding-b ;
+
+interface root {
+  get-b: func() -> u32;
+}

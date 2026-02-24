@@ -1,5 +1,0 @@
-package test:interface-c ;
-
-interface root {
-  get-c: func() -> u32;
-}

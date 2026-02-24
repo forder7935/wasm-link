@@ -2,9 +2,8 @@ use std::collections::HashMap;
 use wasm_link::{ Binding, Engine, Linker, Val, Socket };
 
 fixtures! {
-	const ROOT	=   "root" ;
-	interfaces	= [ "root", "dependency" ];
-	plugins		= [ "startup", "child" ];
+	bindings	= [ root: "root", dependency: "dependency" ];
+	plugins		= [ startup: "startup", child: "child" ];
 }
 
 #[test]
@@ -12,24 +11,24 @@ fn dispatch_test_dependant_plugins_expect_composite() {
 
 	let engine = Engine::default();
 	let linker = Linker::new( &engine );
+	let plugins = fixtures::plugins( &engine );
+	let bindings = fixtures::bindings();
 
-	let child_instance = fixtures::plugin( "child", &engine ).plugin
+	let child_instance = plugins.child.plugin
 		.instantiate( &engine, &linker )
 		.expect( "Failed to instantiate child plugin" );
-	let interface_dependency = fixtures::interface( "dependency" );
 	let dependency_binding = Binding::new(
-		interface_dependency.package,
-		HashMap::from([( interface_dependency.name, interface_dependency.interface )]),
+		bindings.dependency.package,
+		HashMap::from([( bindings.dependency.name, bindings.dependency.spec )]),
 		Socket::ExactlyOne( "_".to_string(), child_instance ),
 	);
 
-	let startup_instance = fixtures::plugin( "startup", &engine ).plugin
+	let startup_instance = plugins.startup.plugin
 		.link( &engine, linker.clone(), vec![ dependency_binding ])
 		.expect( "Failed to link startup plugin" );
-	let interface_root = fixtures::interface( "root" );
 	let root_binding = Binding::new(
-		interface_root.package,
-		HashMap::from([( interface_root.name, interface_root.interface )]),
+		bindings.root.package,
+		HashMap::from([( bindings.root.name, bindings.root.spec )]),
 		Socket::ExactlyOne( "_".to_string(), startup_instance ),
 	);
 

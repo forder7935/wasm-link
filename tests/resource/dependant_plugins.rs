@@ -2,9 +2,8 @@ use std::collections::HashMap;
 use wasm_link::{ Binding, Engine, Linker, Val, Socket };
 
 fixtures! {
-	const ROOT	=   "root" ;
-	interfaces	= [ "root", "dependency" ];
-	plugins		= [ "consumer", "counter" ];
+	bindings	= [ root: "root", dependency: "dependency" ];
+	plugins		= [ consumer: "consumer", counter: "counter" ];
 }
 
 #[test]
@@ -12,24 +11,24 @@ fn resource_test_wrapper() {
 
 	let engine = Engine::default();
 	let linker = Linker::new( &engine );
+	let plugins = fixtures::plugins( &engine );
+	let bindings = fixtures::bindings();
 
-	let counter_instance = fixtures::plugin( "counter", &engine ).plugin
+	let counter_instance = plugins.counter.plugin
 		.instantiate( &engine, &linker )
 		.expect( "Failed to instantiate counter plugin" );
-	let interface_dependency = fixtures::interface( "dependency" );
 	let dependency_binding = Binding::new(
-		interface_dependency.package,
-		HashMap::from([( interface_dependency.name, interface_dependency.interface )]),
+		bindings.dependency.package,
+		HashMap::from([( bindings.dependency.name, bindings.dependency.spec )]),
 		Socket::ExactlyOne( "_".to_string(), counter_instance ),
 	);
 
-	let consumer_instance = fixtures::plugin( "consumer", &engine ).plugin
+	let consumer_instance = plugins.consumer.plugin
 		.link( &engine, linker.clone(), vec![ dependency_binding ])
 		.expect( "Failed to link consumer plugin" );
-	let interface_root = fixtures::interface( "root" );
 	let root_binding = Binding::new(
-		interface_root.package,
-		HashMap::from([( interface_root.name, interface_root.interface )]),
+		bindings.root.package,
+		HashMap::from([( bindings.root.name, bindings.root.spec )]),
 		Socket::ExactlyOne( "_".to_string(), consumer_instance ),
 	);
 
