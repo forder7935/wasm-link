@@ -1,0 +1,5 @@
+package test:memory;
+
+interface root {
+    grow-memory: func() -> s32;
+}
