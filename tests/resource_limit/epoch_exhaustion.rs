@@ -5,9 +5,8 @@ use wasm_link::{ Binding, Engine, Function, Interface, Linker, ReturnKind, Socke
 use wasmtime::Config;
 
 fixtures! {
-    const ROOT  = "root";
-    interfaces  = [ "root" ];
-    plugins     = [ "burn-fuel" ];
+    bindings    = [ root: "root" ];
+    plugins     = [ burn_fuel: "burn-fuel" ];
 }
 
 fn dispatch_with_epoch( deadline: u64, concurrent_ticker: bool ) -> Result<Socket<Result<Val, wasm_link::DispatchError>, String>, wasm_link::DispatchError> {
@@ -16,16 +15,17 @@ fn dispatch_with_epoch( deadline: u64, concurrent_ticker: bool ) -> Result<Socke
     config.epoch_interruption( true );
     let engine = Engine::new( &config ).expect( "failed to create engine" );
     let linker = Linker::new( &engine );
+    let plugins = fixtures::plugins( &engine );
+    let bindings = fixtures::bindings();
 
-    let plugin_instance = fixtures::plugin( "burn-fuel", &engine ).plugin
+    let plugin_instance = plugins.burn_fuel.plugin
         .with_epoch_limiter( move | _store, _interface, _function, _metadata | deadline )
         .instantiate( &engine, &linker )
         .expect( "failed to instantiate plugin" );
 
-    let interface = fixtures::interface( "root" );
     let binding = Binding::new(
-        interface.package,
-        HashMap::from([( interface.name, Interface::new(
+        bindings.root.package,
+        HashMap::from([( bindings.root.name, Interface::new(
             HashMap::from([( "burn".into(), Function::new( ReturnKind::AssumeNoResources, false ))]),
             HashSet::new(),
         ))]),

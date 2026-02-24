@@ -2,9 +2,8 @@ use std::collections::HashMap;
 use wasm_link::{ Binding, Engine, Linker, Val, Socket };
 
 fixtures! {
-	const ROOT	=   "root" ;
-	interfaces	= [ "root", "dependency-one", "dependency-two", "dependency-three" ];
-	plugins		= [ "root-plugin", "dependency-one-plugin", "dependency-two-plugin", "dependency-three-plugin" ];
+	bindings	= [ root: "root", dependency_one: "dependency-one", dependency_two: "dependency-two", dependency_three: "dependency-three" ];
+	plugins		= [ root_plugin: "root-plugin", dependency_one_plugin: "dependency-one-plugin", dependency_two_plugin: "dependency-two-plugin", dependency_three_plugin: "dependency-three-plugin" ];
 }
 
 #[test]
@@ -12,44 +11,42 @@ fn complex_topology_multiple_sockets() {
 
 	let engine = Engine::default();
 	let linker = Linker::new( &engine );
+	let plugins = fixtures::plugins( &engine );
+	let bindings = fixtures::bindings();
 
-	let dependency_one_instance = fixtures::plugin( "dependency-one-plugin", &engine ).plugin
+	let dependency_one_instance = plugins.dependency_one_plugin.plugin
 		.instantiate( &engine, &linker )
 		.expect( "Failed to instantiate dependency-one-plugin" );
-	let interface_one = fixtures::interface( "dependency-one" );
 	let binding_one = Binding::new(
-		interface_one.package,
-		HashMap::from([( interface_one.name, interface_one.interface )]),
+		bindings.dependency_one.package,
+		HashMap::from([( bindings.dependency_one.name, bindings.dependency_one.spec )]),
 		Socket::ExactlyOne( "_".to_string(), dependency_one_instance ),
 	);
 
-	let dependency_two_instance = fixtures::plugin( "dependency-two-plugin", &engine ).plugin
+	let dependency_two_instance = plugins.dependency_two_plugin.plugin
 		.instantiate( &engine, &linker )
 		.expect( "Failed to instantiate dependency-two-plugin" );
-	let interface_two = fixtures::interface( "dependency-two" );
 	let binding_two = Binding::new(
-		interface_two.package,
-		HashMap::from([( interface_two.name, interface_two.interface )]),
+		bindings.dependency_two.package,
+		HashMap::from([( bindings.dependency_two.name, bindings.dependency_two.spec )]),
 		Socket::ExactlyOne( "_".to_string(), dependency_two_instance ),
 	);
 
-	let dependency_three_instance = fixtures::plugin( "dependency-three-plugin", &engine ).plugin
+	let dependency_three_instance = plugins.dependency_three_plugin.plugin
 		.instantiate( &engine, &linker )
 		.expect( "Failed to instantiate dependency-three-plugin" );
-	let interface_three = fixtures::interface( "dependency-three" );
 	let binding_three = Binding::new(
-		interface_three.package,
-		HashMap::from([( interface_three.name, interface_three.interface )]),
+		bindings.dependency_three.package,
+		HashMap::from([( bindings.dependency_three.name, bindings.dependency_three.spec )]),
 		Socket::ExactlyOne( "_".to_string(), dependency_three_instance ),
 	);
 
-	let root_plugin_instance = fixtures::plugin( "root-plugin", &engine ).plugin
+	let root_plugin_instance = plugins.root_plugin.plugin
 		.link( &engine, linker.clone(), vec![ binding_one, binding_two, binding_three ])
 		.expect( "Failed to link root-plugin" );
-	let interface_root = fixtures::interface( "root" );
 	let binding_root = Binding::new(
-		interface_root.package,
-		HashMap::from([( interface_root.name, interface_root.interface )]),
+		bindings.root.package,
+		HashMap::from([( bindings.root.name, bindings.root.spec )]),
 		Socket::ExactlyOne( "_".to_string(), root_plugin_instance ),
 	);
 
