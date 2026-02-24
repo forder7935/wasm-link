@@ -33,23 +33,25 @@ fn dispatch_with_epoch( deadline: u64, concurrent_ticker: bool ) -> Result<Socke
     );
 
     if concurrent_ticker {
-        // Spawn ticker thread that rapidly increments epoch during execution
         let stop = Arc::new( AtomicBool::new( false ));
+        let started = Arc::new( AtomicBool::new( false ));
         let stop_clone = Arc::clone( &stop );
+        let started_clone = Arc::clone( &started );
         let engine_clone = engine.clone();
         let handle = thread::spawn( move || {
-            while !stop_clone.load( Ordering::Relaxed ) {
+            while !stop_clone.load( Ordering::Acquire ) {
                 engine_clone.increment_epoch();
+                started_clone.store( true, Ordering::Release );
                 thread::yield_now();
             }
         });
-
-        // Give ticker thread a chance to start
-        thread::yield_now();
+        while !started.load( Ordering::Acquire ) {
+            thread::yield_now();
+        }
 
         let result = binding.dispatch( "root", "burn", &[] );
 
-        stop.store( true, Ordering::Relaxed );
+        stop.store( true, Ordering::Release );
         let _ = handle.join();
         result
     } else {
