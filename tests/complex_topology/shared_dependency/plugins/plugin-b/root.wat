@@ -1,5 +1,5 @@
 (component
-  ;; Import interface-d dependency
+  ;; Import binding-d dependency
   (import "test:binding-d/root" (instance $interface_d
     (export "get-d" (func (result (result u32))))
   ))
@@ -22,7 +22,7 @@
   (core instance $mem_imports (export "memory" (memory $shared_mem)))
 
   (core module $main_impl
-    (import "interface-d" "get-d" (func $get_d (param i32)))
+    (import "binding-d" "get-d" (func $get_d (param i32)))
     (import "mem" "memory" (memory 1))
 
     (func (export "get-b") (result i32)
@@ -32,7 +32,7 @@
   )
 
   (core instance $main_inst (instantiate $main_impl
-    (with "interface-d" (instance $imports_d))
+    (with "binding-d" (instance $imports_d))
     (with "mem" (instance $mem_imports))
   ))
 

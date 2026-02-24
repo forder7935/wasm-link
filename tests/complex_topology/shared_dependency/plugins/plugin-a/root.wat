@@ -26,8 +26,8 @@
   (core instance $mem_imports (export "memory" (memory $shared_mem)))
 
   (core module $main_impl
-    (import "interface-b" "get-b" (func $get_b (param i32)))
-    (import "interface-c" "get-c" (func $get_c (param i32)))
+    (import "binding-b" "get-b" (func $get_b (param i32)))
+    (import "binding-c" "get-c" (func $get_c (param i32)))
     (import "mem" "memory" (memory 1))
 
     (func (export "get-value") (result i32)
@@ -41,8 +41,8 @@
   )
 
   (core instance $main_inst (instantiate $main_impl
-    (with "interface-b" (instance $imports_b))
-    (with "interface-c" (instance $imports_c))
+    (with "binding-b" (instance $imports_b))
+    (with "binding-c" (instance $imports_c))
     (with "mem" (instance $mem_imports))
   ))
 
