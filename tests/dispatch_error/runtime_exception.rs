@@ -2,9 +2,8 @@ use std::collections::HashMap;
 use wasm_link::{ Binding, Engine, Linker, DispatchError, Socket };
 
 fixtures! {
-	const ROOT	=   "root" ;
-	interfaces	= [ "root" ];
-	plugins		= [ "test-plugin" ];
+	bindings	= [ root: "root" ];
+	plugins		= [ test_plugin: "test-plugin" ];
 }
 
 #[test]
@@ -12,14 +11,15 @@ fn dispatch_error_runtime_exception() {
 
 	let engine = Engine::default();
 	let linker = Linker::new( &engine );
+	let plugins = fixtures::plugins( &engine );
+	let bindings = fixtures::bindings();
 
-	let plugin_instance = fixtures::plugin( "test-plugin", &engine ).plugin
+	let plugin_instance = plugins.test_plugin.plugin
 		.instantiate( &engine, &linker )
 		.expect( "Failed to instantiate plugin" );
-	let interface = fixtures::interface( "root" );
 	let binding = Binding::new(
-		interface.package,
-		HashMap::from([( interface.name, interface.interface )]),
+		bindings.root.package,
+		HashMap::from([( bindings.root.name, bindings.root.spec )]),
 		Socket::ExactlyOne( "_".to_string(), plugin_instance ),
 	);
 

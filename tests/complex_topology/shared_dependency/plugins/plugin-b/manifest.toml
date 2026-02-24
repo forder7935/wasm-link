@@ -1,2 +1,0 @@
-plug = "interface-b"
-sockets = ["interface-d"]

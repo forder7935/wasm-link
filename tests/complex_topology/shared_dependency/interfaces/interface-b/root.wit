@@ -1,5 +1,0 @@
-package test:interface-b ;
-
-interface root {
-  get-b: func() -> u32;
-}

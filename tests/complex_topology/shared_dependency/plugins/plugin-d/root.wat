@@ -9,5 +9,5 @@
   (instance $inst
     (export "get-d" (func $f))
   )
-  (export "test:interface-d/root" (instance $inst))
+  (export "test:binding-d/root" (instance $inst))
 )

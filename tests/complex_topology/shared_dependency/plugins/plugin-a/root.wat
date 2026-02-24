@@ -1,8 +1,8 @@
 (component
-  (import "test:interface-b/root" (instance $interface_b
+  (import "test:binding-b/root" (instance $interface_b
     (export "get-b" (func (result (result u32))))
   ))
-  (import "test:interface-c/root" (instance $interface_c
+  (import "test:binding-c/root" (instance $interface_c
     (export "get-c" (func (result (result u32))))
   ))
 

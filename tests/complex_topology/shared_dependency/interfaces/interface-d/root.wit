@@ -1,5 +1,0 @@
-package test:interface-d ;
-
-interface root {
-  get-d: func() -> u32;
-}
