@@ -60,6 +60,9 @@ pub struct Plugin<Ctx: 'static> {
     /// Closure that determines epoch deadline for each function call
     #[allow( clippy::type_complexity )]
     epoch_limiter: Option<Box<dyn FnMut( &mut Store<Ctx>, &str, &str, &Function ) -> u64 + Send>>,
+    /// Closure that returns a mutable reference to the `ResourceLimiter` in the context
+    #[allow( clippy::type_complexity )]
+    memory_limiter: Option<Box<dyn (FnMut( &mut Ctx ) -> &mut dyn wasmtime::ResourceLimiter) + Send + Sync>>,
 }
 
 impl<Ctx> Plugin<Ctx>
@@ -80,6 +83,7 @@ where
             context,
             fuel_limiter: None,
             epoch_limiter: None,
+            memory_limiter: None,
         }
     }
 
@@ -135,6 +139,39 @@ where
         self
     }
 
+    /// Sets a closure that returns a mutable reference to a [`ResourceLimiter`]( wasmtime::ResourceLimiter )
+    /// embedded in the plugin context.
+    ///
+    /// The limiter is installed into the wasmtime [`Store`]( wasmtime::Store ) once at instantiation
+    /// and controls memory and table growth for the lifetime of the plugin.
+    ///
+    /// The [`ResourceLimiter`]( wasmtime::ResourceLimiter ) must be stored inside the context type `Ctx`
+    /// so that wasmtime can access it through a `&mut Ctx` reference.
+    ///
+    /// ```
+    /// # use wasm_link::{ Plugin, PluginContext, ResourceTable, Component, Engine };
+    /// # struct Ctx { resource_table: ResourceTable, limiter: MyLimiter }
+    /// # impl PluginContext for Ctx {
+    /// #     fn resource_table( &mut self ) -> &mut ResourceTable { &mut self.resource_table }
+    /// # }
+    /// # struct MyLimiter;
+    /// # impl wasmtime::ResourceLimiter for MyLimiter {
+    /// #     fn memory_growing( &mut self, _: usize, _: usize, _: Option<usize> ) -> anyhow::Result<bool> { anyhow::Ok( true ) }
+    /// #     fn table_growing( &mut self, _: usize, _: usize, _: Option<usize> ) -> anyhow::Result<bool> { anyhow::Ok( true ) }
+    /// # }
+    /// # fn example( component: Component ) {
+    /// let plugin = Plugin::new( component, Ctx { resource_table: ResourceTable::new(), limiter: MyLimiter })
+    ///     .with_memory_limiter(| ctx | &mut ctx.limiter );
+    /// # }
+    /// ```
+    pub fn with_memory_limiter(
+        mut self,
+        limiter: impl (FnMut( &mut Ctx ) -> &mut dyn wasmtime::ResourceLimiter) + Send + Sync + 'static,
+    ) -> Self {
+        self.memory_limiter = Some( Box::new( limiter ));
+        self
+    }
+
     /// Links this plugin with its socket bindings and instantiates it.
     ///
     /// Takes ownership of the `linker` because socket bindings are added to it. If you need
@@ -169,6 +206,7 @@ where
         linker: &Linker<Ctx>
     ) -> Result<PluginInstance<Ctx>, wasmtime::Error> {
         let mut store = Store::new( engine, self.context );
+        if let Some( limiter ) = self.memory_limiter { store.limiter( limiter ); }
         let instance = linker.instantiate( &mut store, &self.component )?;
         Ok( PluginInstance {
             store,
@@ -187,6 +225,7 @@ impl<Ctx: std::fmt::Debug + 'static> std::fmt::Debug for Plugin<Ctx> {
             .field( "context", &self.context )
             .field( "fuel_limiter", &self.fuel_limiter.as_ref().map(| _ | "<closure>" ))
             .field( "epoch_limiter", &self.epoch_limiter.as_ref().map(| _ | "<closure>" ))
+            .field( "memory_limiter", &self.memory_limiter.as_ref().map(| _ | "<closure>" ))
             .finish_non_exhaustive()
     }
 }
