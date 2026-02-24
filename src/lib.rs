@@ -225,23 +225,28 @@
 //! # }
 //! ```
 //!
-//! # Resource Limits (Fuel & Epochs)
+//! # Resource Limits
 //!
-//! Plugins may run untrusted code, so `wasm_link` supports Wasmtime's fuel and epoch
-//! mechanisms to prevent runaway execution. Both must be enabled in your
-//! [`Engine`] configuration:
+//! Plugins may run untrusted code. `wasm_link` exposes three mechanisms to control
+//! resource usage:
 //!
 //! - **Fuel** counts WebAssembly instructions. When fuel runs out, execution traps.
 //!   Enable with [`Config::consume_fuel`]( wasmtime::Config::consume_fuel ).
+//!   Set per-call via [`Plugin::with_fuel_limiter`].
 //!
-//! - **Epochs** count external timer ticks. When the deadline is reached, execution
-//!   traps. Enable with [`Config::epoch_interruption`]( wasmtime::Config::epoch_interruption ).
+//! - **Epoch deadline** counts external timer ticks. When the deadline is reached,
+//!   execution traps. Enable with [`Config::epoch_interruption`]( wasmtime::Config::epoch_interruption ).
+//!   Set per-call via [`Plugin::with_epoch_limiter`].
 //!
-//! ## Setting Limits
+//! - **Memory** limits linear memory and table growth via wasmtime's
+//!   [`ResourceLimiter`]( wasmtime::ResourceLimiter ). No engine configuration required.
+//!   Set once at instantiation via [`Plugin::with_memory_limiter`].
 //!
-//! Limits are set per-plugin via closures that receive the store, interface path,
-//! function name, and function metadata. This gives you full control over the
-//! limit for every call.
+//! ## Fuel and Epoch Limits
+//!
+//! Fuel and epoch limits are set per-plugin via closures that receive the store,
+//! WIT interface path, function name, and function metadata. This gives you full
+//! control over the limit per call.
 //!
 //! ```
 //! # use std::collections::{ HashMap, HashSet };
@@ -280,10 +285,53 @@
 //! # }
 //! ```
 //!
+//! ## Memory Limits
+//!
+//! Memory limits are implemented via wasmtime's [`ResourceLimiter`]( wasmtime::ResourceLimiter ),
+//! which you implement and store inside your plugin context. The limiter is installed
+//! once at instantiation and controls memory and table growth for the plugin's lifetime.
+//! No engine configuration is required.
+//!
+//! ```
+//! # use wasm_link::{ Plugin, PluginContext, ResourceTable, Component, Engine, Linker };
+//! # use wasmtime::ResourceLimiter;
+//! struct Ctx {
+//!     resource_table: ResourceTable,
+//!     limiter: MemoryLimiter,
+//! }
+//! impl PluginContext for Ctx {
+//!     fn resource_table( &mut self ) -> &mut ResourceTable { &mut self.resource_table }
+//! }
+//!
+//! struct MemoryLimiter { max_bytes: usize }
+//! impl ResourceLimiter for MemoryLimiter {
+//!     fn memory_growing( &mut self, _current: usize, desired: usize, _max: Option<usize> ) -> anyhow::Result<bool> {
+//!         anyhow::Ok( desired <= self.max_bytes )
+//!     }
+//!     fn table_growing( &mut self, _current: usize, _desired: usize, _max: Option<usize> ) -> anyhow::Result<bool> {
+//!         anyhow::Ok( true )
+//!     }
+//! }
+//!
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let engine = Engine::default();
+//! let linker = Linker::new( &engine );
+//! # let component = Component::new( &engine, "(component)" )?;
+//! let plugin = Plugin::new( component, Ctx {
+//!     resource_table: ResourceTable::new(),
+//!     limiter: MemoryLimiter { max_bytes: 10 * 1024 * 1024 }, // 10 MiB
+//! }).with_memory_limiter(| ctx | &mut ctx.limiter )
+//!   .instantiate( &engine, &linker )?;
+//! # let _ = plugin;
+//! # Ok(())
+//! # }
+//! ```
+//!
 //! ## Important Notes
 //!
-//! **Engine configuration is required.** Fuel and epoch limits only work when enabled
-//! in the [`Engine`] configuration. For more information, look into [`wasmtime`] docs.
+//! **Engine configuration for fuel and epochs.** Fuel and epoch limits only work when
+//! enabled in the [`Engine`] configuration. Memory limits require no engine configuration.
+//! For more information, look into [`wasmtime`] docs.
 //!
 //! **Fuel and epoch are independent.** A function can have both a fuel limit and an
 //! epoch deadline. They are applied separately; whichever is exhausted first causes

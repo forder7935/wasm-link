@@ -18,7 +18,7 @@
 
 ## Highlights
 
-- Composable applications with no interface limitations
+- Unlimited plugin composition with no architectural restrictions
 - Performant language-agnostic plugin system
 
 NOTE: Async types (`Future`, `Stream`, `ErrorContext`) are not yet supported for cross-plugin transfer and will return an error if encountered.
@@ -129,7 +129,7 @@ match result {
 - ✅ Basic plugin linking
 - ✅ Component model support
 - ✅ Resource support
-- ✅ Epoch interrupt and fuel
+- ✅ Fuel, epoch, and memory resource limits
 - ⬛ Async, streams and threads
 
 Further goals are yet to be determined.
