@@ -14,4 +14,7 @@ include!( "test_utils/assert_no_warnings.rs" );
     mod epoch_limiter_per_call_reset ;
     mod epoch_limiter_without_limiter ;
 
+    mod memory_exhaustion ;
+    mod memory_limiter_without_limiter ;
+
 }
