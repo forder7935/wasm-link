@@ -6,7 +6,7 @@
     )
   )
   (core instance $i (instantiate $m))
-  (func $f (export "grow-memory") (result s32) (canon lift (core func $i "grow-memory")))
+  (func $f (result s32) (canon lift (core func $i "grow-memory")))
   (instance $inst (export "grow-memory" (func $f)))
   (export "test:memory/root" (instance $inst))
 )

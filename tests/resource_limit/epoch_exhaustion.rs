@@ -45,7 +45,9 @@ fn dispatch_with_epoch( deadline: u64, concurrent_ticker: bool ) -> Result<Socke
                 thread::yield_now();
             }
         });
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs( 5 );
         while !started.load( Ordering::Acquire ) {
+            assert!( std::time::Instant::now() < deadline, "ticker thread did not start in time" );
             thread::yield_now();
         }
 
