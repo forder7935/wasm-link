@@ -1,5 +1,5 @@
 use std::collections::{ HashMap, HashSet };
-use std::sync::{ Arc, atomic::{ AtomicBool, AtomicU32, AtomicUsize, Ordering }};
+use std::sync::{ Arc, atomic::{ AtomicBool, AtomicUsize, Ordering }};
 use std::thread;
 use wasm_link::{ Binding, Engine, Function, Interface, Linker, ReturnKind, Socket, Val, DispatchError };
 use wasmtime::Config;
@@ -18,7 +18,7 @@ fn closure_is_called_per_dispatch_and_deadline_is_reset() {
     let engine = Engine::new( &config ).expect( "failed to create engine" );
     let linker = Linker::new( &engine );
 
-    let call_count = Arc::new( AtomicU32::new( 0 ));
+    let call_count = Arc::new( AtomicUsize::new( 0 ));
     let call_count_clone = Arc::clone( &call_count );
 
     let dispatch_call_count = Arc::new( AtomicUsize::new( 0 ));
@@ -64,7 +64,9 @@ fn closure_is_called_per_dispatch_and_deadline_is_reset() {
             thread::yield_now();
         }
     });
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs( 5 );
     while !started.load( Ordering::Acquire ) {
+        assert!( std::time::Instant::now() < deadline, "ticker thread did not start in time" );
         thread::yield_now();
     }
 
