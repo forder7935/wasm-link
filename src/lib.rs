@@ -28,7 +28,7 @@
 //!   plugins may implement the dependency:
 //!   - `ExactlyOne( Id, T )` - exactly one plugin, guaranteed present
 //!   - `AtMostOne( Option<( Id, T )> )` - zero or one plugin
-//!   - `AtLeastOne( HashMap<Id, T> )` - one or more plugins
+//!   - `AtLeastOne( NEMap<Id, T> )` - one or more plugins
 //!   - `Any( HashMap<Id, T> )` - zero or more plugins
 //!
 //!   While cardinality is conceptually a property of bindings, it is represented by
@@ -284,6 +284,36 @@
 //! # Ok(())
 //! # }
 //! ```
+//! ## Important Notes
+//!
+//! **Engine configuration for fuel and epochs.** Fuel and epoch limits only work when
+//! enabled in the [`Engine`] configuration. Memory limits require no engine configuration.
+//! For more information, look into [`wasmtime`] docs.
+//!
+//! **Fuel and epoch are independent.** A function can have both a fuel limit and an
+//! epoch deadline. They are applied separately; whichever is exhausted first causes
+//! a trap.
+//!
+//! **Engine enabled but no limiter set.** If you enable fuel/epochs in the [`Engine`]
+//! but don't set a limiter on the [`Plugin`], the behavior mimics the wasmtime default.
+//! - *Fuel*: A fresh [`Store`]( wasmtime::Store ) starts with 0 fuel, so the first
+//!   instruction immediately traps. This is likely not what you want.
+//! - *Epochs*: No deadline is set, so execution runs indefinitely regardless of epoch
+//! ## Important Notes
+//!
+//! **Engine configuration is required.** Fuel and epoch deadline limits only work when enabled
+//! in the [`Engine`] configuration. For more information, look into [`wasmtime`] docs.
+//!
+//! **Fuel and epoch deadlines are independent.** A function can have both a fuel limit and an
+//! epoch deadline. They are applied separately; whichever is exhausted first causes
+//! a trap.
+//!
+//! **Engine enabled but no limiter set.** If you enable fuel/epoch deadlines in the [`Engine`]
+//! but don't set a limiter on the [`Plugin`], the behavior mimics the wasmtime default.
+//! - *Fuel*: A fresh [`Store`]( wasmtime::Store ) starts with 0 fuel, so the first
+//!   instruction immediately traps. This is likely not what you want.
+//! - *Epoch deadlines*: No deadline is set, so execution runs indefinitely regardless of epoch
+//!   ticks.
 //!
 //! ## Memory Limits
 //!
@@ -326,23 +356,6 @@
 //! # Ok(())
 //! # }
 //! ```
-//!
-//! ## Important Notes
-//!
-//! **Engine configuration for fuel and epochs.** Fuel and epoch limits only work when
-//! enabled in the [`Engine`] configuration. Memory limits require no engine configuration.
-//! For more information, look into [`wasmtime`] docs.
-//!
-//! **Fuel and epoch are independent.** A function can have both a fuel limit and an
-//! epoch deadline. They are applied separately; whichever is exhausted first causes
-//! a trap.
-//!
-//! **Engine enabled but no limiter set.** If you enable fuel/epochs in the [`Engine`]
-//! but don't set a limiter on the [`Plugin`], the behavior mimics the wasmtime default.
-//! - *Fuel*: A fresh [`Store`]( wasmtime::Store ) starts with 0 fuel, so the first
-//!   instruction immediately traps. This is likely not what you want.
-//! - *Epochs*: No deadline is set, so execution runs indefinitely regardless of epoch
-//!   ticks.
 
 mod binding ;
 mod interface ;
