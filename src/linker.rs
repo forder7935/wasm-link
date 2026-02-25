@@ -2,7 +2,7 @@ use std::sync::Mutex ;
 use wasmtime::StoreContextMut ;
 use wasmtime::component::Val ;
 
-use crate::{ Binding, Function, ReturnKind, PluginContext, DispatchError };
+use crate::{ Binding, Function, FunctionKind, ReturnKind, PluginContext, DispatchError };
 use crate::plugin_instance::PluginInstance ;
 use super::resource_wrapper::ResourceWrapper ;
 
@@ -21,7 +21,7 @@ where
     PluginId: Clone + std::hash::Hash + Eq + Send + Sync + Into<Val> + 'static,
     Ctx: PluginContext,
 {
-    debug_assert!( !function.is_method() );
+    debug_assert_eq!( function.kind(), FunctionKind::Freestanding );
     binding.plugins().map(| plugin_id, plugin | Val::Result(
         match dispatch_of(
             &mut ctx,
@@ -51,7 +51,7 @@ where
     PluginId: Clone + std::hash::Hash + Eq + Send + Sync + 'static,
     Ctx: PluginContext,
 {
-    debug_assert!( function.is_method() );
+    debug_assert_eq!( function.kind(), FunctionKind::Method );
     Val::Result( match route_method(
         binding,
         ctx,

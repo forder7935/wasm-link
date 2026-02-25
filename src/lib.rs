@@ -39,7 +39,7 @@
 //! ```
 //! use std::collections::{ HashMap, HashSet };
 //! use wasm_link::{
-//!     Binding, Interface, Function, ReturnKind,
+//!     Binding, Interface, Function, FunctionKind, ReturnKind,
 //!     Plugin, PluginContext, Socket,
 //!     Engine, Component, Linker, ResourceTable, Val,
 //! };
@@ -102,9 +102,9 @@
 //! let root_binding = Binding::new(
 //!     "my:package",
 //!     HashMap::from([( "example".to_string(), Interface::new(
-//!         HashMap::from([
-//!             ( "get-value".into(), Function::new( ReturnKind::MayContainResources, false ))
-//!         ]),
+//!         HashMap::from([( "get-value".into(), Function::new(
+//!             FunctionKind::Freestanding, ReturnKind::MayContainResources,
+//!         ))]),
 //!         HashSet::new(),
 //!     ))]),
 //!     Socket::ExactlyOne( "root".to_string(), root ),
@@ -169,7 +169,7 @@
 //! ```
 //! # use std::collections::{ HashMap, HashSet };
 //! # use wasm_link::{
-//! #     Binding, Interface, Function, ReturnKind, Plugin, PluginContext,
+//! #     Binding, Interface, Function, FunctionKind, ReturnKind, Plugin, PluginContext,
 //! #     Socket, Engine, Component, Linker, ResourceTable, Val,
 //! # };
 //! # struct Context { resource_table: ResourceTable }
@@ -202,7 +202,10 @@
 //! let binding = Binding::new(
 //!     "pkg:interface",
 //!     HashMap::from([( "root".to_string(), Interface::new(
-//!         HashMap::from([( "get-value".into(), Function::new( ReturnKind::MayContainResources, false ))]),
+//!         HashMap::from([( "get-value".into(), Function::new(
+//!				FunctionKind::Freestanding,
+//!				ReturnKind::MayContainResources,
+//!			))]),
 //!         HashSet::new(),
 //!     ))]),
 //!     Socket::Any( HashMap::from([
@@ -250,7 +253,7 @@
 //!
 //! ```
 //! # use std::collections::{ HashMap, HashSet };
-//! # use wasm_link::{ Binding, Interface, Function, ReturnKind, Plugin, PluginContext, Socket, Component, Linker, ResourceTable };
+//! # use wasm_link::{ Binding, Interface, Function, FunctionKind, ReturnKind, Plugin, PluginContext, Socket, Component, Linker, ResourceTable };
 //! # use wasmtime::{ Config, Engine };
 //! # struct Context { resource_table: ResourceTable }
 //! # impl Context { fn new() -> Self { Self { resource_table: ResourceTable::new() }}}
@@ -274,8 +277,8 @@
 //!     "my:pkg",
 //!     HashMap::from([( "api".into(), Interface::new(
 //!         HashMap::from([
-//!             ( "cheap-fn".into(), Function::new( ReturnKind::Void, false )),
-//!             ( "expensive-fn".into(), Function::new( ReturnKind::Void, false )),
+//!             ( "cheap-fn".into(), Function::new( FunctionKind::Freestanding, ReturnKind::Void )),
+//!             ( "expensive-fn".into(), Function::new( FunctionKind::Freestanding, ReturnKind::Void )),
 //!         ]),
 //!         HashSet::new(),
 //!     ))]),
@@ -370,7 +373,7 @@ pub use wasmtime::component::{ Component, Linker, ResourceTable, Val };
 pub use nonempty_collections::{ NEMap, nem };
 
 pub use binding::Binding ;
-pub use interface::{ Interface, Function, ReturnKind };
+pub use interface::{ Interface, Function, FunctionKind, ReturnKind };
 pub use plugin::{ PluginContext, Plugin };
 pub use plugin_instance::{ PluginInstance, DispatchError };
 pub use socket::Socket ;
