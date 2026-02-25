@@ -32,21 +32,30 @@ where
 /// plugins depend on the same binding.
 ///
 /// ```
-/// # use std::collections::HashMap;
-/// # use wasm_link::{ Binding, Interface, Socket };
-/// # struct Ctx { resource_table: wasm_link::ResourceTable }
+/// # use std::collections::{ HashMap, HashSet };
+/// # use wasm_link::{ Binding, Interface, Function, ReturnKind, Plugin, Socket, Engine, Component, Linker, ResourceTable };
+/// # struct Ctx { resource_table: ResourceTable }
 /// # impl wasm_link::PluginContext for Ctx {
-/// #     fn resource_table( &mut self ) -> &mut wasm_link::ResourceTable { &mut self.resource_table }
+/// #     fn resource_table( &mut self ) -> &mut ResourceTable { &mut self.resource_table }
 /// # }
-/// # fn example() {
+/// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+/// # let engine = Engine::default();
+/// # let linker = Linker::new( &engine );
+/// # let plugin = Plugin::new( Component::new( &engine, "(component)" )?, Ctx { resource_table: ResourceTable::new() }).instantiate( &engine, &linker )?;
 /// let binding: Binding<String, Ctx> = Binding::new(
 ///     "my:package",
-///     HashMap::new(),
-///     Socket::Any( HashMap::new() ),
+///     HashMap::from([
+///         ( "api".to_string(), Interface::new(
+///             HashMap::from([( "get-value".into(), Function::new( ReturnKind::MayContainResources, false ))]),
+///             HashSet::from([ "my-resource".to_string() ]),
+///         )),
+///     ]),
+///     Socket::ExactlyOne( "my-plugin".to_string(), plugin ),
 /// );
 ///
 /// // Clone for shared dependencies - both refer to the same binding
 /// let binding_clone = binding.clone();
+/// # Ok(())
 /// # }
 /// ```
 ///
