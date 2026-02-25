@@ -147,13 +147,15 @@ impl Function {
 ///
 /// # Choosing the Right Variant
 ///
-/// **When uncertain, use [`MayContainResources`](Self::MayContainResources).** Using
-/// `AssumeNoResources` when resources are actually present will cause resource handles
-/// to be passed through unwrapped causing runtime exceptions.
+/// **When uncertain, use [`MayContainResources`]( Self::MayContainResources ).**
+/// Using [`AssumeNoResources`]( Self::AssumeNoResources ) when resources are
+/// actually present will cause resource handles to be passed through unwrapped
+/// causing runtime exceptions.
 ///
-/// `AssumeNoResources` is a performance optimization that skips the wrapping step.
-/// Only use it when you are certain the return type contains no resource handles
-/// anywhere in its structure (including nested within records, variants, lists, etc.).
+/// [`AssumeNoResources`]( Self::AssumeNoResources ) is a performance optimization
+/// that skips the wrapping step. Only use it when you are certain the return type
+/// contains no resource handles anywhere in its structure (including nested within
+/// records, variants, lists, etc.).
 #[derive( Copy, Clone, Eq, PartialEq, Hash, Debug, Default )]
 pub enum ReturnKind {
     /// Function returns nothing (void).
