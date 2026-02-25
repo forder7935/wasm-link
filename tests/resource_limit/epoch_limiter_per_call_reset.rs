@@ -1,7 +1,7 @@
 use std::collections::{ HashMap, HashSet };
 use std::sync::{ Arc, atomic::{ AtomicBool, AtomicUsize, Ordering }};
 use std::thread;
-use wasm_link::{ Binding, Engine, Function, Interface, Linker, ReturnKind, Socket, Val, DispatchError };
+use wasm_link::{ Binding, Engine, Function, FunctionKind, Interface, Linker, ReturnKind, Socket, Val, DispatchError };
 use wasmtime::Config;
 
 fixtures! {
@@ -38,7 +38,7 @@ fn closure_is_called_per_dispatch_and_deadline_is_reset() {
     let binding = Binding::new(
         bindings.root.package,
         HashMap::from([( bindings.root.name, Interface::new(
-            HashMap::from([( "burn".into(), Function::new( ReturnKind::AssumeNoResources, false ))]),
+            HashMap::from([( "burn".into(), Function::new( FunctionKind::Freestanding, ReturnKind::AssumeNoResources ))]),
             HashSet::new(),
         ))]),
         Socket::ExactlyOne( "_".to_string(), plugin_instance ),

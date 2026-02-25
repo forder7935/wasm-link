@@ -80,9 +80,9 @@ impl Interface {
                 ))
             }}
 
-            match metadata.is_method() {
-                false => link!( dispatch_all ),
-                true => link!( dispatch_method ),
+            match metadata.kind() {
+                FunctionKind::Freestanding => link!( dispatch_all ),
+                FunctionKind::Method => link!( dispatch_method ),
             }
 
         })?;
@@ -97,34 +97,45 @@ impl Interface {
 
 }
 
+/// Denotes whether a function is freestanding or a resource method.
+/// Constructors are treated as freestanding functions.
+///
+/// Determines how dispatch is routed during cross-plugin calls:
+/// freestanding functions broadcast to all plugins, while methods
+/// route to the specific plugin that owns the resource.
+#[derive( Debug, Clone, Copy, Eq, PartialEq )]
+pub enum FunctionKind {
+    /// A freestanding function — dispatched to all plugins.
+    Freestanding,
+    /// A resource method (has a `self` parameter) — routed to the plugin that owns the resource.
+    Method,
+}
+
 /// Metadata about a function declared by an interface.
 ///
 /// Provides information needed during linking to wire up cross-plugin dispatch.
 #[derive( Debug, Clone )]
 pub struct Function {
+    /// Whether this function is freestanding or a resource method.
+    kind: FunctionKind,
     /// The function's return kind for dispatch handling
     return_kind: ReturnKind,
-    /// Whether this function is a method (has a `self` parameter)
-    ///
-    /// Methods route to the specific plugin that created the resource,
-    /// rather than broadcasting to all plugins.
-    is_method: bool,
 }
 
 impl Function {
     /// Creates a new function metadata entry.
     pub fn new(
+        kind: FunctionKind,
         return_kind: ReturnKind,
-        is_method: bool,
     ) -> Self {
-        Self { return_kind, is_method }
+        Self { kind, return_kind }
     }
 
     /// The function's return kind for dispatch handling.
     pub fn return_kind( &self ) -> ReturnKind { self.return_kind }
 
-    /// Whether this function is a method (has a `self` parameter).
-    pub fn is_method( &self ) -> bool { self.is_method }
+    /// Whether this function is freestanding or a resource method.
+    pub fn kind( &self ) -> FunctionKind { self.kind }
 
 }
 

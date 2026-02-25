@@ -1,5 +1,5 @@
 use std::collections::{ HashMap, HashSet };
-use wasm_link::{ Binding, Component, Engine, Function, Interface, Linker, Plugin, PluginContext, ResourceTable, ReturnKind, Socket, Val };
+use wasm_link::{ Binding, Component, Engine, Function, FunctionKind, Interface, Linker, Plugin, PluginContext, ResourceTable, ReturnKind, Socket, Val };
 
 // Used to load the grow-memory WAT directly (fixtures::plugins() would return Plugin<TestContext>,
 // but this test requires a custom context that holds the ResourceLimiter).
@@ -57,7 +57,7 @@ fn dispatch_grow_memory( max_pages: usize ) -> Result<Socket<Result<Val, wasm_li
     let binding = Binding::new(
         bindings.root.package,
         HashMap::from([( bindings.root.name, Interface::new(
-            HashMap::from([( "grow-memory".into(), Function::new( ReturnKind::AssumeNoResources, false ))]),
+            HashMap::from([( "grow-memory".into(), Function::new( FunctionKind::Freestanding, ReturnKind::AssumeNoResources ))]),
             HashSet::new(),
         ))]),
         Socket::ExactlyOne( "_".to_string(), plugin_instance ),

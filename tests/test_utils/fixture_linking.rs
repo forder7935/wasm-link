@@ -4,17 +4,13 @@ macro_rules! fixtures {
     {
         bindings    = [];
         plugins     = [];
-    } => ( mod fixtures {
-        fixtures!( @bindings );
-        fixtures!( @plugins );
-    });
+    } => ( mod fixtures {});
 
     {
         bindings    = [ $($iname:ident : $ipath:literal),+ $(,)? ];
         plugins     = [];
     } => ( mod fixtures {
         fixtures!( @bindings $($iname : $ipath),* );
-        fixtures!( @plugins );
     });
 
     {
@@ -24,8 +20,6 @@ macro_rules! fixtures {
         fixtures!( @bindings $($iname : $ipath),* );
         fixtures!( @plugins $($pname : $ppath),* );
     });
-
-    ( @bindings ) => {};
 
     ( @bindings $($iname:ident : $ipath:literal),+ $(,)? ) => {
         #[allow( dead_code )]
@@ -40,8 +34,6 @@ macro_rules! fixtures {
             }
         }
     };
-
-    ( @plugins ) => {};
 
     ( @plugins $($pname:ident : $ppath:literal),+ $(,)? ) => {
         #[allow( dead_code )]
@@ -62,7 +54,7 @@ macro_rules! fixtures {
 mod fixture_linking {
 
     use std::collections::{ HashMap, HashSet };
-    use wasm_link::{ Component, Engine, Interface, Function, Plugin };
+    use wasm_link::{ Component, Engine, Interface, Function, FunctionKind, Plugin };
 
     pub const fn strip_rs( path: &'static str ) -> &'static str {
         match path.as_bytes() {
@@ -174,16 +166,16 @@ mod fixture_linking {
 
         let functions = interface.functions.iter()
             .map(|( _, function )| Ok(( function.name.clone(), Function::new(
-                parse_return_kind( &resolve, function.result )?,
                 match function.kind {
                     wit_parser::FunctionKind::Freestanding
                     | wit_parser::FunctionKind::AsyncFreestanding
                     | wit_parser::FunctionKind::Static( _ )
                     | wit_parser::FunctionKind::AsyncStatic( _ )
-                    | wit_parser::FunctionKind::Constructor( _ ) => false,
+                    | wit_parser::FunctionKind::Constructor( _ ) => FunctionKind::Freestanding,
                     wit_parser::FunctionKind::Method( _ )
-                    | wit_parser::FunctionKind::AsyncMethod( _ ) => true,
+                    | wit_parser::FunctionKind::AsyncMethod( _ ) => FunctionKind::Method,
                 },
+                parse_return_kind( &resolve, function.result )?,
             ))))
             .collect::<Result<HashMap<_, _>,FixtureError>>()?;
 

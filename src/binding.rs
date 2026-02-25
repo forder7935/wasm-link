@@ -33,7 +33,7 @@ where
 ///
 /// ```
 /// # use std::collections::{ HashMap, HashSet };
-/// # use wasm_link::{ Binding, Interface, Function, ReturnKind, Plugin, Socket, Engine, Component, Linker, ResourceTable };
+/// # use wasm_link::{ Binding, Interface, Function, FunctionKind, ReturnKind, Plugin, Socket, Engine, Component, Linker, ResourceTable };
 /// # struct Ctx { resource_table: ResourceTable }
 /// # impl wasm_link::PluginContext for Ctx {
 /// #     fn resource_table( &mut self ) -> &mut ResourceTable { &mut self.resource_table }
@@ -46,7 +46,10 @@ where
 ///     "my:package",
 ///     HashMap::from([
 ///         ( "api".to_string(), Interface::new(
-///             HashMap::from([( "get-value".into(), Function::new( ReturnKind::MayContainResources, false ))]),
+///             HashMap::from([( "get-value".into(), Function::new(
+///                 FunctionKind::Freestanding,
+///                 ReturnKind::MayContainResources,
+///             ))]),
 ///             HashSet::from([ "my-resource".to_string() ]),
 ///         )),
 ///     ]),
