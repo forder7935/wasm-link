@@ -48,6 +48,27 @@ pub trait PluginContext: Send {
 ///
 /// # Type Parameters
 /// - `Ctx`: User context type that will be stored in the wasmtime Store
+///
+/// # Example
+///
+/// ```
+/// # use wasm_link::{ Plugin, PluginContext, ResourceTable, Component, Engine, Linker };
+/// # struct Ctx { resource_table: ResourceTable }
+/// # impl PluginContext for Ctx {
+/// #     fn resource_table( &mut self ) -> &mut ResourceTable { &mut self.resource_table }
+/// # }
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let engine = Engine::default();
+/// let linker = Linker::new( &engine );
+///
+/// let plugin = Plugin::new(
+///     Component::new( &engine, "(component)" )?,
+///     Ctx { resource_table: ResourceTable::new() },
+/// ).instantiate( &engine, &linker )?;
+/// # let _ = plugin;
+/// # Ok(())
+/// # }
+/// ```
 #[must_use = "call .instantiate() or .link() to create a PluginInstance"]
 pub struct Plugin<Ctx: 'static> {
     /// Compiled WASM component
