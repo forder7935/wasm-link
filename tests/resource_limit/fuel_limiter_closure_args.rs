@@ -1,5 +1,5 @@
 use std::collections::{ HashMap, HashSet };
-use wasm_link::{ Binding, Engine, Function, Interface, Linker, ReturnKind, Socket, Val };
+use wasm_link::{ Binding, Engine, Function, FunctionKind, Interface, Linker, ReturnKind, Socket, Val };
 use wasmtime::Config;
 
 fixtures! {
@@ -29,7 +29,7 @@ fn closure_receives_correct_interface_and_function() {
     let binding = Binding::new(
         bindings.root.package,
         HashMap::from([( bindings.root.name, Interface::new(
-            HashMap::from([( "burn".into(), Function::new( ReturnKind::AssumeNoResources, false ))]),
+            HashMap::from([( "burn".into(), Function::new( FunctionKind::Freestanding, ReturnKind::AssumeNoResources ))]),
             HashSet::new(),
         ))]),
         Socket::ExactlyOne( "_".to_string(), plugin_instance ),

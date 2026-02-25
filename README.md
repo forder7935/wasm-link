@@ -45,7 +45,7 @@ NOTE: Async types (`Future`, `Stream`, `ErrorContext`) are not yet supported for
 ```rust
 use std::collections::{ HashMap, HashSet };
 use wasm_link::{
-    Binding, Interface, Function, ReturnKind,
+    Binding, Interface, Function, FunctionKind, ReturnKind,
     Plugin, PluginContext, Socket,
     Engine, Component, Linker, ResourceTable, Val,
 };
@@ -107,9 +107,10 @@ let root = Plugin::new(
 let root_binding = Binding::new(
     "my:package",
     HashMap::from([( "example".to_string(), Interface::new(
-        HashMap::from([
-            ( "get-value".into(), Function::new( ReturnKind::MayContainResources, false ))
-        ]),
+        HashMap::from([( "get-value".into(), Function::new(
+            FunctionKind::Freestanding,
+            ReturnKind::MayContainResources,
+        ))]),
         HashSet::new(),
     ))]),
     Socket::ExactlyOne( "root".to_string(), root ),

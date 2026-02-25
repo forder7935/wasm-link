@@ -1,5 +1,5 @@
 use std::collections::{ HashMap, HashSet };
-use wasm_link::{ Binding, Engine, Function, Interface, Linker, ReturnKind, Socket, Val };
+use wasm_link::{ Binding, Engine, Function, FunctionKind, Interface, Linker, ReturnKind, Socket, Val };
 
 fixtures! {
     bindings    = [ root: "root" ];
@@ -20,7 +20,7 @@ fn no_limiter_means_memory_grows_freely() {
     let binding = Binding::new(
         bindings.root.package,
         HashMap::from([( bindings.root.name, Interface::new(
-            HashMap::from([( "grow-memory".into(), Function::new( ReturnKind::AssumeNoResources, false ))]),
+            HashMap::from([( "grow-memory".into(), Function::new( FunctionKind::Freestanding, ReturnKind::AssumeNoResources ))]),
             HashSet::new(),
         ))]),
         Socket::ExactlyOne( "_".to_string(), plugin_instance ),
