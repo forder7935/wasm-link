@@ -197,15 +197,22 @@ where
 
 }
 
+/// Type-erased binding wrapper for heterogeneous socket lists.
+///
+/// Use when a plugin's sockets include bindings with different cardinalities.
 #[derive( Debug, Clone )]
 pub enum BindingAny<PluginId, Ctx>
 where
     PluginId: std::hash::Hash + Eq + Clone + Send + Sync + 'static,
     Ctx: PluginContext + 'static,
 {
+    /// Exactly one plugin implementation.
     ExactlyOne( Binding<PluginId, Ctx, ExactlyOne<PluginId, PluginInstance<Ctx>>> ),
+    /// Zero or one plugin implementation.
     AtMostOne( Binding<PluginId, Ctx, AtMostOne<PluginId, PluginInstance<Ctx>>> ),
+    /// One or more plugin implementations.
     AtLeastOne( Binding<PluginId, Ctx, AtLeastOne<PluginId, PluginInstance<Ctx>>> ),
+    /// Zero or more plugin implementations.
     Any( Binding<PluginId, Ctx, Any<PluginId, PluginInstance<Ctx>>> ),
 }
 
