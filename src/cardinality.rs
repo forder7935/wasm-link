@@ -58,10 +58,13 @@ impl<Id, T> Cardinality<Id, T> for ExactlyOne<Id, T> {
         ExactlyOne( self.0, map( self.1 ))
     }
 
-    fn get( &self, _id: &Id ) -> Option<&T>
+    fn get( &self, id: &Id ) -> Option<&T>
     where
         Id: Hash + Eq,
     {
+        // In a singleton wrapper, mismatched ids indicate a logic bug upstream.
+        // We still return the only value in release builds to avoid masking state.
+        debug_assert!( &self.0 == id, "singleton cardinality id mismatch" );
         Some( &self.1 )
     }
 }
@@ -86,11 +89,19 @@ impl<Id, T> Cardinality<Id, T> for AtMostOne<Id, T> {
         }
     }
 
-    fn get( &self, _id: &Id ) -> Option<&T>
+    fn get( &self, id: &Id ) -> Option<&T>
     where
         Id: Hash + Eq,
     {
-        self.0.as_ref().map(|( _, value )| value )
+        match self.0.as_ref() {
+            None => None,
+            Some(( stored_id, value )) => {
+                // In a singleton wrapper, mismatched ids indicate a logic bug upstream.
+                // We still return the only value in release builds to avoid masking state.
+                debug_assert!( stored_id == id, "singleton cardinality id mismatch" );
+                Some( value )
+            }
+        }
     }
 }
 
