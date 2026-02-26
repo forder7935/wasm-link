@@ -42,7 +42,7 @@ pub trait PluginContext: Send {
 /// A WASM component bundled with its runtime context, ready for instantiation.
 ///
 /// The component's exports (its **plug**) and imports (its **sockets**) are defined through
-/// the [`Binding`], not by this struct.
+/// the [`crate::Binding`], not by this struct.
 ///
 /// The `context` is consumed during linking to become the wasmtime `Store`'s data.
 ///
