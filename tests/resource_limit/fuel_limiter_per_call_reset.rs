@@ -1,6 +1,6 @@
 use std::collections::{ HashMap, HashSet };
 use std::sync::{ Arc, atomic::{ AtomicUsize, Ordering } };
-use wasm_link::{ Binding, Engine, Function, FunctionKind, Interface, Linker, ReturnKind, Socket, Val, DispatchError };
+use wasm_link::{ Binding, Engine, Function, FunctionKind, Interface, Linker, ReturnKind, ExactlyOne, Val, DispatchError };
 use wasmtime::Config;
 
 fixtures! {
@@ -40,12 +40,12 @@ fn closure_is_called_per_dispatch_and_fuel_is_reset() {
             HashMap::from([( "burn".into(), Function::new( FunctionKind::Freestanding, ReturnKind::AssumeNoResources ))]),
             HashSet::new(),
         ))]),
-        Socket::ExactlyOne( "_".to_string(), plugin_instance ),
+        ExactlyOne( "_".to_string(), plugin_instance ),
     );
 
     dispatch_call_count.store( 0, Ordering::Relaxed );
     match binding.dispatch( "root", "burn", &[] ) {
-        Ok( Socket::ExactlyOne( _, Ok( Val::U32( 42 )))) => {}
+        Ok( ExactlyOne( _, Ok( Val::U32( 42 )))) => {}
         other => panic!( "Expected Ok( U32( 42 )) on first dispatch, got: {:#?}", other ),
     }
     assert_eq!( dispatch_call_count.load( Ordering::Relaxed ), 1, "limiter should be called exactly once per dispatch" );
@@ -54,7 +54,7 @@ fn closure_is_called_per_dispatch_and_fuel_is_reset() {
     // this dispatch would not exhaust fuel immediately
     dispatch_call_count.store( 0, Ordering::Relaxed );
     match binding.dispatch( "root", "burn", &[] ) {
-        Ok( Socket::ExactlyOne( _, Err( DispatchError::RuntimeException( _ )))) => {}
+        Ok( ExactlyOne( _, Err( DispatchError::RuntimeException( _ )))) => {}
         other => panic!( "Expected RuntimeException on second dispatch, got: {:#?}", other ),
     }
     assert_eq!( dispatch_call_count.load( Ordering::Relaxed ), 1, "limiter should be called exactly once per dispatch" );

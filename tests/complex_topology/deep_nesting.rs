@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use wasm_link::{ Binding, Engine, Linker, Val, Socket };
+use wasm_link::{ Binding, Engine, Linker, Val, ExactlyOne };
 
 fixtures! {
 	bindings	= [ root: "root", level_b: "level-b", level_c: "level-c" ];
@@ -20,7 +20,7 @@ fn complex_topology_deep_nesting() {
 	let binding_c = Binding::new(
 		bindings.level_c.package,
 		HashMap::from([( bindings.level_c.name, bindings.level_c.spec )]),
-		Socket::ExactlyOne( "_".to_string(), plugin_c_instance ),
+		ExactlyOne( "_".to_string(), plugin_c_instance ),
 	);
 
 	let plugin_b_instance = plugins.plugin_b.plugin
@@ -29,7 +29,7 @@ fn complex_topology_deep_nesting() {
 	let binding_b = Binding::new(
 		bindings.level_b.package,
 		HashMap::from([( bindings.level_b.name, bindings.level_b.spec )]),
-		Socket::ExactlyOne( "_".to_string(), plugin_b_instance ),
+		ExactlyOne( "_".to_string(), plugin_b_instance ),
 	);
 
 	let plugin_a_instance = plugins.plugin_a.plugin
@@ -38,11 +38,11 @@ fn complex_topology_deep_nesting() {
 	let binding_root = Binding::new(
 		bindings.root.package,
 		HashMap::from([( bindings.root.name, bindings.root.spec )]),
-		Socket::ExactlyOne( "_".to_string(), plugin_a_instance ),
+		ExactlyOne( "_".to_string(), plugin_a_instance ),
 	);
 
 	match binding_root.dispatch( "root", "get-value", &[] ) {
-		Ok( Socket::ExactlyOne( _, Ok( Val::U32( 1 )))) => {}
+		Ok( ExactlyOne( _, Ok( Val::U32( 1 )))) => {}
 		value => panic!( "Expected Ok( ExactlyOne( Ok( U32( 1 )))), found: {:#?}", value ),
 	}
 

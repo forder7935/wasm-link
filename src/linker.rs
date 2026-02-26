@@ -3,14 +3,15 @@ use wasmtime::StoreContextMut ;
 use wasmtime::component::Val ;
 
 use crate::{ Binding, Function, FunctionKind, ReturnKind, PluginContext, DispatchError };
+use crate::cardinality::Cardinality ;
 use crate::plugin_instance::PluginInstance ;
 use super::resource_wrapper::ResourceWrapper ;
 
 
 
 /// Dispatches a non-method function call to all plugins
-pub(crate) fn dispatch_all<PluginId, Ctx>(
-    binding: &Binding<PluginId, Ctx>,
+pub(crate) fn dispatch_all<PluginId, Ctx, Plugins>(
+    binding: &Binding<PluginId, Ctx, Plugins>,
     mut ctx: StoreContextMut<Ctx>,
     interface_path: &str,
     function_name: &str,
@@ -20,6 +21,10 @@ pub(crate) fn dispatch_all<PluginId, Ctx>(
 where
     PluginId: Clone + std::hash::Hash + Eq + Send + Sync + Into<Val> + 'static,
     Ctx: PluginContext,
+    Plugins: Cardinality<PluginId, PluginInstance<Ctx>>,
+    <Plugins as Cardinality<PluginId, PluginInstance<Ctx>>>::Rebind<Mutex<PluginInstance<Ctx>>>: Send + Sync,
+    <Plugins as Cardinality<PluginId, PluginInstance<Ctx>>>::Rebind<Mutex<PluginInstance<Ctx>>>: Cardinality<PluginId, Mutex<PluginInstance<Ctx>>>,
+    <<Plugins as Cardinality<PluginId, PluginInstance<Ctx>>>::Rebind<Mutex<PluginInstance<Ctx>>> as Cardinality<PluginId, Mutex<PluginInstance<Ctx>>>>::Rebind<Val>: Into<Val>,
 {
     debug_assert_eq!( function.kind(), FunctionKind::Freestanding );
     binding.plugins().map(| plugin_id, plugin | Val::Result(
@@ -39,8 +44,8 @@ where
 }
 
 /// Dispatches a method function call, routing to the correct plugin.
-pub(crate) fn dispatch_method<PluginId, Ctx>(
-    binding: &Binding<PluginId, Ctx>,
+pub(crate) fn dispatch_method<PluginId, Ctx, Plugins>(
+    binding: &Binding<PluginId, Ctx, Plugins>,
     ctx: StoreContextMut<Ctx>,
     interface_path: &str,
     function_name: &str,
@@ -50,6 +55,9 @@ pub(crate) fn dispatch_method<PluginId, Ctx>(
 where
     PluginId: Clone + std::hash::Hash + Eq + Send + Sync + 'static,
     Ctx: PluginContext,
+    Plugins: Cardinality<PluginId, PluginInstance<Ctx>>,
+    <Plugins as Cardinality<PluginId, PluginInstance<Ctx>>>::Rebind<Mutex<PluginInstance<Ctx>>>: Send + Sync,
+    <Plugins as Cardinality<PluginId, PluginInstance<Ctx>>>::Rebind<Mutex<PluginInstance<Ctx>>>: Cardinality<PluginId, Mutex<PluginInstance<Ctx>>>,
 {
     debug_assert_eq!( function.kind(), FunctionKind::Method );
     Val::Result( match route_method(
@@ -90,8 +98,8 @@ where
 }
 
 #[inline]
-fn route_method<PluginId, Ctx>(
-    binding: &Binding<PluginId, Ctx>,
+fn route_method<PluginId, Ctx, Plugins>(
+    binding: &Binding<PluginId, Ctx, Plugins>,
     mut ctx: StoreContextMut<Ctx>,
     interface_path: &str,
     function_name: &str,
@@ -101,6 +109,9 @@ fn route_method<PluginId, Ctx>(
 where
     PluginId: Clone + std::hash::Hash + Eq + Send + Sync + 'static,
     Ctx: PluginContext,
+    Plugins: Cardinality<PluginId, PluginInstance<Ctx>>,
+    <Plugins as Cardinality<PluginId, PluginInstance<Ctx>>>::Rebind<Mutex<PluginInstance<Ctx>>>: Send + Sync,
+    <Plugins as Cardinality<PluginId, PluginInstance<Ctx>>>::Rebind<Mutex<PluginInstance<Ctx>>>: Cardinality<PluginId, Mutex<PluginInstance<Ctx>>>,
 {
 
     let handle = match data.first() {

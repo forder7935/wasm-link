@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use wasm_link::{ Binding, Engine, Linker, Val, Socket };
+use wasm_link::{ Binding, Engine, Linker, Val, ExactlyOne };
 
 fixtures! {
 	bindings	= [ root: "root", dependency: "dependency" ];
@@ -20,7 +20,7 @@ fn dispatch_test_dependant_plugins_expect_composite() {
 	let dependency_binding = Binding::new(
 		bindings.dependency.package,
 		HashMap::from([( bindings.dependency.name, bindings.dependency.spec )]),
-		Socket::ExactlyOne( "_".to_string(), child_instance ),
+		ExactlyOne( "_".to_string(), child_instance ),
 	);
 
 	let startup_instance = plugins.startup.plugin
@@ -29,11 +29,11 @@ fn dispatch_test_dependant_plugins_expect_composite() {
 	let root_binding = Binding::new(
 		bindings.root.package,
 		HashMap::from([( bindings.root.name, bindings.root.spec )]),
-		Socket::ExactlyOne( "_".to_string(), startup_instance ),
+		ExactlyOne( "_".to_string(), startup_instance ),
 	);
 
 	match root_binding.dispatch( "root", "get-composite", &[] ) {
-		Ok( Socket::ExactlyOne( _, Ok( Val::Tuple( fields )))) => {
+		Ok( ExactlyOne( _, Ok( Val::Tuple( fields )))) => {
 			assert_eq!( fields[0], Val::U32( 42 ));
 			assert_eq!( fields[1], Val::U32( 24 ));
 		}

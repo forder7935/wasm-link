@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use wasm_link::{ Binding, Engine, Linker, Val, Socket };
+use wasm_link::{ Binding, Engine, Linker, Val, ExactlyOne };
 
 fixtures! {
 	bindings	= [ root: "root", dependency: "dependency" ];
@@ -20,7 +20,7 @@ fn resource_test_wrapper() {
 	let dependency_binding = Binding::new(
 		bindings.dependency.package,
 		HashMap::from([( bindings.dependency.name, bindings.dependency.spec )]),
-		Socket::ExactlyOne( "_".to_string(), counter_instance ),
+		ExactlyOne( "_".to_string(), counter_instance ),
 	);
 
 	let consumer_instance = plugins.consumer.plugin
@@ -29,13 +29,13 @@ fn resource_test_wrapper() {
 	let root_binding = Binding::new(
 		bindings.root.package,
 		HashMap::from([( bindings.root.name, bindings.root.spec )]),
-		Socket::ExactlyOne( "_".to_string(), consumer_instance ),
+		ExactlyOne( "_".to_string(), consumer_instance ),
 	);
 
 	match root_binding.dispatch( "root", "get-value", &[] ) {
-		Ok( Socket::ExactlyOne( _, Ok( Val::U32( 42 )))) => {}
-		Ok( Socket::ExactlyOne( _, Ok( val ))) => panic!( "Expected U32(42), got: {:#?}", val ),
-		Ok( Socket::ExactlyOne( _, Err( err ))) => panic!( "Method call failed: {:?}", err ),
+		Ok( ExactlyOne( _, Ok( Val::U32( 42 )))) => {}
+		Ok( ExactlyOne( _, Ok( val ))) => panic!( "Expected U32(42), got: {:#?}", val ),
+		Ok( ExactlyOne( _, Err( err ))) => panic!( "Method call failed: {:?}", err ),
 		value => panic!( "Expected Ok( ExactlyOne( Ok( U32( 42 )))), got: {:#?}", value ),
 	}
 

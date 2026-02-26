@@ -34,7 +34,7 @@ impl<Ctx: std::fmt::Debug + 'static> std::fmt::Debug for PluginInstance<Ctx> {
 
 /// Errors that can occur when dispatching a function call to plugins.
 ///
-/// Returned inside [`Socket`]( crate::socket::Socket ) From
+/// Returned inside a cardinality wrapper from
 /// [`Binding::dispatch`]( crate::binding::Binding::dispatch )
 /// when a function call fails at runtime.
 #[derive( Error, Debug )]
