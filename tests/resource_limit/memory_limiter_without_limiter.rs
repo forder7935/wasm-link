@@ -1,5 +1,5 @@
 use std::collections::{ HashMap, HashSet };
-use wasm_link::{ Binding, Engine, Function, FunctionKind, Interface, Linker, ReturnKind, Socket, Val };
+use wasm_link::{ Binding, Engine, Function, FunctionKind, Interface, Linker, ReturnKind, ExactlyOne, Val };
 
 fixtures! {
     bindings    = [ root: "root" ];
@@ -23,11 +23,11 @@ fn no_limiter_means_memory_grows_freely() {
             HashMap::from([( "grow-memory".into(), Function::new( FunctionKind::Freestanding, ReturnKind::AssumeNoResources ))]),
             HashSet::new(),
         ))]),
-        Socket::ExactlyOne( "_".to_string(), plugin_instance ),
+        ExactlyOne( "_".to_string(), plugin_instance ),
     );
 
     match binding.dispatch( "root", "grow-memory", &[] ) {
-        Ok( Socket::ExactlyOne( _, Ok( Val::S32( 1 )))) => {}
+        Ok( ExactlyOne( _, Ok( Val::S32( 1 )))) => {}
         other => panic!( "Expected Ok( S32( 1 )) from unconstrained memory growth, got: {:#?}", other ),
     }
 }

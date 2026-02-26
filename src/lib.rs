@@ -23,16 +23,12 @@
 //!
 //! - **Plug**: A plugin's declaration that it implements a [`Binding`].
 //!
-//! - **Socket**: A plugin's declaration that it depends on a [`Binding`]. Sockets are
-//!   represented by the [`Socket`] enum, whose variant encodes **cardinality** - how many
-//!   plugins may implement the dependency:
-//!   - `ExactlyOne( Id, T )` - exactly one plugin, guaranteed present
-//!   - `AtMostOne( Option<( Id, T )> )` - zero or one plugin
-//!   - `AtLeastOne( NEMap<Id, T> )` - one or more plugins
-//!   - `Any( HashMap<Id, T> )` - zero or more plugins
-//!
-//!   While cardinality is conceptually a property of bindings, it is represented by
-//!   variants of the [`Socket`] enum due to how the DAG is constructed.
+//! - **Socket**: A plugin's declaration that it depends on a [`Binding`]. Cardinality is
+//!   expressed with wrapper types in [`crate::cardinality`]:
+//!   - [`ExactlyOne`]`( Id, T )` - exactly one plugin, guaranteed present
+//!   - [`AtMostOne`]`( Option<( Id, T )> )` - zero or one plugin
+//!   - [`AtLeastOne`]`( NEMap<Id, T> )` - one or more plugins
+//!   - [`Any`]`( HashMap<Id, T> )` - zero or more plugins
 //!
 //! # Example
 //!
@@ -40,7 +36,7 @@
 //! use std::collections::{ HashMap, HashSet };
 //! use wasm_link::{
 //!     Binding, Interface, Function, FunctionKind, ReturnKind,
-//!     Plugin, PluginContext, Socket,
+//!     Plugin, PluginContext, ExactlyOne,
 //!     Engine, Component, Linker, ResourceTable, Val,
 //! };
 //!
@@ -72,18 +68,18 @@
 //! // Build the DAG bottom-up: start with plugins that have no dependencies.
 //! // Note that for plugins that don't require linking, you only need to pass in
 //! // a reference to a linker. For plugins that have dependencies, the linker is mutated.
-//! // Plugin IDs are specified in the Socket variant to prevent duplicate ids.
+//! // Plugin IDs are specified in the cardinality wrapper to prevent duplicate ids.
 //! let leaf = Plugin::new(
 //!     Component::new( &engine, "(component)" )?,
 //!     Context { resource_table: ResourceTable::new() },
 //! ).instantiate( &engine, &linker )?;
 //!
 //! // Bindings expose a plugin's exports to other plugins.
-//! // Socket variant sets cardinality: ExactlyOne, AtMostOne (0-1), AtLeastOne (1+), Any (0+).
+//! // Wrapper sets cardinality: ExactlyOne, AtMostOne (0-1), AtLeastOne (1+), Any (0+).
 //! let leaf_binding = Binding::new(
 //!     "empty:package",
 //!     HashMap::new(),
-//!     Socket::ExactlyOne( "leaf".to_string(), leaf ),
+//!     ExactlyOne( "leaf".to_string(), leaf ),
 //! );
 //!
 //! // `link()` wires up dependencies - this plugin can now import from leaf_binding.
@@ -107,15 +103,15 @@
 //!         ))]),
 //!         HashSet::new(),
 //!     ))]),
-//!     Socket::ExactlyOne( "root".to_string(), root ),
+//!     ExactlyOne( "root".to_string(), root ),
 //! );
 //!
 //! // Now you can call into the plugin graph from the host.
 //! let result = root_binding.dispatch( "example", "get-value", &[ /* args */ ] )?;
 //! match result {
-//!     Socket::ExactlyOne( _, Ok( Val::U32( n ))) => assert_eq!( n, 42 ),
-//!     Socket::ExactlyOne( _, Err( err )) => panic!( "dispatch error: {}", err ),
-//!     _ => unreachable!(),
+//!     ExactlyOne( _id, Ok( Val::U32( n ))) => assert_eq!( n, 42 ),
+//!     ExactlyOne( _id, Ok( _ )) => panic!( "unexpected response" ),
+//!     ExactlyOne( _id, Err( err )) => panic!( "dispatch error: {}", err ),
 //! }
 //! # Ok(())
 //! # }
@@ -129,7 +125,7 @@
 //!
 //! ```
 //! # use std::collections::HashMap ;
-//! # use wasm_link::{ Binding, Plugin, PluginContext, Socket, Engine, Component, Linker, ResourceTable };
+//! # use wasm_link::{ Binding, Plugin, PluginContext, ExactlyOne, Engine, Component, Linker, ResourceTable };
 //! # struct Context { resource_table: ResourceTable }
 //! # impl PluginContext for Context {
 //! #     fn resource_table( &mut self ) -> &mut ResourceTable { &mut self.resource_table }
@@ -142,7 +138,7 @@
 //! # let linker = Linker::new( &engine );
 //! let plugin_d = Plugin::new( Component::new( &engine, "(component)" )?, Context::new())
 //!     .instantiate( &engine, &linker )?;
-//! let binding_d = Binding::new( "d:pkg", HashMap::new(), Socket::ExactlyOne( "D".to_string(), plugin_d ));
+//! let binding_d = Binding::new( "d:pkg", HashMap::new(), ExactlyOne( "D".to_string(), plugin_d ));
 //!
 //! // Both B and C import from D. Clone the binding handle so both can reference it.
 //! let plugin_b = Plugin::new( Component::new( &engine, "(component)" )?, Context::new())
@@ -150,8 +146,8 @@
 //! let plugin_c = Plugin::new( Component::new( &engine, "(component)" )?, Context::new())
 //!     .link( &engine, linker.clone(), vec![ binding_d ])?;
 //!
-//! let binding_b = Binding::new( "b:pkg", HashMap::new(), Socket::ExactlyOne( "B".to_string(), plugin_b ));
-//! let binding_c = Binding::new( "c:pkg", HashMap::new(), Socket::ExactlyOne( "C".to_string(), plugin_c ));
+//! let binding_b = Binding::new( "b:pkg", HashMap::new(), ExactlyOne( "B".to_string(), plugin_b ));
+//! let binding_c = Binding::new( "c:pkg", HashMap::new(), ExactlyOne( "C".to_string(), plugin_c ));
 //!
 //! let plugin_a = Plugin::new( Component::new( &engine, "(component)" )?, Context::new())
 //!     .link( &engine, linker, vec![ binding_b, binding_c ])?;
@@ -162,15 +158,15 @@
 //!
 //! # Multiple Plugins Per Binding
 //!
-//! A single binding can have multiple plugin implementations. Use `Socket::AtLeastOne`
-//! when at least one implementation is required, or `Socket::Any` when zero is acceptable.
+//! A single binding can have multiple plugin implementations. Use [`AtLeastOne`]
+//! when at least one implementation is required, or [`Any`] when zero is acceptable.
 //! When you dispatch to such a binding, you get results from all plugins.
 //!
 //! ```
 //! # use std::collections::{ HashMap, HashSet };
 //! # use wasm_link::{
 //! #     Binding, Interface, Function, FunctionKind, ReturnKind, Plugin, PluginContext,
-//! #     Socket, Engine, Component, Linker, ResourceTable, Val,
+//! #     Any, Engine, Component, Linker, ResourceTable, Val,
 //! # };
 //! # struct Context { resource_table: ResourceTable }
 //! # impl Context {
@@ -182,7 +178,7 @@
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! # let engine = Engine::default();
 //! # let linker = Linker::new( &engine );
-//! // Plugin IDs are specified through the HashMap keys for Socket::Any.
+//! // Plugin IDs are specified through the HashMap keys for Any.
 //! let plugin1 = Plugin::new( Component::new( &engine, r#"(component
 //!     (core module $m (func (export "f") (result i32) i32.const 1))
 //!     (core instance $i (instantiate $m))
@@ -208,22 +204,17 @@
 //!			))]),
 //!         HashSet::new(),
 //!     ))]),
-//!     Socket::Any( HashMap::from([
+//!     Any( HashMap::from([
 //!         ( "p1".to_string(), plugin1 ),
 //!         ( "p2".to_string(), plugin2 ),
 //!     ])),
 //! );
 //!
-//! // Dispatch calls all plugins; the result Socket variant matches what you passed in.
-//! let results = binding.dispatch( "root", "get-value", &[] )?;
-//! match results {
-//!     Socket::Any( map ) => {
-//!         assert_eq!( map.len(), 2 );
-//!         assert!( matches!( map.get( "p1" ), Some( Ok( Val::U32( 1 )))));
-//!         assert!( matches!( map.get( "p2" ), Some( Ok( Val::U32( 2 )))));
-//!     },
-//!     _ => unreachable!(),
-//! }
+//! // Dispatch calls all plugins; the result wrapper matches what you passed in.
+//! let Any( map ) = binding.dispatch( "root", "get-value", &[] )?;
+//! assert_eq!( map.len(), 2 );
+//! assert!( matches!( map.get( "p1" ), Some( Ok( Val::U32( 1 )))));
+//! assert!( matches!( map.get( "p2" ), Some( Ok( Val::U32( 2 )))));
 //! # Ok(())
 //! # }
 //! ```
@@ -253,7 +244,7 @@
 //!
 //! ```
 //! # use std::collections::{ HashMap, HashSet };
-//! # use wasm_link::{ Binding, Interface, Function, FunctionKind, ReturnKind, Plugin, PluginContext, Socket, Component, Linker, ResourceTable };
+//! # use wasm_link::{ Binding, Interface, Function, FunctionKind, ReturnKind, Plugin, PluginContext, ExactlyOne, Component, Linker, ResourceTable };
 //! # use wasmtime::{ Config, Engine };
 //! # struct Context { resource_table: ResourceTable }
 //! # impl Context { fn new() -> Self { Self { resource_table: ResourceTable::new() }}}
@@ -282,7 +273,7 @@
 //!         ]),
 //!         HashSet::new(),
 //!     ))]),
-//!     Socket::ExactlyOne( "plugin".into(), plugin ),
+//!     ExactlyOne( "plugin".into(), plugin ),
 //! );
 //! # Ok(())
 //! # }
@@ -364,7 +355,7 @@ mod binding ;
 mod interface ;
 mod plugin ;
 mod plugin_instance ;
-mod socket ;
+pub mod cardinality ;
 mod linker ;
 mod resource_wrapper ;
 
@@ -376,4 +367,5 @@ pub use binding::Binding ;
 pub use interface::{ Interface, Function, FunctionKind, ReturnKind };
 pub use plugin::{ PluginContext, Plugin };
 pub use plugin_instance::{ PluginInstance, DispatchError };
-pub use socket::Socket ;
+pub use binding::BindingAny ;
+pub use cardinality::{ Cardinality, ExactlyOne, AtMostOne, AtLeastOne, Any };

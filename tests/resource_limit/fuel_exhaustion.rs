@@ -1,5 +1,5 @@
 use std::collections::{ HashMap, HashSet };
-use wasm_link::{ Binding, Engine, Function, FunctionKind, Interface, Linker, ReturnKind, Socket, Val };
+use wasm_link::{ Binding, Engine, Function, FunctionKind, Interface, Linker, ReturnKind, ExactlyOne, Val };
 use wasmtime::Config;
 
 fixtures! {
@@ -7,7 +7,7 @@ fixtures! {
     plugins     = [ burn_fuel: "burn-fuel" ];
 }
 
-fn dispatch_with_fuel( fuel: u64 ) -> Result<Socket<Result<Val, wasm_link::DispatchError>, String>, wasm_link::DispatchError> {
+fn dispatch_with_fuel( fuel: u64 ) -> Result<ExactlyOne<String, Result<Val, wasm_link::DispatchError>>, wasm_link::DispatchError> {
     let mut config = Config::new();
     config.consume_fuel( true );
     let engine = Engine::new( &config ).expect( "failed to create engine" );
@@ -26,7 +26,7 @@ fn dispatch_with_fuel( fuel: u64 ) -> Result<Socket<Result<Val, wasm_link::Dispa
             HashMap::from([( "burn".into(), Function::new( FunctionKind::Freestanding, ReturnKind::AssumeNoResources ))]),
             HashSet::new(),
         ))]),
-        Socket::ExactlyOne( "_".to_string(), plugin_instance ),
+        ExactlyOne( "_".to_string(), plugin_instance ),
     );
 
     binding.dispatch( "root", "burn", &[] )
@@ -35,7 +35,7 @@ fn dispatch_with_fuel( fuel: u64 ) -> Result<Socket<Result<Val, wasm_link::Dispa
 #[test]
 fn fuel_exhaustion_returns_runtime_exception() {
     match dispatch_with_fuel( 1 ) {
-        Ok( Socket::ExactlyOne( _, Err( wasm_link::DispatchError::RuntimeException( _ )))) => {}
+        Ok( ExactlyOne( _, Err( wasm_link::DispatchError::RuntimeException( _ )))) => {}
         other => panic!( "Expected RuntimeException from fuel exhaustion, got: {:#?}", other ),
     }
 }
@@ -43,7 +43,7 @@ fn fuel_exhaustion_returns_runtime_exception() {
 #[test]
 fn sufficient_fuel_allows_completion() {
     match dispatch_with_fuel( 100_000 ) {
-        Ok( Socket::ExactlyOne( _, Ok( Val::U32( 42 )))) => {}
+        Ok( ExactlyOne( _, Ok( Val::U32( 42 )))) => {}
         other => panic!( "Expected Ok( U32( 42 )), got: {:#?}", other ),
     }
 }

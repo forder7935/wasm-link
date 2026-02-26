@@ -1,5 +1,5 @@
 use std::collections::{ HashMap, HashSet };
-use wasm_link::{ Binding, Component, Engine, Function, FunctionKind, Interface, Linker, Plugin, PluginContext, ResourceTable, ReturnKind, Socket, Val };
+use wasm_link::{ Binding, Component, Engine, Function, FunctionKind, Interface, Linker, Plugin, PluginContext, ResourceTable, ReturnKind, ExactlyOne, Val };
 
 // Used to load the grow-memory WAT directly (fixtures::plugins() would return Plugin<TestContext>,
 // but this test requires a custom context that holds the ResourceLimiter).
@@ -34,7 +34,7 @@ impl wasmtime::ResourceLimiter for MemoryLimiter {
     }
 }
 
-fn dispatch_grow_memory( max_pages: usize ) -> Result<Socket<Result<Val, wasm_link::DispatchError>, String>, wasm_link::DispatchError> {
+fn dispatch_grow_memory( max_pages: usize ) -> Result<ExactlyOne<String, Result<Val, wasm_link::DispatchError>>, wasm_link::DispatchError> {
     let engine = Engine::default();
     let linker = Linker::new( &engine );
     let bindings = fixtures::bindings();
@@ -60,7 +60,7 @@ fn dispatch_grow_memory( max_pages: usize ) -> Result<Socket<Result<Val, wasm_li
             HashMap::from([( "grow-memory".into(), Function::new( FunctionKind::Freestanding, ReturnKind::AssumeNoResources ))]),
             HashSet::new(),
         ))]),
-        Socket::ExactlyOne( "_".to_string(), plugin_instance ),
+        ExactlyOne( "_".to_string(), plugin_instance ),
     );
 
     binding.dispatch( "root", "grow-memory", &[] )
@@ -69,7 +69,7 @@ fn dispatch_grow_memory( max_pages: usize ) -> Result<Socket<Result<Val, wasm_li
 #[test]
 fn tight_limit_denies_memory_growth() {
     match dispatch_grow_memory( 1 ) {
-        Ok( Socket::ExactlyOne( _, Ok( Val::S32( -1 )))) => {}
+        Ok( ExactlyOne( _, Ok( Val::S32( -1 )))) => {}
         other => panic!( "Expected Ok( S32( -1 )) from denied memory growth, got: {:#?}", other ),
     }
 }
@@ -77,7 +77,7 @@ fn tight_limit_denies_memory_growth() {
 #[test]
 fn generous_limit_allows_memory_growth() {
     match dispatch_grow_memory( 2 ) {
-        Ok( Socket::ExactlyOne( _, Ok( Val::S32( 1 )))) => {}
+        Ok( ExactlyOne( _, Ok( Val::S32( 1 )))) => {}
         other => panic!( "Expected Ok( S32( 1 )) from memory growth within limit, got: {:#?}", other ),
     }
 }

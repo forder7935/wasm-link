@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use wasm_link::{ Binding, Engine, Linker, DispatchError, Socket };
+use wasm_link::{ Binding, Engine, Linker, DispatchError, ExactlyOne };
 
 fixtures! {
 	bindings	= [ root: "root" ];
@@ -20,11 +20,11 @@ fn dispatch_error_wrong_argument_count() {
 	let binding = Binding::new(
 		bindings.root.package,
 		HashMap::from([( bindings.root.name, bindings.root.spec )]),
-		Socket::ExactlyOne( "_".to_string(), plugin_instance ),
+		ExactlyOne( "_".to_string(), plugin_instance ),
 	);
 
 	match binding.dispatch( "root", "add", &[] ) {
-		Ok( Socket::ExactlyOne( _, Err( DispatchError::RuntimeException( err )))) if err.to_string().contains( "expected 2 argument" ) => {}
+		Ok( ExactlyOne( _, Err( DispatchError::RuntimeException( err )))) if err.to_string().contains( "expected 2 argument" ) => {}
 		value => panic!( "Expected RuntimeException about argument count, found: {:#?}", value ),
 	}
 

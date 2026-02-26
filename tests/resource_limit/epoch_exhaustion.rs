@@ -1,7 +1,7 @@
 use std::collections::{ HashMap, HashSet };
 use std::sync::{ Arc, atomic::{ AtomicBool, Ordering }};
 use std::thread;
-use wasm_link::{ Binding, Engine, Function, FunctionKind, Interface, Linker, ReturnKind, Socket, Val };
+use wasm_link::{ Binding, Engine, Function, FunctionKind, Interface, Linker, ReturnKind, ExactlyOne, Val };
 use wasmtime::Config;
 
 fixtures! {
@@ -9,7 +9,7 @@ fixtures! {
     plugins     = [ burn_fuel: "burn-fuel" ];
 }
 
-fn dispatch_with_epoch( deadline: u64, concurrent_ticker: bool ) -> Result<Socket<Result<Val, wasm_link::DispatchError>, String>, wasm_link::DispatchError> {
+fn dispatch_with_epoch( deadline: u64, concurrent_ticker: bool ) -> Result<ExactlyOne<String, Result<Val, wasm_link::DispatchError>>, wasm_link::DispatchError> {
 
     let mut config = Config::new();
     config.epoch_interruption( true );
@@ -29,7 +29,7 @@ fn dispatch_with_epoch( deadline: u64, concurrent_ticker: bool ) -> Result<Socke
             HashMap::from([( "burn".into(), Function::new( FunctionKind::Freestanding, ReturnKind::AssumeNoResources ))]),
             HashSet::new(),
         ))]),
-        Socket::ExactlyOne( "_".to_string(), plugin_instance ),
+        ExactlyOne( "_".to_string(), plugin_instance ),
     );
 
     if concurrent_ticker {
@@ -65,7 +65,7 @@ fn dispatch_with_epoch( deadline: u64, concurrent_ticker: bool ) -> Result<Socke
 fn epoch_exhaustion_returns_runtime_exception() {
     // Deadline of 1 with concurrent ticker -> should trap after just 1 increment
     match dispatch_with_epoch( 1, true ) {
-        Ok( Socket::ExactlyOne( _, Err( wasm_link::DispatchError::RuntimeException( _ )))) => {}
+        Ok( ExactlyOne( _, Err( wasm_link::DispatchError::RuntimeException( _ )))) => {}
         other => panic!( "Expected RuntimeException from epoch exhaustion, got: {:#?}", other ),
     }
 }
@@ -74,7 +74,7 @@ fn epoch_exhaustion_returns_runtime_exception() {
 fn sufficient_epoch_allows_completion() {
     // High deadline without ticker -> completion
     match dispatch_with_epoch( 1_000_000, false ) {
-        Ok( Socket::ExactlyOne( _, Ok( Val::U32( 42 )))) => {}
+        Ok( ExactlyOne( _, Ok( Val::U32( 42 )))) => {}
         other => panic!( "Expected Ok( U32( 42 )), got: {:#?}", other ),
     }
 }
