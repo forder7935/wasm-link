@@ -46,11 +46,13 @@ impl From<ResourceReceiveError> for Val {
 
 impl<Id: 'static + Send + Sync> ResourceWrapper<Id> {
 
-    pub fn new( plugin_id: Id, resource_handle: ResourceAny ) -> Self {
+    /// Wraps a resource handle with the owning plugin's id.
+    pub(crate) fn new( plugin_id: Id, resource_handle: ResourceAny ) -> Self {
         Self { plugin_id, resource_handle }
     }
 
-    pub fn attach<Ctx: PluginContext>(
+    /// Stores the wrapped resource in the host table and returns a handle.
+    pub(crate) fn attach<Ctx: PluginContext>(
         self,
         store: &mut StoreContextMut<Ctx>,
     ) -> Result<ResourceAny, ResourceCreationError> {
@@ -59,7 +61,8 @@ impl<Id: 'static + Send + Sync> ResourceWrapper<Id> {
         Ok( ResourceAny::try_from_resource( resource, store ).expect( "resource was just pushed" ))
     }
 
-    pub fn from_handle<'a, Ctx: PluginContext>(
+    /// Looks up a wrapped resource by handle in the host resource table.
+    pub(crate) fn from_handle<'a, Ctx: PluginContext>(
         handle: ResourceAny,
         store: &'a mut StoreContextMut<Ctx>,
     ) -> Result<&'a Self, ResourceReceiveError> {
@@ -69,7 +72,8 @@ impl<Id: 'static + Send + Sync> ResourceWrapper<Id> {
         Ok( wrapped )
     }
 
-    pub fn drop<Ctx: PluginContext>( mut ctx: StoreContextMut<Ctx>, handle: u32 ) -> Result<(), wasmtime::Error> {
+    /// Drops a wrapped resource by handle from the host resource table.
+    pub(crate) fn drop<Ctx: PluginContext>( mut ctx: StoreContextMut<Ctx>, handle: u32 ) -> Result<(), wasmtime::Error> {
         let resource = Resource::<Arc<Self>>::new_own( handle );
         let table = ctx.data_mut().resource_table();
         table.delete( resource ).map_err(|_| wasmtime::Error::new( ResourceReceiveError::InvalidHandle ))?;

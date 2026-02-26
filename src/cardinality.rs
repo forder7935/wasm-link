@@ -14,12 +14,15 @@ pub trait Cardinality<Id, T>: Sized {
     /// Same cardinality with a different inner type.
     type Rebind<U>;
 
+    /// Maps values by reference while preserving cardinality.
     fn map<N>( &self, map: impl FnMut( &Id, &T ) -> N ) -> Self::Rebind<N>
     where
         Id: Clone;
 
+    /// Maps values by value while preserving cardinality.
     fn map_mut<N>( self, map: impl FnMut( T ) -> N ) -> Self::Rebind<N> ;
 
+    /// Returns the value associated with `id`, if present.
     fn get( &self, id: &Id ) -> Option<&T>
     where
         Id: Hash + Eq ;
