@@ -8,7 +8,7 @@
 use wasmtime::{ Engine, Store };
 use wasmtime::component::{ Component, ResourceTable, Linker, Val };
 
-use crate::Binding ;
+use crate::BindingAny ;
 use crate::plugin_instance::PluginInstance ;
 use crate::Function ;
 
@@ -94,7 +94,7 @@ where
     /// Creates a new plugin declaration.
     ///
     /// Note that the plugin ID is not specified here - it's provided when constructing
-    /// the [`Socket`]( crate::socket::Socket ) that holds this plugin. This is done to prevent duplicate ids.
+    /// the cardinality wrapper that holds this plugin. This is done to prevent duplicate ids.
     pub fn new(
         component: Component,
         context: Ctx,
@@ -204,16 +204,20 @@ where
     ///
     /// # Errors
     /// Returns an error if linking or instantiation fails.
-    pub fn link<PluginId>(
+    pub fn link<PluginId, Sockets>(
         self,
         engine: &Engine,
         mut linker: Linker<Ctx>,
-        sockets: impl IntoIterator<Item = Binding<PluginId, Ctx>>,
+        sockets: Sockets,
     ) -> Result<PluginInstance<Ctx>, wasmtime::Error>
     where
         PluginId: Eq + std::hash::Hash + Clone + std::fmt::Debug + Send + Sync + Into<Val> + 'static,
+        Sockets: IntoIterator,
+        Sockets::Item: Into<BindingAny<PluginId, Ctx>>,
     {
-        sockets.into_iter().try_for_each(| binding | Binding::add_to_linker( &binding, &mut linker ))?;
+        sockets.into_iter()
+            .map( Into::into )
+            .try_for_each(| binding | binding.add_to_linker( &mut linker ))?;
         Self::instantiate( self, engine, &linker )
     }
 

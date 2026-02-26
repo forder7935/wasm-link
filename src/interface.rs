@@ -1,8 +1,9 @@
-use std::sync::Arc ;
+use std::sync::{ Arc, Mutex };
 use std::collections::{ HashMap, HashSet };
 use wasmtime::component::{ Linker, ResourceType, Val };
 
 use crate::{ Binding, PluginContext };
+use crate::cardinality::Cardinality ;
 use crate::linker::{ dispatch_all, dispatch_method };
 use crate::resource_wrapper::ResourceWrapper ;
 
@@ -15,19 +16,19 @@ use crate::resource_wrapper::ResourceWrapper ;
 ///
 /// ```
 /// # use std::collections::{ HashMap, HashSet };
-/// # use wasm_link::{ Binding, Interface, Socket };
+/// # use wasm_link::{ Binding, Interface, AtMostOne };
 /// # struct Ctx { resource_table: wasm_link::ResourceTable }
 /// # impl wasm_link::PluginContext for Ctx {
 /// #     fn resource_table( &mut self ) -> &mut wasm_link::ResourceTable { &mut self.resource_table }
 /// # }
-/// # fn example<T>( plugin: wasm_link::Engine ) -> Binding<String, Ctx> where T: wasm_link::PluginContext {
+/// # fn example<T>( plugin: wasm_link::Engine ) -> Binding<String, Ctx, AtMostOne<String, wasm_link::PluginInstance<Ctx>>> where T: wasm_link::PluginContext {
 /// Binding::new(
 ///     "my:package",
 ///     HashMap::from([
 ///         ( "interface-a".to_string(), Interface::new( HashMap::new(), HashSet::new() )),
 ///         ( "interface-b".to_string(), Interface::new( HashMap::new(), HashSet::new() )),
 ///     ]),
-///     Socket::AtMostOne( None ),
+///     AtMostOne( None ),
 /// )
 /// # }
 /// ```
@@ -54,15 +55,19 @@ impl Interface {
     }
 
     #[inline]
-    pub(crate) fn add_to_linker<PluginId, Ctx>(
+    pub(crate) fn add_to_linker<PluginId, Ctx, Plugins>(
         &self,
         linker: &mut Linker<Ctx>,
         interface_ident: &str,
-        binding: &Binding<PluginId, Ctx>,
+        binding: &Binding<PluginId, Ctx, Plugins>,
     ) -> Result<(), wasmtime::Error>
     where
         PluginId: std::hash::Hash + Eq + Clone + Send + Sync + Into<Val> + 'static,
         Ctx: PluginContext,
+        Plugins: Cardinality<PluginId, crate::PluginInstance<Ctx>> + 'static,
+        <Plugins as Cardinality<PluginId, crate::PluginInstance<Ctx>>>::Rebind<Mutex<crate::PluginInstance<Ctx>>>: Send + Sync,
+        <Plugins as Cardinality<PluginId, crate::PluginInstance<Ctx>>>::Rebind<Mutex<crate::PluginInstance<Ctx>>>: Cardinality<PluginId, Mutex<crate::PluginInstance<Ctx>>>,
+        <<Plugins as Cardinality<PluginId, crate::PluginInstance<Ctx>>>::Rebind<Mutex<crate::PluginInstance<Ctx>>> as Cardinality<PluginId, Mutex<crate::PluginInstance<Ctx>>>>::Rebind<Val>: Into<Val>,
     {
         let mut linker_root = linker.root();
         let mut linker_instance = linker_root.instance( interface_ident )?;

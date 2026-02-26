@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use wasm_link::{ Binding, Engine, Linker, DispatchError, Socket };
+use wasm_link::{ Binding, Engine, Linker, DispatchError, ExactlyOne };
 
 fixtures! {
 	bindings	= [ root: "root" ];
@@ -20,11 +20,11 @@ fn dispatch_error_runtime_exception() {
 	let binding = Binding::new(
 		bindings.root.package,
 		HashMap::from([( bindings.root.name, bindings.root.spec )]),
-		Socket::ExactlyOne( "_".to_string(), plugin_instance ),
+		ExactlyOne( "_".to_string(), plugin_instance ),
 	);
 
 	match binding.dispatch( "root", "trap", &[] ) {
-		Ok( Socket::ExactlyOne( _, Err( DispatchError::RuntimeException( _ )))) => {}
+		Ok( ExactlyOne( _, Err( DispatchError::RuntimeException( _ )))) => {}
 		value => panic!( "Expected RuntimeException error, found: {:#?}", value ),
 	}
 

@@ -46,7 +46,7 @@ NOTE: Async types (`Future`, `Stream`, `ErrorContext`) are not yet supported for
 use std::collections::{ HashMap, HashSet };
 use wasm_link::{
     Binding, Interface, Function, FunctionKind, ReturnKind,
-    Plugin, PluginContext, Socket,
+    Plugin, PluginContext, ExactlyOne,
     Engine, Component, Linker, ResourceTable, Val,
 };
 
@@ -77,18 +77,18 @@ let linker = Linker::new( &engine );
 // Build the DAG bottom-up: start with plugins that have no dependencies.
 // Note that for plugins that don't require linking, you only need to pass in
 // a reference to a linker. For plugins that have dependencies, the linker is mutated.
-// Plugin IDs are specified in the Socket variant to prevent duplicate ids.
+// Plugin IDs are specified in the cardinality wrapper to prevent duplicate ids.
 let leaf = Plugin::new(
     Component::new( &engine, "(component)" )?,
     Context { resource_table: ResourceTable::new() },
 ).instantiate( &engine, &linker )?;
 
 // Bindings expose a plugin's exports to other plugins.
-// Socket variant sets cardinality: ExactlyOne, AtMostOne (0-1), AtLeastOne (1+), Any (0+).
+// Wrapper sets cardinality: ExactlyOne, AtMostOne (0-1), AtLeastOne (1+), Any (0+).
 let leaf_binding = Binding::new(
     "empty:package",
     HashMap::new(),
-    Socket::ExactlyOne( "leaf".to_string(), leaf ),
+    ExactlyOne( "leaf".to_string(), leaf ),
 );
 
 // `link()` wires up dependencies - this plugin can now import from leaf_binding.
@@ -113,15 +113,15 @@ let root_binding = Binding::new(
         ))]),
         HashSet::new(),
     ))]),
-    Socket::ExactlyOne( "root".to_string(), root ),
+    ExactlyOne( "root".to_string(), root ),
 );
 
 // Now you can call into the plugin graph from the host.
 let result = root_binding.dispatch( "example", "get-value", &[ /* args */ ] )?;
 match result {
-    Socket::ExactlyOne( _, Ok( Val::U32( n ))) => assert_eq!( n, 42 ),
-    Socket::ExactlyOne( _, Err( err )) => panic!( "dispatch error: {}", err ),
-    _ => unreachable!(),
+    ExactlyOne( _id, Ok( Val::U32( n ))) => assert_eq!( n, 42 ),
+    ExactlyOne( _id, Ok( _ )) => panic!( "unexpected response" ),
+    ExactlyOne( _id, Err( err )) => panic!( "dispatch error: {}", err ),
 }
 ```
 

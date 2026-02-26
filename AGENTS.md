@@ -4,7 +4,7 @@ wasm-link is a runtime for loading and linking WebAssembly plugins. Plugins conn
 
 ## Essentials
 
-- Commands: `nix develop --command <cmd>` or `nix-shell -p {package} --run` for single-use packages. Use these for all commands except built-in tools (ls, grep, etc.).
+- Commands: `nix develop --command <cmd>` or `nix-shell -p {package} --run` for single-use packages. Use these for all commands except standard utilities (ls, cat, grep, etc.).
 - Always strive for concise, simple solutions
 - If a problem can be solved in a simpler way, propose it
 - If asked to do too much work at once, stop and state that clearly

@@ -1,5 +1,5 @@
 use std::collections::{ HashMap, HashSet };
-use wasm_link::{ Binding, Engine, Function, FunctionKind, Interface, Linker, ReturnKind, Socket, Val };
+use wasm_link::{ Binding, Engine, Function, FunctionKind, Interface, Linker, ReturnKind, ExactlyOne, Val };
 use wasmtime::Config;
 
 fixtures! {
@@ -32,11 +32,11 @@ fn closure_receives_correct_interface_and_function() {
             HashMap::from([( "burn".into(), Function::new( FunctionKind::Freestanding, ReturnKind::AssumeNoResources ))]),
             HashSet::new(),
         ))]),
-        Socket::ExactlyOne( "_".to_string(), plugin_instance ),
+        ExactlyOne( "_".to_string(), plugin_instance ),
     );
 
     match binding.dispatch( "root", "burn", &[] ) {
-        Ok( Socket::ExactlyOne( _, Ok( Val::U32( 42 )))) => {}
+        Ok( ExactlyOne( _, Ok( Val::U32( 42 )))) => {}
         other => panic!( "Expected Ok( U32( 42 )), got: {:#?}", other ),
     }
 }
