@@ -4,13 +4,13 @@
   ;; Using unit for error type to simplify (we're ignoring errors for this test)
   (import "test:myresource/root" (instance $resource_inst
     (export "counter" (type $counter (sub resource)))
-    (export "[constructor]counter" (func (result (result (own $counter)))))
+    (export "make-counter" (func (result (tuple string (result (own $counter))))))
     (export "[method]counter.get-value" (func (param "self" (borrow $counter)) (result (result u32))))
   ))
 
   ;; Alias the imported types and functions
   (alias export $resource_inst "counter" (type $counter))
-  (alias export $resource_inst "[constructor]counter" (func $ctor_wrapped))
+  (alias export $resource_inst "make-counter" (func $make_counter_wrapped))
   (alias export $resource_inst "[method]counter.get-value" (func $get_wrapped))
 
   ;; Memory provider module
@@ -25,36 +25,36 @@
   (alias core export $mem_inst "realloc" (core func $shared_realloc))
 
   ;; Lower the imported functions using shared memory
-  (core func $lowered_ctor (canon lower (func $ctor_wrapped) (memory $shared_mem) (realloc $shared_realloc)))
+  (core func $lowered_make_counter (canon lower (func $make_counter_wrapped) (memory $shared_mem) (realloc $shared_realloc)))
   (core func $lowered_get (canon lower (func $get_wrapped) (memory $shared_mem) (realloc $shared_realloc)))
 
   ;; Create instance for imports
   (core instance $resource_imports
-    (export "ctor" (func $lowered_ctor))
+    (export "make-counter" (func $lowered_make_counter))
     (export "get" (func $lowered_get))
   )
 
   ;; Main module that imports the shared memory
   (core module $main_impl
-    (import "resource" "ctor" (func $ctor (param i32)))
+    (import "resource" "make-counter" (func $make_counter (param i32)))
     (import "resource" "get" (func $get (param i32 i32)))
     (import "mem" "memory" (memory 1))
 
     ;; Our exported get-value function
     (func (export "get-value") (result i32)
-      ;; Call constructor with retptr = 0
+      ;; Call make-counter with retptr = 0
       i32.const 0
-      call $ctor
+      call $make_counter
       
-      ;; Load handle from offset 4
-      ;; Call get-value with handle and retptr = 8
+      ;; Load handle from offset 12
+      ;; Call get-value with handle and retptr = 16
       (call $get
-        (i32.load (i32.const 4))
-        (i32.const 8)
+        (i32.load (i32.const 12))
+        (i32.const 16)
       )
       
-      ;; Return the value at offset 12
-      (i32.load (i32.const 12))
+      ;; Return the value at offset 20
+      (i32.load (i32.const 20))
     )
   )
 

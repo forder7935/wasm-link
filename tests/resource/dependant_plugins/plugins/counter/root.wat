@@ -101,6 +101,7 @@
     
     (export $exp_ct "counter" (type $ct))
     (export "[constructor]counter" (func $ctor) (func (result (own $exp_ct))))
+    (export "make-counter" (func $ctor) (func (result (own $exp_ct))))
     (export "[method]counter.get-value" (func $get) (func (param "self" (borrow $exp_ct)) (result u32)))
   )
   
