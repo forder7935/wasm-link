@@ -45,9 +45,9 @@ NOTE: Async types (`Future`, `Stream`, `ErrorContext`) are not yet supported for
 ```rust
 use std::collections::{ HashMap, HashSet };
 use wasm_link::{
-    Binding, Interface, Function, FunctionKind, ReturnKind,
-    Plugin, PluginContext, ExactlyOne,
-    Engine, Component, Linker, ResourceTable, Val,
+	Binding, Interface, Function, FunctionKind, ReturnKind,
+	Plugin, PluginContext, ExactlyOne,
+	Engine, Component, Linker, ResourceTable, Val,
 };
 
 // First, declare a plugin context, the data stored inside wasmtime `Store<T>`.
@@ -56,9 +56,9 @@ use wasm_link::{
 struct Context { resource_table: ResourceTable }
 
 impl PluginContext for Context {
-    fn resource_table( &mut self ) -> &mut ResourceTable {
-        &mut self.resource_table
-    }
+	fn resource_table( &mut self ) -> &mut ResourceTable {
+		&mut self.resource_table
+	}
 }
 
 // You create your own engine. This allows you to define your config but note that
@@ -79,49 +79,49 @@ let linker = Linker::new( &engine );
 // a reference to a linker. For plugins that have dependencies, the linker is mutated.
 // Plugin IDs are specified in the cardinality wrapper to prevent duplicate ids.
 let leaf = Plugin::new(
-    Component::new( &engine, "(component)" )?,
-    Context { resource_table: ResourceTable::new() },
+	Component::new( &engine, "(component)" )?,
+	Context { resource_table: ResourceTable::new() },
 ).instantiate( &engine, &linker )?;
 
 // Bindings expose a plugin's exports to other plugins.
 // Wrapper sets cardinality: ExactlyOne, AtMostOne (0-1), AtLeastOne (1+), Any (0+).
 let leaf_binding = Binding::new(
-    "empty:package",
-    HashMap::new(),
-    ExactlyOne( "leaf".to_string(), leaf ),
+	"empty:package",
+	HashMap::new(),
+	ExactlyOne( "leaf".to_string(), leaf ),
 );
 
 // `link()` wires up dependencies - this plugin can now import from leaf_binding.
 let root = Plugin::new(
-    Component::new( &engine, r#"(component
-        (core module $m (func (export "f") (result i32) i32.const 42))
-        (core instance $i (instantiate $m))
-        (func $f (export "get-value") (result u32) (canon lift (core func $i "f")))
-        (instance $inst (export "get-value" (func $f)))
-        (export "my:package/example" (instance $inst))
-    )"# )?,
-    Context { resource_table: ResourceTable::new() },
+	Component::new( &engine, r#"(component
+		(core module $m (func (export "f") (result i32) i32.const 42))
+		(core instance $i (instantiate $m))
+		(func $f (export "get-value") (result u32) (canon lift (core func $i "f")))
+		(instance $inst (export "get-value" (func $f)))
+		(export "my:package/example" (instance $inst))
+	)"# )?,
+	Context { resource_table: ResourceTable::new() },
 ).link( &engine, linker, vec![ leaf_binding ])?;
 
 // Interface tells `wasm_link` which functions exist and how to handle returns.
 let root_binding = Binding::new(
-    "my:package",
-    HashMap::from([( "example".to_string(), Interface::new(
-        HashMap::from([( "get-value".into(), Function::new(
-            FunctionKind::Freestanding,
-            ReturnKind::MayContainResources,
-        ))]),
-        HashSet::new(),
-    ))]),
-    ExactlyOne( "root".to_string(), root ),
+	"my:package",
+	HashMap::from([( "example".to_string(), Interface::new(
+		HashMap::from([( "get-value".into(), Function::new(
+			FunctionKind::Freestanding,
+			ReturnKind::MayContainResources,
+		))]),
+		HashSet::new(),
+	))]),
+	ExactlyOne( "root".to_string(), root ),
 );
 
 // Now you can call into the plugin graph from the host.
 let result = root_binding.dispatch( "example", "get-value", &[ /* args */ ] )?;
 match result {
-    ExactlyOne( _id, Ok( Val::U32( n ))) => assert_eq!( n, 42 ),
-    ExactlyOne( _id, Ok( _ )) => panic!( "unexpected response" ),
-    ExactlyOne( _id, Err( err )) => panic!( "dispatch error: {}", err ),
+	ExactlyOne( _id, Ok( Val::U32( n ))) => assert_eq!( n, 42 ),
+	ExactlyOne( _id, Ok( _ )) => panic!( "unexpected response" ),
+	ExactlyOne( _id, Err( err )) => panic!( "dispatch error: {}", err ),
 }
 ```
 
@@ -139,10 +139,8 @@ Further goals are yet to be determined.
 
 Licensed under either of
 
- * Apache License, Version 2.0
-   ([LICENSE-APACHE](LICENSE-APACHE) or <http://www.apache.org/licenses/LICENSE-2.0>)
- * MIT license
-   ([LICENSE-MIT](LICENSE-MIT) or <http://opensource.org/licenses/MIT>)
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or <http://www.apache.org/licenses/LICENSE-2.0>)
+- MIT license ([LICENSE-MIT](LICENSE-MIT) or <http://opensource.org/licenses/MIT>)
 
 at your option.
 

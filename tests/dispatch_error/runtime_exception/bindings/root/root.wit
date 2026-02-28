@@ -1,5 +1,5 @@
 package test:dispatch-error ;
 
 interface root {
-  trap: func();
+	trap: func();
 }

@@ -1,5 +1,5 @@
 package test:dispatch-error ;
 
 interface root {
-  add: func(a: u32, b: u32) -> u32;
+	add: func(a: u32, b: u32) -> u32;
 }

@@ -1,5 +1,5 @@
 package test:dependant-primitive ;
 
 interface root {
-  get-primitive: func() -> u32;
+	get-primitive: func() -> u32;
 }

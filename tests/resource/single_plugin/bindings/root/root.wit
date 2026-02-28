@@ -1,8 +1,8 @@
 package test:myresource;
 
 interface root {
-  resource counter {
-    constructor();
-    get-value: func() -> u32;
-  }
+	resource counter {
+	constructor();
+	get-value: func() -> u32;
+	}
 }
