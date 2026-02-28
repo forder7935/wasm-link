@@ -46,9 +46,9 @@ NOTE: Async types (`Future`, `Stream`, `ErrorContext`) are not yet supported for
 use std::collections::{ HashMap, HashSet };
 use wasm_link::{
 	Binding, Interface, Function, FunctionKind, ReturnKind,
-	Plugin, PluginContext, ExactlyOne,
-	Engine, Component, Linker, ResourceTable, Val,
+	Plugin, PluginContext, Engine, Component, Linker, ResourceTable, Val,
 };
+use wasm_link::cardinality::ExactlyOne ;
 
 // First, declare a plugin context, the data stored inside wasmtime `Store<T>`.
 // It must contain a resource table to implement `PluginContext` which is needed
