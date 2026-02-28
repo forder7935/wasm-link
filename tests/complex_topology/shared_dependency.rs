@@ -1,5 +1,6 @@
 use std::collections::HashMap;
-use wasm_link::{ Binding, Engine, Linker, Val, ExactlyOne };
+use wasm_link::{ Binding, Engine, Linker, Val };
+use wasm_link::cardinality::ExactlyOne ;
 
 fixtures! {
 	bindings	= [ root: "root", binding_b: "binding-b", binding_c: "binding-c", binding_d: "binding-d" ];

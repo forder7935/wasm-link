@@ -16,6 +16,8 @@ use crate::Function ;
 ///
 /// Resources that flow between plugins need to be wrapped to track ownership.
 /// This trait provides access to the table where those wrapped resources are stored.
+/// [`ResourceTable`] is part of the wasmtime component model; see the
+/// [wasmtime docs](https://docs.rs/wasmtime/latest/wasmtime/component/) for details.
 ///
 /// # Example
 ///
@@ -44,10 +46,10 @@ pub trait PluginContext: Send {
 /// The component's exports (its **plug**) and imports (its **sockets**) are defined through
 /// the [`crate::Binding`], not by this struct.
 ///
-/// The `context` is consumed during linking to become the wasmtime `Store`'s data.
+/// The `context` is consumed during linking to become the wasmtime [`Store`]( wasmtime::Store )'s data.
 ///
 /// # Type Parameters
-/// - `Ctx`: User context type that will be stored in the wasmtime Store
+/// - `Ctx`: User context type that will be stored in the wasmtime [`Store`]( wasmtime::Store )
 ///
 /// # Example
 ///

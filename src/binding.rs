@@ -49,7 +49,8 @@ where
 ///
 /// ```
 /// # use std::collections::{ HashMap, HashSet };
-/// # use wasm_link::{ Binding, Interface, Function, FunctionKind, ReturnKind, Plugin, ExactlyOne, Engine, Component, Linker, ResourceTable };
+/// # use wasm_link::{ Binding, Interface, Function, FunctionKind, ReturnKind, Plugin, Engine, Component, Linker, ResourceTable };
+/// # use wasm_link::cardinality::ExactlyOne ;
 /// # struct Ctx { resource_table: ResourceTable }
 /// # impl wasm_link::PluginContext for Ctx {
 /// # 	fn resource_table( &mut self ) -> &mut ResourceTable { &mut self.resource_table }

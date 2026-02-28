@@ -16,7 +16,8 @@ use crate::resource_wrapper::ResourceWrapper ;
 ///
 /// ```
 /// # use std::collections::{ HashMap, HashSet };
-/// # use wasm_link::{ Binding, Interface, AtMostOne, PluginContext, PluginInstance, ResourceTable };
+/// # use wasm_link::{ Binding, Interface, PluginContext, PluginInstance, ResourceTable };
+/// # use wasm_link::cardinality::AtMostOne ;
 /// # struct Ctx { resource_table: ResourceTable }
 /// # impl PluginContext for Ctx {
 /// # 	fn resource_table( &mut self ) -> &mut ResourceTable { &mut self.resource_table }

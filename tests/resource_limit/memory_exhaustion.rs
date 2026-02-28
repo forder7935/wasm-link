@@ -1,5 +1,6 @@
 use std::collections::{ HashMap, HashSet };
-use wasm_link::{ Binding, Component, Engine, Function, FunctionKind, Interface, Linker, Plugin, PluginContext, ResourceTable, ReturnKind, ExactlyOne, Val };
+use wasm_link::{ Binding, Component, Engine, Function, FunctionKind, Interface, Linker, Plugin, PluginContext, ResourceTable, ReturnKind, Val };
+use wasm_link::cardinality::ExactlyOne ;
 
 // Used to load the grow-memory WAT directly (fixtures::plugins() would return Plugin<TestContext>,
 // but this test requires a custom context that holds the ResourceLimiter).

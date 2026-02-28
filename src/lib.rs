@@ -25,10 +25,17 @@
 //!
 //! - **Socket**: A plugin's declaration that it depends on a [`Binding`]. Cardinality is
 //! 	expressed with wrapper types in [`crate::cardinality`]:
-//! 	- [`ExactlyOne`]`( Id, T )` - exactly one plugin, guaranteed present
-//! 	- [`AtMostOne`]`( Option<( Id, T )> )` - zero or one plugin
-//! 	- [`AtLeastOne`]`( NEMap<Id, T> )` - one or more plugins
-//! 	- [`Any`]`( HashMap<Id, T> )` - zero or more plugins
+//! 	- [`cardinality::ExactlyOne`]`( Id, T )` - exactly one plugin, guaranteed present
+//! 	- [`cardinality::AtMostOne`]`( Option<( Id, T )> )` - zero or one plugin
+//! 	- [`cardinality::AtLeastOne`]`( nonempty_collections::NEMap<Id, T> )` - one or more plugins
+//! 	- [`cardinality::Any`]`( HashMap<Id, T> )` - zero or more plugins
+//!
+//! # Re-exports
+//!
+//! `wasm_link` re-exports a small set of types from `wasmtime` for convenience
+//! (`Engine`, `Component`, `Linker`, `ResourceTable`, `Val`). These types are
+//! defined by wasmtime; see the [wasmtime docs](https://docs.rs/wasmtime/latest/wasmtime/)
+//! for details.
 //!
 //! # Example
 //!
@@ -36,9 +43,9 @@
 //! use std::collections::{ HashMap, HashSet };
 //! use wasm_link::{
 //! 	Binding, Interface, Function, FunctionKind, ReturnKind,
-//! 	Plugin, PluginContext, ExactlyOne,
-//! 	Engine, Component, Linker, ResourceTable, Val,
+//! 	Plugin, PluginContext, Engine, Component, Linker, ResourceTable, Val,
 //! };
+//! use wasm_link::cardinality::ExactlyOne ;
 //!
 //! // First, declare a plugin context, the data stored inside wasmtime `Store<T>`.
 //! // It must contain a resource table to implement `PluginContext` which is needed
@@ -125,7 +132,8 @@
 //!
 //! ```
 //! # use std::collections::HashMap ;
-//! # use wasm_link::{ Binding, Plugin, PluginContext, ExactlyOne, Engine, Component, Linker, ResourceTable };
+//! # use wasm_link::{ Binding, Plugin, PluginContext, Engine, Component, Linker, ResourceTable };
+//! # use wasm_link::cardinality::ExactlyOne ;
 //! # struct Context { resource_table: ResourceTable }
 //! # impl PluginContext for Context {
 //! # 	fn resource_table( &mut self ) -> &mut ResourceTable { &mut self.resource_table }
@@ -158,16 +166,17 @@
 //!
 //! # Multiple Plugins Per Binding
 //!
-//! A single binding can have multiple plugin implementations. Use [`AtLeastOne`]
-//! when at least one implementation is required, or [`Any`] when zero is acceptable.
+//! A single binding can have multiple plugin implementations. Use [`cardinality::AtLeastOne`]
+//! when at least one implementation is required, or [`cardinality::Any`] when zero is acceptable.
 //! When you dispatch to such a binding, you get results from all plugins.
 //!
 //! ```
 //! # use std::collections::{ HashMap, HashSet };
 //! # use wasm_link::{
 //! # 	Binding, Interface, Function, FunctionKind, ReturnKind, Plugin, PluginContext,
-//! # 	Any, Engine, Component, Linker, ResourceTable, Val,
+//! # 	Engine, Component, Linker, ResourceTable, Val,
 //! # };
+//! # use wasm_link::cardinality::Any ;
 //! # struct Context { resource_table: ResourceTable }
 //! # impl Context {
 //! # 	pub fn new() -> Self { Self { resource_table: ResourceTable::new() } }
@@ -244,7 +253,8 @@
 //!
 //! ```
 //! # use std::collections::{ HashMap, HashSet };
-//! # use wasm_link::{ Binding, Interface, Function, FunctionKind, ReturnKind, Plugin, PluginContext, ExactlyOne, Component, Linker, ResourceTable };
+//! # use wasm_link::{ Binding, Interface, Function, FunctionKind, ReturnKind, Plugin, PluginContext, Component, Linker, ResourceTable };
+//! # use wasm_link::cardinality::ExactlyOne ;
 //! # use wasmtime::{ Config, Engine };
 //! # struct Context { resource_table: ResourceTable }
 //! # impl Context { fn new() -> Self { Self { resource_table: ResourceTable::new() }}}
@@ -282,7 +292,7 @@
 //!
 //! **Engine configuration is required.** Fuel and epoch deadline limits only work when enabled
 //! in the [`Engine`] configuration. Memory limits require no engine configuration.
-//! For more information, look into [`wasmtime`] docs.
+//! For more information, see the [wasmtime docs](https://docs.rs/wasmtime/latest/wasmtime/).
 //!
 //! **Fuel and epoch deadlines are independent.** A function can have both a fuel limit and an
 //! epoch deadline. They are applied separately; whichever is exhausted first causes
@@ -345,8 +355,11 @@ pub mod cardinality ;
 mod linker ;
 mod resource_wrapper ;
 
+#[doc( no_inline )]
 pub use wasmtime::Engine ;
+#[doc( no_inline )]
 pub use wasmtime::component::{ Component, Linker, ResourceTable, Val };
+#[doc( no_inline )]
 pub use nonempty_collections::{ NEMap, nem };
 
 pub use binding::Binding ;
@@ -354,5 +367,4 @@ pub use interface::{ Interface, Function, FunctionKind, ReturnKind };
 pub use plugin::{ PluginContext, Plugin };
 pub use plugin_instance::{ PluginInstance, DispatchError };
 pub use binding::BindingAny ;
-pub use cardinality::{ Cardinality, ExactlyOne, AtMostOne, AtLeastOne, Any };
 pub use resource_wrapper::{ ResourceCreationError, ResourceReceiveError };
