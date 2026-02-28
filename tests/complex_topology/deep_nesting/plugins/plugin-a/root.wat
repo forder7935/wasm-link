@@ -1,7 +1,7 @@
 (component
   ;; Import level-b dependency
   (import "test:level-b/root" (instance $level_b
-    (export "get-b" (func (result (result u32))))
+    (export "get-b" (func (result (tuple string (result u32)))))
   ))
 
   (alias export $level_b "get-b" (func $get_b))
@@ -27,7 +27,7 @@
 
     (func (export "get-value") (result i32)
       (call $get_b (i32.const 0))
-      (i32.load (i32.const 4))
+      (i32.load (i32.const 12))
     )
   )
 

@@ -1,7 +1,7 @@
 (component
   ;; Import binding-d dependency
   (import "test:binding-d/root" (instance $interface_d
-    (export "get-d" (func (result (result u32))))
+    (export "get-d" (func (result (tuple string (result u32)))))
   ))
 
   (alias export $interface_d "get-d" (func $get_d))
@@ -27,7 +27,7 @@
 
     (func (export "get-b") (result i32)
       (call $get_d (i32.const 0))
-      (i32.load (i32.const 4))
+      (i32.load (i32.const 12))
     )
   )
 

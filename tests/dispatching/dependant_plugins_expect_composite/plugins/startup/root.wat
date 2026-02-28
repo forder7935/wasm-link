@@ -1,6 +1,6 @@
 (component
   (import "test:child/root" (instance $child
-    (export "get-value" (func (result (result u32))))
+    (export "get-value" (func (result (tuple string (result u32)))))
   ))
 
   (alias export $child "get-value" (func $get_value))
@@ -26,7 +26,7 @@
     (func (export "get-composite") (result i32)
       (call $get_value (i32.const 0))
       ;; Store first tuple element (from child) at offset 16
-      (i32.store (i32.const 16) (i32.load (i32.const 4)))
+      (i32.store (i32.const 16) (i32.load (i32.const 12)))
       ;; Store second tuple element (hardcoded 24) at offset 20
       (i32.store (i32.const 20) (i32.const 24))
       ;; Return pointer to tuple
