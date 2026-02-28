@@ -1,6 +1,6 @@
 [package]
 name = "wasm-link"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Forder7935"]
 edition = "2021"
 rust-version = "1.90.0"
@@ -28,7 +28,6 @@ nonempty-collections = "1.3"
 
 [dev-dependencies]
 wit-parser = "0.244.0"
-anyhow = "1.0.100" #required because of wit-parser
 once_cell = "1.21.3"
 
 [lints.clippy]

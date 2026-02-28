@@ -70,7 +70,7 @@ mod fixture_linking {
     #[derive( Debug, thiserror::Error )]
     pub enum FixtureError {
         #[error( "IO error: {0}" )] Io( #[from] std::io::Error ),
-        #[error( "WIT parser error: {0}" )] WitParser( #[from] anyhow::Error ),
+        #[error( "WIT parser error: {0}" )] WitParser( String ),
         #[error( "No root interface found" )] NoRootInterface,
         #[error( "No package for root interface" )] NoPackage,
         #[error( "Undeclared type: {0:?}" )] UndeclaredType( wit_parser::TypeId ),
@@ -152,7 +152,7 @@ mod fixture_linking {
     fn parse_wit( root_path: &std::path::Path ) -> Result<BindingWitData, FixtureError> {
 
         let mut resolve = wit_parser::Resolve::new();
-        let _ = resolve.push_path( root_path )?;
+        let _ = resolve.push_path( root_path ).map_err(| err | FixtureError::WitParser( err.to_string() ))?;
 
         let interface = resolve.interfaces.iter().find(|( _, interface )| match &interface.name {
             Some( name ) => name.as_str() == "root",

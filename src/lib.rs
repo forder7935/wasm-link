@@ -280,23 +280,9 @@
 //! ```
 //! ## Important Notes
 //!
-//! **Engine configuration for fuel and epochs.** Fuel and epoch limits only work when
-//! enabled in the [`Engine`] configuration. Memory limits require no engine configuration.
-//! For more information, look into [`wasmtime`] docs.
-//!
-//! **Fuel and epoch are independent.** A function can have both a fuel limit and an
-//! epoch deadline. They are applied separately; whichever is exhausted first causes
-//! a trap.
-//!
-//! **Engine enabled but no limiter set.** If you enable fuel/epochs in the [`Engine`]
-//! but don't set a limiter on the [`Plugin`], the behavior mimics the wasmtime default.
-//! - *Fuel*: A fresh [`Store`]( wasmtime::Store ) starts with 0 fuel, so the first
-//!   instruction immediately traps. This is likely not what you want.
-//! - *Epochs*: No deadline is set, so execution runs indefinitely regardless of epoch
-//! ## Important Notes
-//!
 //! **Engine configuration is required.** Fuel and epoch deadline limits only work when enabled
-//! in the [`Engine`] configuration. For more information, look into [`wasmtime`] docs.
+//! in the [`Engine`] configuration. Memory limits require no engine configuration.
+//! For more information, look into [`wasmtime`] docs.
 //!
 //! **Fuel and epoch deadlines are independent.** A function can have both a fuel limit and an
 //! epoch deadline. They are applied separately; whichever is exhausted first causes
@@ -329,11 +315,11 @@
 //!
 //! struct MemoryLimiter { max_bytes: usize }
 //! impl ResourceLimiter for MemoryLimiter {
-//!     fn memory_growing( &mut self, _current: usize, desired: usize, _max: Option<usize> ) -> anyhow::Result<bool> {
-//!         anyhow::Ok( desired <= self.max_bytes )
+//!     fn memory_growing( &mut self, _current: usize, desired: usize, _max: Option<usize> ) -> wasmtime::Result<bool> {
+//!         Ok( desired <= self.max_bytes )
 //!     }
-//!     fn table_growing( &mut self, _current: usize, _desired: usize, _max: Option<usize> ) -> anyhow::Result<bool> {
-//!         anyhow::Ok( true )
+//!     fn table_growing( &mut self, _current: usize, _desired: usize, _max: Option<usize> ) -> wasmtime::Result<bool> {
+//!         Ok( true )
 //!     }
 //! }
 //!
@@ -369,3 +355,4 @@ pub use plugin::{ PluginContext, Plugin };
 pub use plugin_instance::{ PluginInstance, DispatchError };
 pub use binding::BindingAny ;
 pub use cardinality::{ Cardinality, ExactlyOne, AtMostOne, AtLeastOne, Any };
+pub use resource_wrapper::{ ResourceCreationError, ResourceReceiveError };

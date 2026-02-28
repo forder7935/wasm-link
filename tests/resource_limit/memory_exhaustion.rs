@@ -26,11 +26,11 @@ struct MemoryLimiter {
 }
 
 impl wasmtime::ResourceLimiter for MemoryLimiter {
-    fn memory_growing( &mut self, _current: usize, desired: usize, _maximum: Option<usize> ) -> anyhow::Result<bool> {
-        anyhow::Ok( desired <= self.max_bytes )
+    fn memory_growing( &mut self, _current: usize, desired: usize, _maximum: Option<usize> ) -> wasmtime::Result<bool> {
+        Ok( desired <= self.max_bytes )
     }
-    fn table_growing( &mut self, _current: usize, _desired: usize, _maximum: Option<usize> ) -> anyhow::Result<bool> {
-        anyhow::Ok( true )
+    fn table_growing( &mut self, _current: usize, _desired: usize, _maximum: Option<usize> ) -> wasmtime::Result<bool> {
+        Ok( true )
     }
 }
 
