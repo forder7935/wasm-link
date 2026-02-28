@@ -16,21 +16,20 @@ use crate::resource_wrapper::ResourceWrapper ;
 ///
 /// ```
 /// # use std::collections::{ HashMap, HashSet };
-/// # use wasm_link::{ Binding, Interface, AtMostOne };
-/// # struct Ctx { resource_table: wasm_link::ResourceTable }
-/// # impl wasm_link::PluginContext for Ctx {
-/// #     fn resource_table( &mut self ) -> &mut wasm_link::ResourceTable { &mut self.resource_table }
+/// # use wasm_link::{ Binding, Interface, AtMostOne, PluginContext, PluginInstance, ResourceTable };
+/// # struct Ctx { resource_table: ResourceTable }
+/// # impl PluginContext for Ctx {
+/// #     fn resource_table( &mut self ) -> &mut ResourceTable { &mut self.resource_table }
 /// # }
-/// # fn example<T>( plugin: wasm_link::Engine ) -> Binding<String, Ctx, AtMostOne<String, wasm_link::PluginInstance<Ctx>>> where T: wasm_link::PluginContext {
-/// Binding::new(
+/// let binding: Binding<String, Ctx, AtMostOne<String, PluginInstance<Ctx>>> = Binding::new(
 ///     "my:package",
 ///     HashMap::from([
 ///         ( "interface-a".to_string(), Interface::new( HashMap::new(), HashSet::new() )),
 ///         ( "interface-b".to_string(), Interface::new( HashMap::new(), HashSet::new() )),
 ///     ]),
 ///     AtMostOne( None ),
-/// )
-/// # }
+/// );
+/// # let _ = binding;
 /// ```
 #[derive( Debug, Clone, Default )]
 pub struct Interface {

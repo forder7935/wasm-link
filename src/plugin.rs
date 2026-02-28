@@ -175,11 +175,11 @@ where
     /// # impl PluginContext for Ctx {
     /// #     fn resource_table( &mut self ) -> &mut ResourceTable { &mut self.resource_table }
     /// # }
-    /// # struct MyLimiter;
-    /// # impl wasmtime::ResourceLimiter for MyLimiter {
-    /// #     fn memory_growing( &mut self, _: usize, _: usize, _: Option<usize> ) -> anyhow::Result<bool> { anyhow::Ok( true ) }
-    /// #     fn table_growing( &mut self, _: usize, _: usize, _: Option<usize> ) -> anyhow::Result<bool> { anyhow::Ok( true ) }
-    /// # }
+	/// # struct MyLimiter;
+	/// # impl wasmtime::ResourceLimiter for MyLimiter {
+	/// #     fn memory_growing( &mut self, _: usize, _: usize, _: Option<usize> ) -> wasmtime::Result<bool> { Ok( true ) }
+	/// #     fn table_growing( &mut self, _: usize, _: usize, _: Option<usize> ) -> wasmtime::Result<bool> { Ok( true ) }
+	/// # }
     /// # fn example( component: Component ) {
     /// let plugin = Plugin::new( component, Ctx { resource_table: ResourceTable::new(), limiter: MyLimiter })
     ///     .with_memory_limiter(| ctx | &mut ctx.limiter );

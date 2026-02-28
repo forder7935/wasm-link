@@ -21,10 +21,13 @@ pub(crate) struct ResourceWrapper<Id> {
 pub enum ResourceCreationError {
     /// The resource table has reached capacity and cannot store more handles.
     #[error( "Resource Table Full" )] ResourceTableFull,
+    /// Failed to convert a stored resource into a host handle.
+    #[error( "Resource Handle Conversion Failed" )] ResourceHandleConversionFailed,
 }
 impl From<ResourceCreationError> for Val {
     fn from( error: ResourceCreationError ) -> Self { match error {
         ResourceCreationError::ResourceTableFull => Val::Variant( "resource-table-full".to_string(), None ),
+        ResourceCreationError::ResourceHandleConversionFailed => Val::Variant( "resource-handle-conversion-failed".to_string(), None ),
     }}
 }
 
@@ -58,7 +61,8 @@ impl<Id: 'static + Send + Sync> ResourceWrapper<Id> {
     ) -> Result<ResourceAny, ResourceCreationError> {
         let table = store.data_mut().resource_table();
         let resource = table.push( Arc::new( self )).map_err(|_| ResourceCreationError::ResourceTableFull )?;
-        Ok( ResourceAny::try_from_resource( resource, store ).expect( "resource was just pushed" ))
+        ResourceAny::try_from_resource( resource, store )
+            .map_err(|_| ResourceCreationError::ResourceHandleConversionFailed )
     }
 
     /// Looks up a wrapped resource by handle in the host resource table.
