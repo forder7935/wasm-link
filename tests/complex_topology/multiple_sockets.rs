@@ -3,8 +3,8 @@ use wasm_link::{ Binding, Engine, Linker, Val };
 use wasm_link::cardinality::ExactlyOne ;
 
 fixtures! {
-	bindings	= [ root: "root", dependency_one: "dependency-one", dependency_two: "dependency-two", dependency_three: "dependency-three" ];
-	plugins		= [ root_plugin: "root-plugin", dependency_one_plugin: "dependency-one-plugin", dependency_two_plugin: "dependency-two-plugin", dependency_three_plugin: "dependency-three-plugin" ];
+	bindings = { root: "root", dependency_one: "dependency-one", dependency_two: "dependency-two", dependency_three: "dependency-three" };
+	plugins  = { root_plugin: "root-plugin", dependency_one_plugin: "dependency-one-plugin", dependency_two_plugin: "dependency-two-plugin", dependency_three_plugin: "dependency-three-plugin" };
 }
 
 #[test]

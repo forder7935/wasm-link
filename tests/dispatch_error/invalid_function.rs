@@ -3,8 +3,8 @@ use wasm_link::{ Binding, Engine, Linker, DispatchError };
 use wasm_link::cardinality::ExactlyOne ;
 
 fixtures! {
-	bindings	= [ root: "root" ];
-	plugins		= [ test_plugin: "test-plugin" ];
+	bindings = { root: "root" };
+	plugins  = { test_plugin: "test-plugin" };
 }
 
 #[test]

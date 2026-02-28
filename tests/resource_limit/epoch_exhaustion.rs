@@ -6,8 +6,8 @@ use wasm_link::cardinality::ExactlyOne ;
 use wasmtime::Config;
 
 fixtures! {
-	bindings    = [ root: "root" ];
-	plugins     = [ burn_fuel: "burn-fuel" ];
+	bindings = { root: "root" };
+	plugins  = { burn_fuel: "burn-fuel" };
 }
 
 fn dispatch_with_epoch( deadline: u64, concurrent_ticker: bool ) -> Result<ExactlyOne<String, Result<Val, wasm_link::DispatchError>>, wasm_link::DispatchError> {

@@ -6,8 +6,8 @@ use wasm_link::cardinality::ExactlyOne ;
 use wasmtime::Config;
 
 fixtures! {
-	bindings    = [ root: "root" ];
-	plugins     = [ burn_fuel: "burn-fuel" ];
+	bindings = { root: "root" };
+	plugins  = { burn_fuel: "burn-fuel" };
 }
 
 #[test]

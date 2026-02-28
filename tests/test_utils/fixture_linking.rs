@@ -2,20 +2,20 @@
 macro_rules! fixtures {
 
 	{
-	bindings    = [];
-	plugins     = [];
+	bindings    = {};
+	plugins     = {};
 	} => ( mod fixtures {});
 
 	{
-	bindings    = [ $($iname:ident : $ipath:literal),+ $(,)? ];
-	plugins     = [];
+	bindings    = { $($iname:ident : $ipath:literal),+ $(,)? };
+	plugins     = {};
 	} => ( mod fixtures {
 	fixtures!( @bindings $($iname : $ipath),* );
 	});
 
 	{
-	bindings    = [ $($iname:ident : $ipath:literal),* $(,)? ];
-	plugins     = [ $($pname:ident : $ppath:literal),+ $(,)? ];
+	bindings    = { $($iname:ident : $ipath:literal),* $(,)? };
+	plugins     = { $($pname:ident : $ppath:literal),+ $(,)? };
 	} => ( mod fixtures {
 	fixtures!( @bindings $($iname : $ipath),* );
 	fixtures!( @plugins $($pname : $ppath),* );

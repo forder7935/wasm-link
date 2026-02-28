@@ -7,8 +7,8 @@ use wasm_link::cardinality::ExactlyOne ;
 const FIXTURES_DIR: &str = "tests/resource_limit/memory_exhaustion";
 
 fixtures! {
-	bindings    = [ root: "root" ];
-	plugins     = [];
+	bindings = { root: "root" };
+	plugins  = {};
 }
 
 struct TestCtx {
