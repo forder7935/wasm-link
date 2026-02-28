@@ -1,9 +1,9 @@
 (component
   (import "test:binding-b/root" (instance $interface_b
-    (export "get-b" (func (result (result u32))))
+    (export "get-b" (func (result (tuple string (result u32)))))
   ))
   (import "test:binding-c/root" (instance $interface_c
-    (export "get-c" (func (result (result u32))))
+    (export "get-c" (func (result (tuple string (result u32)))))
   ))
 
   (alias export $interface_b "get-b" (func $get_b))
@@ -32,10 +32,10 @@
 
     (func (export "get-value") (result i32)
       (call $get_b (i32.const 0))
-      (call $get_c (i32.const 8))
+      (call $get_c (i32.const 16))
       (i32.add
-        (i32.load (i32.const 4))
         (i32.load (i32.const 12))
+        (i32.load (i32.const 28))
       )
     )
   )

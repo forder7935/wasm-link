@@ -159,7 +159,7 @@ impl<Id: Hash + Eq, T> Cardinality<Id, T> for Any<Id, T> {
 
 impl<Id: Hash + Eq + Into<Val>> From<ExactlyOne<Id, Val>> for Val {
     fn from( socket: ExactlyOne<Id, Val> ) -> Self {
-        socket.1
+        Val::Tuple( vec![ socket.0.into(), socket.1 ])
     }
 }
 
@@ -167,7 +167,7 @@ impl<Id: Hash + Eq + Into<Val>> From<AtMostOne<Id, Val>> for Val {
     fn from( socket: AtMostOne<Id, Val> ) -> Self {
         match socket.0 {
             None => Val::Option( None ),
-            Some(( _, val )) => Val::Option( Some( Box::new( val ))),
+            Some(( id, val )) => Val::Option( Some( Box::new( Val::Tuple( vec![ id.into(), val ] )))),
         }
     }
 }

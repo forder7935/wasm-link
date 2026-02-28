@@ -1,14 +1,14 @@
 (component
   ;; Import the three dependency interfaces
-  ;; Each function returns result<u32> because cross-plugin calls are wrapped
+  ;; Each function returns tuple<string, result<u32>> because cross-plugin calls are wrapped
   (import "test:dependency-one/root" (instance $dependency_one
-    (export "get-one" (func (result (result u32))))
+    (export "get-one" (func (result (tuple string (result u32)))))
   ))
   (import "test:dependency-two/root" (instance $dependency_two
-    (export "get-two" (func (result (result u32))))
+    (export "get-two" (func (result (tuple string (result u32)))))
   ))
   (import "test:dependency-three/root" (instance $dependency_three
-    (export "get-three" (func (result (result u32))))
+    (export "get-three" (func (result (tuple string (result u32)))))
   ))
 
   ;; Alias the imported functions
@@ -46,25 +46,25 @@
     (import "mem" "memory" (memory 1))
 
     ;; get-value: calls all three dependencies and returns the sum (1+2+3=6)
-    ;; Memory layout: each result takes 8 bytes (4 for discriminant, 4 for value)
-    ;; offset 0: result from get-one
-    ;; offset 8: result from get-two
-    ;; offset 16: result from get-three
+    ;; Memory layout: each tuple takes 16 bytes (8 for string, 8 for result<u32>)
+    ;; offset 0: tuple from get-one
+    ;; offset 16: tuple from get-two
+    ;; offset 32: tuple from get-three
     (func (export "get-value") (result i32)
       ;; Call get-one with retptr=0
       (call $get_one (i32.const 0))
-      ;; Call get-two with retptr=8
-      (call $get_two (i32.const 8))
-      ;; Call get-three with retptr=16
-      (call $get_three (i32.const 16))
+      ;; Call get-two with retptr=16
+      (call $get_two (i32.const 16))
+      ;; Call get-three with retptr=32
+      (call $get_three (i32.const 32))
 
-      ;; Sum the values (at offsets 4, 12, 20 - after the discriminants)
+      ;; Sum the values (at offsets 12, 28, 44 - after the string fields + result discriminants)
       (i32.add
         (i32.add
-          (i32.load (i32.const 4))
           (i32.load (i32.const 12))
+          (i32.load (i32.const 28))
         )
-        (i32.load (i32.const 20))
+        (i32.load (i32.const 44))
       )
     )
   )
