@@ -3,8 +3,8 @@ use wasm_link::{ Binding, Engine, Function, FunctionKind, Interface, Linker, Ret
 use wasm_link::cardinality::ExactlyOne ;
 
 fixtures! {
-	bindings    = [ root: "root" ];
-	plugins     = [ grow_memory: "grow-memory" ];
+	bindings = { root: "root" };
+	plugins  = { grow_memory: "grow-memory" };
 }
 
 #[test]

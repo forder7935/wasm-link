@@ -3,8 +3,8 @@ use wasm_link::{ Binding, Engine, Linker, Val };
 use wasm_link::cardinality::ExactlyOne ;
 
 fixtures! {
-	bindings	= [ root: "root", binding_b: "binding-b", binding_c: "binding-c", binding_d: "binding-d" ];
-	plugins		= [ plugin_a: "plugin-a", plugin_b: "plugin-b", plugin_c: "plugin-c", plugin_d: "plugin-d" ];
+	bindings = { root: "root", binding_b: "binding-b", binding_c: "binding-c", binding_d: "binding-d" };
+	plugins  = { plugin_a: "plugin-a", plugin_b: "plugin-b", plugin_c: "plugin-c", plugin_d: "plugin-d" };
 }
 
 #[test]

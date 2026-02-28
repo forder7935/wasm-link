@@ -8,6 +8,7 @@ wasm-link is a runtime for loading and linking WebAssembly plugins. Plugins conn
 - Always strive for concise, simple solutions
 - If a problem can be solved in a simpler way, propose it
 - If asked to do too much work at once, stop and state that clearly
+- Ignore warnings about `flake.lock` changing; it is in `.gitignore`.
 
 ## Plan Mode
 

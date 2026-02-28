@@ -3,8 +3,8 @@ use wasm_link::{ Binding, Engine, Linker, Val };
 use wasm_link::cardinality::ExactlyOne ;
 
 fixtures! {
-	bindings	= [ root: "root" ];
-	plugins		= [ counter: "counter" ];
+	bindings = { root: "root" };
+	plugins  = { counter: "counter" };
 }
 
 #[test]
