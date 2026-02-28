@@ -8,36 +8,36 @@
 //! # Core Concepts
 //!
 //! - [`Binding`]: An abstract contract declaring what an implementer exports and what a
-//!   consumer may import. Contains a package name, a set of interfaces, and plugged-in
-//!   plugin instances.
+//! 	consumer may import. Contains a package name, a set of interfaces, and plugged-in
+//! 	plugin instances.
 //!
 //! - [`Interface`]: A single WIT interface with functions and resources. Note that
-//!   interfaces don't have a name field; their names are provided as keys of a `HashMap`
-//!   when constructing a [`Binding`]. This prevents duplicate interface names.
+//! 	interfaces don't have a name field; their names are provided as keys of a `HashMap`
+//! 	when constructing a [`Binding`]. This prevents duplicate interface names.
 //!
 //! - [`Plugin`]: A struct containing a wasm component and the runtime context made available
-//!   to host exports; their ids are provided as keys of a `HashMap` when constructing a
-//!   [`Binding`]. This prevents duplicate ids.
+//! 	to host exports; their ids are provided as keys of a `HashMap` when constructing a
+//! 	[`Binding`]. This prevents duplicate ids.
 //!
 //! - [`PluginInstance`]: An instantiated plugin with its store and instance, ready for dispatch.
 //!
 //! - **Plug**: A plugin's declaration that it implements a [`Binding`].
 //!
 //! - **Socket**: A plugin's declaration that it depends on a [`Binding`]. Cardinality is
-//!   expressed with wrapper types in [`crate::cardinality`]:
-//!   - [`ExactlyOne`]`( Id, T )` - exactly one plugin, guaranteed present
-//!   - [`AtMostOne`]`( Option<( Id, T )> )` - zero or one plugin
-//!   - [`AtLeastOne`]`( NEMap<Id, T> )` - one or more plugins
-//!   - [`Any`]`( HashMap<Id, T> )` - zero or more plugins
+//! 	expressed with wrapper types in [`crate::cardinality`]:
+//! 	- [`ExactlyOne`]`( Id, T )` - exactly one plugin, guaranteed present
+//! 	- [`AtMostOne`]`( Option<( Id, T )> )` - zero or one plugin
+//! 	- [`AtLeastOne`]`( NEMap<Id, T> )` - one or more plugins
+//! 	- [`Any`]`( HashMap<Id, T> )` - zero or more plugins
 //!
 //! # Example
 //!
 //! ```
 //! use std::collections::{ HashMap, HashSet };
 //! use wasm_link::{
-//!     Binding, Interface, Function, FunctionKind, ReturnKind,
-//!     Plugin, PluginContext, ExactlyOne,
-//!     Engine, Component, Linker, ResourceTable, Val,
+//! 	Binding, Interface, Function, FunctionKind, ReturnKind,
+//! 	Plugin, PluginContext, ExactlyOne,
+//! 	Engine, Component, Linker, ResourceTable, Val,
 //! };
 //!
 //! // First, declare a plugin context, the data stored inside wasmtime `Store<T>`.
@@ -46,9 +46,9 @@
 //! struct Context { resource_table: ResourceTable }
 //!
 //! impl PluginContext for Context {
-//!     fn resource_table( &mut self ) -> &mut ResourceTable {
-//!         &mut self.resource_table
-//!     }
+//! 	fn resource_table( &mut self ) -> &mut ResourceTable {
+//! 		&mut self.resource_table
+//! 	}
 //! }
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -70,48 +70,48 @@
 //! // a reference to a linker. For plugins that have dependencies, the linker is mutated.
 //! // Plugin IDs are specified in the cardinality wrapper to prevent duplicate ids.
 //! let leaf = Plugin::new(
-//!     Component::new( &engine, "(component)" )?,
-//!     Context { resource_table: ResourceTable::new() },
+//! 	Component::new( &engine, "(component)" )?,
+//! 	Context { resource_table: ResourceTable::new() },
 //! ).instantiate( &engine, &linker )?;
 //!
 //! // Bindings expose a plugin's exports to other plugins.
 //! // Wrapper sets cardinality: ExactlyOne, AtMostOne (0-1), AtLeastOne (1+), Any (0+).
 //! let leaf_binding = Binding::new(
-//!     "empty:package",
-//!     HashMap::new(),
-//!     ExactlyOne( "leaf".to_string(), leaf ),
+//! 	"empty:package",
+//! 	HashMap::new(),
+//! 	ExactlyOne( "leaf".to_string(), leaf ),
 //! );
 //!
 //! // `link()` wires up dependencies - this plugin can now import from leaf_binding.
 //! let root = Plugin::new(
-//!     Component::new( &engine, r#"(component
-//!         (core module $m (func (export "f") (result i32) i32.const 42))
-//!         (core instance $i (instantiate $m))
-//!         (func $f (export "get-value") (result u32) (canon lift (core func $i "f")))
-//!         (instance $inst (export "get-value" (func $f)))
-//!         (export "my:package/example" (instance $inst))
-//!     )"# )?,
-//!     Context { resource_table: ResourceTable::new() },
+//! 	Component::new( &engine, r#"(component
+//! 		(core module $m (func (export "f") (result i32) i32.const 42))
+//! 		(core instance $i (instantiate $m))
+//! 		(func $f (export "get-value") (result u32) (canon lift (core func $i "f")))
+//! 		(instance $inst (export "get-value" (func $f)))
+//! 		(export "my:package/example" (instance $inst))
+//! 	)"# )?,
+//! 	Context { resource_table: ResourceTable::new() },
 //! ).link( &engine, linker, vec![ leaf_binding ])?;
 //!
 //! // Interface tells `wasm_link` which functions exist and how to handle returns.
 //! let root_binding = Binding::new(
-//!     "my:package",
-//!     HashMap::from([( "example".to_string(), Interface::new(
-//!         HashMap::from([( "get-value".into(), Function::new(
-//!             FunctionKind::Freestanding, ReturnKind::MayContainResources,
-//!         ))]),
-//!         HashSet::new(),
-//!     ))]),
-//!     ExactlyOne( "root".to_string(), root ),
+//! 	"my:package",
+//! 	HashMap::from([( "example".to_string(), Interface::new(
+//! 		HashMap::from([( "get-value".into(), Function::new(
+//! 			FunctionKind::Freestanding, ReturnKind::MayContainResources,
+//! 		))]),
+//! 		HashSet::new(),
+//! 	))]),
+//! 	ExactlyOne( "root".to_string(), root ),
 //! );
 //!
 //! // Now you can call into the plugin graph from the host.
 //! let result = root_binding.dispatch( "example", "get-value", &[ /* args */ ] )?;
 //! match result {
-//!     ExactlyOne( _id, Ok( Val::U32( n ))) => assert_eq!( n, 42 ),
-//!     ExactlyOne( _id, Ok( _ )) => panic!( "unexpected response" ),
-//!     ExactlyOne( _id, Err( err )) => panic!( "dispatch error: {}", err ),
+//! 	ExactlyOne( _id, Ok( Val::U32( n ))) => assert_eq!( n, 42 ),
+//! 	ExactlyOne( _id, Ok( _ )) => panic!( "unexpected response" ),
+//! 	ExactlyOne( _id, Err( err )) => panic!( "dispatch error: {}", err ),
 //! }
 //! # Ok(())
 //! # }
@@ -128,29 +128,29 @@
 //! # use wasm_link::{ Binding, Plugin, PluginContext, ExactlyOne, Engine, Component, Linker, ResourceTable };
 //! # struct Context { resource_table: ResourceTable }
 //! # impl PluginContext for Context {
-//! #     fn resource_table( &mut self ) -> &mut ResourceTable { &mut self.resource_table }
+//! # 	fn resource_table( &mut self ) -> &mut ResourceTable { &mut self.resource_table }
 //! # }
 //! # impl Context {
-//! #   pub fn new() -> Self { Self { resource_table: ResourceTable::new() } }
+//! # 	pub fn new() -> Self { Self { resource_table: ResourceTable::new() } }
 //! # }
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! # let engine = Engine::default();
 //! # let linker = Linker::new( &engine );
 //! let plugin_d = Plugin::new( Component::new( &engine, "(component)" )?, Context::new())
-//!     .instantiate( &engine, &linker )?;
+//! 	.instantiate( &engine, &linker )?;
 //! let binding_d = Binding::new( "d:pkg", HashMap::new(), ExactlyOne( "D".to_string(), plugin_d ));
 //!
 //! // Both B and C import from D. Clone the binding handle so both can reference it.
 //! let plugin_b = Plugin::new( Component::new( &engine, "(component)" )?, Context::new())
-//!     .link( &engine, linker.clone(), vec![ binding_d.clone() ])?;
+//! 	.link( &engine, linker.clone(), vec![ binding_d.clone() ])?;
 //! let plugin_c = Plugin::new( Component::new( &engine, "(component)" )?, Context::new())
-//!     .link( &engine, linker.clone(), vec![ binding_d ])?;
+//! 	.link( &engine, linker.clone(), vec![ binding_d ])?;
 //!
 //! let binding_b = Binding::new( "b:pkg", HashMap::new(), ExactlyOne( "B".to_string(), plugin_b ));
 //! let binding_c = Binding::new( "c:pkg", HashMap::new(), ExactlyOne( "C".to_string(), plugin_c ));
 //!
 //! let plugin_a = Plugin::new( Component::new( &engine, "(component)" )?, Context::new())
-//!     .link( &engine, linker, vec![ binding_b, binding_c ])?;
+//! 	.link( &engine, linker, vec![ binding_b, binding_c ])?;
 //! # let _ = plugin_a ;
 //! # Ok(())
 //! # }
@@ -165,49 +165,49 @@
 //! ```
 //! # use std::collections::{ HashMap, HashSet };
 //! # use wasm_link::{
-//! #     Binding, Interface, Function, FunctionKind, ReturnKind, Plugin, PluginContext,
-//! #     Any, Engine, Component, Linker, ResourceTable, Val,
+//! # 	Binding, Interface, Function, FunctionKind, ReturnKind, Plugin, PluginContext,
+//! # 	Any, Engine, Component, Linker, ResourceTable, Val,
 //! # };
 //! # struct Context { resource_table: ResourceTable }
 //! # impl Context {
-//! #   pub fn new() -> Self { Self { resource_table: ResourceTable::new() } }
+//! # 	pub fn new() -> Self { Self { resource_table: ResourceTable::new() } }
 //! # }
 //! # impl PluginContext for Context {
-//! #     fn resource_table( &mut self ) -> &mut ResourceTable { &mut self.resource_table }
+//! # 	fn resource_table( &mut self ) -> &mut ResourceTable { &mut self.resource_table }
 //! # }
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! # let engine = Engine::default();
 //! # let linker = Linker::new( &engine );
 //! // Plugin IDs are specified through the HashMap keys for Any.
 //! let plugin1 = Plugin::new( Component::new( &engine, r#"(component
-//!     (core module $m (func (export "f") (result i32) i32.const 1))
-//!     (core instance $i (instantiate $m))
-//!     (func $f (result u32) (canon lift (core func $i "f")))
-//!     (instance $inst (export "get-value" (func $f)))
-//!     (export "pkg:interface/root" (instance $inst))
+//! 	(core module $m (func (export "f") (result i32) i32.const 1))
+//! 	(core instance $i (instantiate $m))
+//! 	(func $f (result u32) (canon lift (core func $i "f")))
+//! 	(instance $inst (export "get-value" (func $f)))
+//! 	(export "pkg:interface/root" (instance $inst))
 //! )"# )?, Context::new()).instantiate( &engine, &linker )?;
 //!
 //! let plugin2 = Plugin::new( Component::new( &engine, r#"(component
-//!     (core module $m (func (export "f") (result i32) i32.const 2))
-//!     (core instance $i (instantiate $m))
-//!     (func $f (result u32) (canon lift (core func $i "f")))
-//!     (instance $inst (export "get-value" (func $f)))
-//!     (export "pkg:interface/root" (instance $inst))
+//! 	(core module $m (func (export "f") (result i32) i32.const 2))
+//! 	(core instance $i (instantiate $m))
+//! 	(func $f (result u32) (canon lift (core func $i "f")))
+//! 	(instance $inst (export "get-value" (func $f)))
+//! 	(export "pkg:interface/root" (instance $inst))
 //! )"# )?, Context::new()).instantiate( &engine, &linker )?;
 //!
 //! let binding = Binding::new(
-//!     "pkg:interface",
-//!     HashMap::from([( "root".to_string(), Interface::new(
-//!         HashMap::from([( "get-value".into(), Function::new(
+//! 	"pkg:interface",
+//! 	HashMap::from([( "root".to_string(), Interface::new(
+//! 		HashMap::from([( "get-value".into(), Function::new(
 //!				FunctionKind::Freestanding,
 //!				ReturnKind::MayContainResources,
 //!			))]),
-//!         HashSet::new(),
-//!     ))]),
-//!     Any( HashMap::from([
-//!         ( "p1".to_string(), plugin1 ),
-//!         ( "p2".to_string(), plugin2 ),
-//!     ])),
+//! 		HashSet::new(),
+//! 	))]),
+//! 	Any( HashMap::from([
+//! 		( "p1".to_string(), plugin1 ),
+//! 		( "p2".to_string(), plugin2 ),
+//! 	])),
 //! );
 //!
 //! // Dispatch calls all plugins; the result wrapper matches what you passed in.
@@ -225,16 +225,16 @@
 //! resource usage:
 //!
 //! - **Fuel** counts WebAssembly instructions. When fuel runs out, execution traps.
-//!   Enable with [`Config::consume_fuel`]( wasmtime::Config::consume_fuel ).
-//!   Set per-call via [`Plugin::with_fuel_limiter`].
+//! 	Enable with [`Config::consume_fuel`]( wasmtime::Config::consume_fuel ).
+//! 	Set per-call via [`Plugin::with_fuel_limiter`].
 //!
 //! - **Epoch deadline** counts external timer ticks. When the deadline is reached,
-//!   execution traps. Enable with [`Config::epoch_interruption`]( wasmtime::Config::epoch_interruption ).
-//!   Set per-call via [`Plugin::with_epoch_limiter`].
+//! 	execution traps. Enable with [`Config::epoch_interruption`]( wasmtime::Config::epoch_interruption ).
+//! 	Set per-call via [`Plugin::with_epoch_limiter`].
 //!
 //! - **Memory** limits linear memory and table growth via wasmtime's
-//!   [`ResourceLimiter`]( wasmtime::ResourceLimiter ). No engine configuration required.
-//!   Set once at instantiation via [`Plugin::with_memory_limiter`].
+//! 	[`ResourceLimiter`]( wasmtime::ResourceLimiter ). No engine configuration required.
+//! 	Set once at instantiation via [`Plugin::with_memory_limiter`].
 //!
 //! ## Fuel and Epoch Limits
 //!
@@ -249,7 +249,7 @@
 //! # struct Context { resource_table: ResourceTable }
 //! # impl Context { fn new() -> Self { Self { resource_table: ResourceTable::new() }}}
 //! # impl PluginContext for Context {
-//! #     fn resource_table( &mut self ) -> &mut ResourceTable { &mut self.resource_table }
+//! # 	fn resource_table( &mut self ) -> &mut ResourceTable { &mut self.resource_table }
 //! # }
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! // Enable fuel consumption in the engine
@@ -261,19 +261,19 @@
 //! # let component = Component::new( &engine, "(component)" )?;
 //! // Give this plugin a flat fuel budget per call
 //! let plugin = Plugin::new( component, Context::new() )
-//!     .with_fuel_limiter(| _store, _interface, _function, _metadata | 100_000 )
-//!     .instantiate( &engine, &linker )?;
+//! 	.with_fuel_limiter(| _store, _interface, _function, _metadata | 100_000 )
+//! 	.instantiate( &engine, &linker )?;
 //!
 //! let binding = Binding::<String, _>::new(
-//!     "my:pkg",
-//!     HashMap::from([( "api".into(), Interface::new(
-//!         HashMap::from([
-//!             ( "cheap-fn".into(), Function::new( FunctionKind::Freestanding, ReturnKind::Void )),
-//!             ( "expensive-fn".into(), Function::new( FunctionKind::Freestanding, ReturnKind::Void )),
-//!         ]),
-//!         HashSet::new(),
-//!     ))]),
-//!     ExactlyOne( "plugin".into(), plugin ),
+//! 	"my:pkg",
+//! 	HashMap::from([( "api".into(), Interface::new(
+//! 		HashMap::from([
+//! 			( "cheap-fn".into(), Function::new( FunctionKind::Freestanding, ReturnKind::Void )),
+//! 			( "expensive-fn".into(), Function::new( FunctionKind::Freestanding, ReturnKind::Void )),
+//! 		]),
+//! 		HashSet::new(),
+//! 	))]),
+//! 	ExactlyOne( "plugin".into(), plugin ),
 //! );
 //! # Ok(())
 //! # }
@@ -291,9 +291,9 @@
 //! **Engine enabled but no limiter set.** If you enable fuel/epoch deadlines in the [`Engine`]
 //! but don't set a limiter on the [`Plugin`], the behavior mimics the wasmtime default.
 //! - *Fuel*: A fresh [`Store`]( wasmtime::Store ) starts with 0 fuel, so the first
-//!   instruction immediately traps. This is likely not what you want.
+//! 	instruction immediately traps. This is likely not what you want.
 //! - *Epoch deadlines*: No deadline is set, so execution runs indefinitely regardless of epoch
-//!   ticks.
+//! 	ticks.
 //!
 //! ## Memory Limits
 //!
@@ -306,21 +306,21 @@
 //! # use wasm_link::{ Plugin, PluginContext, ResourceTable, Component, Engine, Linker };
 //! # use wasmtime::ResourceLimiter;
 //! struct Ctx {
-//!     resource_table: ResourceTable,
-//!     limiter: MemoryLimiter,
+//! 	resource_table: ResourceTable,
+//! 	limiter: MemoryLimiter,
 //! }
 //! impl PluginContext for Ctx {
-//!     fn resource_table( &mut self ) -> &mut ResourceTable { &mut self.resource_table }
+//! 	fn resource_table( &mut self ) -> &mut ResourceTable { &mut self.resource_table }
 //! }
 //!
 //! struct MemoryLimiter { max_bytes: usize }
 //! impl ResourceLimiter for MemoryLimiter {
-//!     fn memory_growing( &mut self, _current: usize, desired: usize, _max: Option<usize> ) -> wasmtime::Result<bool> {
-//!         Ok( desired <= self.max_bytes )
-//!     }
-//!     fn table_growing( &mut self, _current: usize, _desired: usize, _max: Option<usize> ) -> wasmtime::Result<bool> {
-//!         Ok( true )
-//!     }
+//! 	fn memory_growing( &mut self, _current: usize, desired: usize, _max: Option<usize> ) -> wasmtime::Result<bool> {
+//! 		Ok( desired <= self.max_bytes )
+//! 	}
+//! 	fn table_growing( &mut self, _current: usize, _desired: usize, _max: Option<usize> ) -> wasmtime::Result<bool> {
+//! 		Ok( true )
+//! 	}
 //! }
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -328,10 +328,10 @@
 //! let linker = Linker::new( &engine );
 //! # let component = Component::new( &engine, "(component)" )?;
 //! let plugin = Plugin::new( component, Ctx {
-//!     resource_table: ResourceTable::new(),
-//!     limiter: MemoryLimiter { max_bytes: 10 * 1024 * 1024 }, // 10 MiB
+//! 	resource_table: ResourceTable::new(),
+//! 	limiter: MemoryLimiter { max_bytes: 10 * 1024 * 1024 }, // 10 MiB
 //! }).with_memory_limiter(| ctx | &mut ctx.limiter )
-//!   .instantiate( &engine, &linker )?;
+//! 	.instantiate( &engine, &linker )?;
 //! # let _ = plugin;
 //! # Ok(())
 //! # }

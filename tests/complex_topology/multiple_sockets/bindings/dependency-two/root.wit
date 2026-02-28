@@ -1,5 +1,5 @@
 package test:dependency-two ;
 
 interface root {
-  get-two: func() -> u32;
+	get-two: func() -> u32;
 }

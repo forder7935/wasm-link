@@ -1,5 +1,5 @@
 package test:binding-d ;
 
 interface root {
-  get-d: func() -> u32;
+	get-d: func() -> u32;
 }

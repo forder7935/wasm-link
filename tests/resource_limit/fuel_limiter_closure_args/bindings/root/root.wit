@@ -1,5 +1,5 @@
 package test:fuel;
 
 interface root {
-    burn: func() -> u32;
+	burn: func() -> u32;
 }

@@ -38,3 +38,4 @@ unnested_or_patterns = "allow"
 must_use_candidate = "allow"
 return_self_not_must_use = "allow"
 tabs_in_doc_comments = "allow"
+doc_lazy_continuation = "allow" # Clippy doesn't treat tabs as list indentation in rustdoc.

@@ -1,10 +1,10 @@
 package test:myresource;
 
 interface root {
-  resource counter {
-    constructor();
-    get-value: func() -> u32;
-  }
+	resource counter {
+		constructor();
+		get-value: func() -> u32;
+	}
 
-  make-counter: func() -> counter;
+	make-counter: func() -> counter;
 }

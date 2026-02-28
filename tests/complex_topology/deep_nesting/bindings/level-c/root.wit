@@ -1,5 +1,5 @@
 package test:level-c ;
 
 interface root {
-  get-c: func() -> u32;
+	get-c: func() -> u32;
 }

@@ -1,5 +1,5 @@
 package test:composite ;
 
 interface root {
-  get-composite: func() -> tuple<u32, u32>;
+	get-composite: func() -> tuple<u32, u32>;
 }

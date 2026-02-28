@@ -1,5 +1,5 @@
 package test:level-b ;
 
 interface root {
-  get-b: func() -> u32;
+	get-b: func() -> u32;
 }
