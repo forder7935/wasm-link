@@ -167,7 +167,7 @@ where
 	/// # Returns
 	/// A cardinality wrapper containing `Result<Val, DispatchError>` for each plugin.
 	/// For [`ReturnKind::Void`]( crate::ReturnKind::Void ), the value is an empty tuple
-	/// (`Val::Tuple( vec![] )`) placeholder.
+	/// (`Val::Option( None )`) placeholder.
 	///
 	/// # Errors
 	/// Returns an error if the interface or function is not found in this binding.
