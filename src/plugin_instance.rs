@@ -75,7 +75,8 @@ impl From<DispatchError> for Val {
 
 impl<Ctx: PluginContext + 'static> PluginInstance<Ctx> {
 
-	const PLACEHOLDER_VAL: Val = Val::Tuple( vec![] );
+	const PLACEHOLDER_VAL: Val = Val::Option( None );
+	const VOID_RETURN_VAL: Val = Val::Option( None );
 
 	pub(crate) fn dispatch(
 		&mut self,
@@ -122,7 +123,7 @@ impl<Ctx: PluginContext + 'static> PluginInstance<Ctx> {
 
 		Ok( match function.return_kind() != ReturnKind::Void {
 			true => buffer.pop().ok_or( DispatchError::MissingResponse )?,
-			false => Self::PLACEHOLDER_VAL,
+			false => Self::VOID_RETURN_VAL,
 		})
 
 	}
