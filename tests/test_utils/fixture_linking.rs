@@ -220,7 +220,7 @@ mod fixture_linking {
 
 				wit_parser::TypeDefKind::Option( wit_type )
 				| wit_parser::TypeDefKind::List( wit_type )
-				| wit_parser::TypeDefKind::FixedSizeList( wit_type, _ )
+				| wit_parser::TypeDefKind::FixedLengthList( wit_type, _ )
 				| wit_parser::TypeDefKind::Future( Some( wit_type ))
 				| wit_parser::TypeDefKind::Stream( Some( wit_type ))
 				| wit_parser::TypeDefKind::Type( wit_type ) => has_resource( resolve, *wit_type )?,

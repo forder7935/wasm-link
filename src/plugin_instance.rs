@@ -119,8 +119,6 @@ impl<Ctx: PluginContext + 'static> PluginInstance<Ctx> {
 		if fuel_was_set { let _ = self.store.set_fuel( 0 ); }
 
 		call_result.map_err( DispatchError::RuntimeException )?;
-		let _ = func.post_return( &mut self.store );
-
 		Ok( match function.return_kind() != ReturnKind::Void {
 			true => buffer.pop().ok_or( DispatchError::MissingResponse )?,
 			false => Self::VOID_RETURN_VAL,
