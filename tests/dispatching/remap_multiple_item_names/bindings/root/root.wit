@@ -1,0 +1,6 @@
+package test:remap-item-table ;
+
+interface root {
+	get-one: func() -> u32 ;
+	get-two: func() -> u32 ;
+}

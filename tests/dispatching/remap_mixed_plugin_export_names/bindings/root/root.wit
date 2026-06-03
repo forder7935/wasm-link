@@ -1,0 +1,5 @@
+package test:remap-combined ;
+
+interface root {
+	get-value: func() -> u32 ;
+}

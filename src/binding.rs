@@ -146,7 +146,7 @@ where
 	{
 		binding.0.interfaces.iter().try_for_each(|( name, interface )| {
 			let interface_ident = format!( "{}/{}", binding.0.package_name, name );
-			interface.add_to_linker( linker, &interface_ident, binding )
+			interface.add_to_linker( linker, &binding.0.package_name, &interface_ident, name, binding )
 		})
 	}
 
@@ -184,12 +184,11 @@ where
 		let function = interface.function( function_name )
 			.ok_or_else(|| crate::DispatchError::InvalidFunction( function_name.to_string() ))?;
 
-		let interface_path = format!( "{}/{}", self.0.package_name, interface_name );
-
 		Ok( self.0.plugins.map(| _, plugin | plugin
 			.lock().map_err(|_| crate::DispatchError::LockRejected )
 			.and_then(| mut lock | lock.dispatch(
-				&interface_path,
+				&self.0.package_name,
+				interface_name,
 				function_name,
 				function,
 				args,

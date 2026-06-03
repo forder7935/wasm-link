@@ -58,7 +58,9 @@ impl Interface {
 	pub(crate) fn add_to_linker<PluginId, Ctx, Plugins>(
 		&self,
 		linker: &mut Linker<Ctx>,
+		package_name: &str,
 		interface_ident: &str,
+		interface_name: &str,
 		binding: &Binding<PluginId, Ctx, Plugins>,
 	) -> Result<(), wasmtime::Error>
 	where
@@ -74,14 +76,15 @@ impl Interface {
 
 		self.functions.iter().try_for_each(|( name, metadata )| {
 
-			let interface_ident_clone = interface_ident.to_string();
+			let package_name_clone = package_name.to_string();
+			let interface_name_clone = interface_name.to_string();
 			let binding_clone = binding.clone();
 			let name_clone = name.clone();
 			let metadata_clone = metadata.clone();
 
 			macro_rules! link {( $dispatch: expr ) => {
 				linker_instance.func_new( name, move | ctx, _ty, args, results | Ok(
-					results[0] = $dispatch( &binding_clone, ctx, &interface_ident_clone, &name_clone, &metadata_clone, args )
+					results[0] = $dispatch( &binding_clone, ctx, &package_name_clone, &interface_name_clone, &name_clone, &metadata_clone, args )
 				))
 			}}
 

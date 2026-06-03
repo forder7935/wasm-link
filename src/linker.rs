@@ -9,11 +9,19 @@ use super::resource_wrapper::ResourceWrapper ;
 
 
 
+struct DispatchTarget<'a> {
+	package_name: &'a str,
+	interface_name: &'a str,
+	function_name: &'a str,
+	function: &'a Function,
+}
+
 /// Dispatches a non-method function call to all plugins
 pub(crate) fn dispatch_all<PluginId, Ctx, Plugins>(
 	binding: &Binding<PluginId, Ctx, Plugins>,
 	mut ctx: StoreContextMut<Ctx>,
-	interface_path: &str,
+	package_name: &str,
+	interface_name: &str,
 	function_name: &str,
 	function: &Function,
 	data: &[Val],
@@ -27,14 +35,18 @@ where
 	<<Plugins as Cardinality<PluginId, PluginInstance<Ctx>>>::Rebind<Mutex<PluginInstance<Ctx>>> as Cardinality<PluginId, Mutex<PluginInstance<Ctx>>>>::Rebind<Val>: Into<Val>,
 {
 	debug_assert_eq!( function.kind(), FunctionKind::Freestanding );
+	let target = DispatchTarget {
+		package_name,
+		interface_name,
+		function_name,
+		function,
+	};
 	binding.plugins().map(| plugin_id, plugin | Val::Result(
 		match dispatch_of(
 			&mut ctx,
 			plugin_id.clone(),
 			plugin,
-			interface_path,
-			function_name,
-			function,
+			&target,
 			data,
 		) {
 			Ok( val ) => Ok( Some( Box::new( val ))),
@@ -47,7 +59,8 @@ where
 pub(crate) fn dispatch_method<PluginId, Ctx, Plugins>(
 	binding: &Binding<PluginId, Ctx, Plugins>,
 	ctx: StoreContextMut<Ctx>,
-	interface_path: &str,
+	package_name: &str,
+	interface_name: &str,
 	function_name: &str,
 	function: &Function,
 	data: &[Val],
@@ -63,7 +76,8 @@ where
 	Val::Result( match route_method(
 		binding,
 		ctx,
-		interface_path,
+		package_name,
+		interface_name,
 		function_name,
 		function,
 		data,
@@ -78,9 +92,7 @@ fn dispatch_of<PluginId, Ctx>(
 	ctx: &mut StoreContextMut<Ctx>,
 	plugin_id: PluginId,
 	plugin: &Mutex<PluginInstance<Ctx>>,
-	interface_path: &str,
-	function_name: &str,
-	function: &Function,
+	target: &DispatchTarget<'_>,
 	data: &[Val],
 ) -> Result<Val, DispatchError>
 where
@@ -89,9 +101,9 @@ where
 {
 
 	let mut lock = plugin.lock().map_err(|_| DispatchError::LockRejected )?;
-	let result = lock.dispatch( interface_path, function_name, function, data )?;
+	let result = lock.dispatch( target.package_name, target.interface_name, target.function_name, target.function, data )?;
 
-	Ok( match function.return_kind() {
+	Ok( match target.function.return_kind() {
 		ReturnKind::Void | ReturnKind::AssumeNoResources => result,
 		ReturnKind::MayContainResources => wrap_resources( result, plugin_id, ctx )?,
 	})
@@ -101,7 +113,8 @@ where
 fn route_method<PluginId, Ctx, Plugins>(
 	binding: &Binding<PluginId, Ctx, Plugins>,
 	mut ctx: StoreContextMut<Ctx>,
-	interface_path: &str,
+	package_name: &str,
+	interface_name: &str,
 	function_name: &str,
 	function: &Function,
 	data: &[Val],
@@ -125,14 +138,18 @@ where
 
 	let mut data = Vec::from( data );
 	data[0] = Val::Resource( resource.resource_handle );
+	let target = DispatchTarget {
+		package_name,
+		interface_name,
+		function_name,
+		function,
+	};
 
 	dispatch_of(
 		&mut ctx,
 		plugin_id,
 		plugin,
-		interface_path,
-		function_name,
-		function,
+		&target,
 		&data,
 	)
 
