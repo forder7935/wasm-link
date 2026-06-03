@@ -5,12 +5,14 @@
 //! (its **sockets**). The plug declares what the plugin exports; sockets declare what
 //! the plugin expects to import from other plugins.
 
+use std::collections::HashMap ;
 use wasmtime::{ Engine, Store };
 use wasmtime::component::{ Component, ResourceTable, Linker, Val };
 
 use crate::BindingAny ;
 use crate::plugin_instance::PluginInstance ;
 use crate::Function ;
+use crate::Remap ;
 
 /// Trait for accessing a [`ResourceTable`] from the store's data type.
 ///
@@ -77,6 +79,8 @@ pub struct Plugin<Ctx: 'static> {
 	component: Component,
 	/// User context consumed at load time to become `Store<Ctx>`
 	context: Ctx,
+	/// Per-interface export name remaps for this plugin
+	interface_remaps: HashMap<String, Remap>,
 	/// Closure that determines fuel for each function call
 	#[allow( clippy::type_complexity )]
 	fuel_limiter: Option<Box<dyn FnMut( &mut Store<Ctx>, &str, &str, &Function ) -> u64 + Send>>,
@@ -104,6 +108,7 @@ where
 		Self {
 			component,
 			context,
+			interface_remaps: HashMap::new(),
 			fuel_limiter: None,
 			epoch_limiter: None,
 			memory_limiter: None,
@@ -195,6 +200,44 @@ where
 		self
 	}
 
+	/// Sets interface export remaps for this plugin.
+	///
+	/// Use this when a plugin implements the same interface types as its binding
+	/// but exports one or more interfaces or functions under different names.
+	///
+	/// The outer map is a lookup table from requested interface name to [`Remap`].
+	/// Each [`Remap`] describes where that requested interface, and optionally
+	/// requested items inside it, are found in this plugin's exports.
+	///
+	/// All remap tables use the same direction:
+	///
+	/// ```text
+	/// requested name -> exported name
+	/// ```
+	///
+	/// ```
+	/// # use std::collections::HashMap ;
+	/// # use wasm_link::{ Plugin, PluginContext, ResourceTable, Component, Engine, Remap };
+	/// # struct Ctx { resource_table: ResourceTable }
+	/// # impl PluginContext for Ctx {
+	/// # 	fn resource_table( &mut self ) -> &mut ResourceTable { &mut self.resource_table }
+	/// # }
+	/// # fn example( engine: &Engine ) -> Result<(), Box<dyn std::error::Error>> {
+	/// let plugin = Plugin::new(
+	/// 	Component::new( engine, "(component)" )?,
+	/// 	Ctx { resource_table: ResourceTable::new() },
+	/// ).remap_interfaces( HashMap::from([
+	/// 	( "root".to_string(), Remap::found_as( "legacy-root" )),
+	/// ]));
+	/// # let _ = plugin ;
+	/// # Ok(())
+	/// # }
+	/// ```
+	pub fn remap_interfaces( mut self, interface_remaps: HashMap<String, Remap> ) -> Self {
+		self.interface_remaps = interface_remaps ;
+		self
+	}
+
 	/// Links this plugin with its socket bindings and instantiates it.
 	///
 	/// Takes ownership of the `linker` because socket bindings are added to it. If you need
@@ -238,6 +281,7 @@ where
 		Ok( PluginInstance {
 			store,
 			instance,
+			interface_remaps: self.interface_remaps,
 			fuel_limiter: self.fuel_limiter,
 			epoch_limiter: self.epoch_limiter,
 		})
@@ -250,6 +294,7 @@ impl<Ctx: std::fmt::Debug + 'static> std::fmt::Debug for Plugin<Ctx> {
 		f.debug_struct( "Plugin" )
 			.field( "component", &"<Component>" )
 			.field( "context", &self.context )
+			.field( "interface_remaps", &self.interface_remaps )
 			.field( "fuel_limiter", &self.fuel_limiter.as_ref().map(| _ | "<closure>" ))
 			.field( "epoch_limiter", &self.epoch_limiter.as_ref().map(| _ | "<closure>" ))
 			.field( "memory_limiter", &self.memory_limiter.as_ref().map(| _ | "<closure>" ))
