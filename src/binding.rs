@@ -75,6 +75,7 @@ where
 ///
 /// // Clone for shared dependencies - both refer to the same binding
 /// let binding_clone = binding.clone();
+/// # let biding_any_clone = binding.into_any().clone();
 /// # Ok(())
 /// # }
 /// ```
@@ -95,6 +96,8 @@ where
 	Plugins: Cardinality<PluginId, PluginInstance<Ctx>> + 'static,
 	PluginSockets<PluginId, Ctx, Plugins>: Send + Sync,
 {
+	/// Creates another handle to the same underlying binding, enabling shared dependencies where
+	/// multiple plugins depend on the same binding.
 	fn clone( &self ) -> Self {
 		Self( Arc::clone( &self.0 ))
 	}
@@ -202,7 +205,7 @@ where
 /// Type-erased binding wrapper for heterogeneous socket lists.
 ///
 /// Use when a plugin's sockets include bindings with different cardinalities.
-#[derive( Debug, Clone )]
+#[derive( Debug )]
 pub enum BindingAny<PluginId, Ctx>
 where
 	PluginId: std::hash::Hash + Eq + Clone + Send + Sync + 'static,
@@ -284,5 +287,22 @@ where
 	/// Converts this binding into a type-erased [`BindingAny`] for heterogeneous socket lists.
 	pub fn into_any( self ) -> BindingAny<PluginId, Ctx> {
 		self.into()
+	}
+}
+
+impl<PluginId, Ctx> Clone for BindingAny<PluginId, Ctx>
+where
+	PluginId: std::hash::Hash + Eq + Clone + Send + Sync + 'static,
+	Ctx: PluginContext + 'static,
+{
+	/// Creates another handle to the same underlying binding, enabling shared dependencies where
+	/// multiple plugins depend on the same binding.
+	fn clone( &self ) -> Self {
+		match self {
+			Self::ExactlyOne( binding ) => Self::ExactlyOne( binding.clone() ),
+			Self::AtMostOne( binding ) => Self::AtMostOne( binding.clone() ),
+			Self::AtLeastOne( binding ) => Self::AtLeastOne( binding.clone() ),
+			Self::Any( binding ) => Self::Any( binding.clone() ),
+		}
 	}
 }
