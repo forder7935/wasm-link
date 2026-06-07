@@ -75,7 +75,7 @@ where
 ///
 /// // Clone for shared dependencies - both refer to the same binding
 /// let binding_clone = binding.clone();
-/// # let biding_any_clone = binding.into_any().clone();
+/// # let binding_any_clone = binding.into_any().clone();
 /// # Ok(())
 /// # }
 /// ```
