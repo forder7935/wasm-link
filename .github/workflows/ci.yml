@@ -25,5 +25,8 @@ jobs:
       - name: Run clippy
         run: nix develop --quiet --command cargo clippy
 
+      - name: Check docs
+        run: nix develop --quiet --command env RUSTDOCFLAGS="-D missing_docs" cargo doc --no-deps
+
       - name: Run tests
         run: nix develop --quiet --command cargo test
