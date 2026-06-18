@@ -24,11 +24,16 @@
 //! - **Plug**: A plugin's declaration that it implements a [`Binding`].
 //!
 //! - **Socket**: A plugin's declaration that it depends on a [`Binding`]. Cardinality is
-//! 	expressed with wrapper types in [`crate::cardinality`]:
-//! 	- [`cardinality::ExactlyOne`]`( Id, T )` - exactly one plugin, guaranteed present
-//! 	- [`cardinality::AtMostOne`]`( Option<( Id, T )> )` - zero or one plugin
-//! 	- [`cardinality::AtLeastOne`]`( nonempty_collections::NEMap<Id, T> )` - one or more plugins
-//! 	- [`cardinality::Any`]`( HashMap<Id, T> )` - zero or more plugins
+//! 	expressed with wrapper types in [`crate::cardinality`], and socket responses are
+//! 	represented in the importing plugin's ABI using the corresponding shape:
+//! 	- [`cardinality::ExactlyOne`]`( Id, T )` - exactly one plugin,
+//!			represented as `tuple<PluginId, result<T>>`
+//! 	- [`cardinality::AtMostOne`]`( Option<( Id, T )> )` - zero or one plugin,
+//!			represented as `option<tuple<PluginId, result<T>>>`
+//! 	- [`cardinality::AtLeastOne`]`( nonempty_collections::NEMap<Id, T> )` - one or more plugins,
+//!			represented as `map<PluginId, result<T>>`
+//! 	- [`cardinality::Any`]`( HashMap<Id, T> )` - zero or more plugins,
+//!			represented as `map<PluginId, result<T>>`
 //!
 //! # Re-exports
 //!

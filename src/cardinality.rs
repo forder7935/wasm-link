@@ -190,9 +190,9 @@ impl<Id: Hash + Eq + Into<Val>> From<AtMostOne<Id, Val>> for Val {
 
 impl<Id: Hash + Eq + Into<Val>> From<AtLeastOne<Id, Val>> for Val {
 	fn from( socket: AtLeastOne<Id, Val> ) -> Self {
-		Val::List(
+		Val::Map(
 			socket.0.into_iter()
-				.map(|( id, val )| Val::Tuple( vec![ id.into(), val ]))
+				.map(|( id, val )| ( id.into(), val ))
 				.collect()
 		)
 	}
@@ -200,9 +200,9 @@ impl<Id: Hash + Eq + Into<Val>> From<AtLeastOne<Id, Val>> for Val {
 
 impl<Id: Hash + Eq + Into<Val>> From<Any<Id, Val>> for Val {
 	fn from( socket: Any<Id, Val> ) -> Self {
-		Val::List(
+		Val::Map(
 			socket.0.into_iter()
-				.map(|( id, val )| Val::Tuple( vec![ id.into(), val ]))
+				.map(|( id, val )| ( id.into(), val ))
 				.collect()
 		)
 	}
@@ -289,16 +289,13 @@ mod tests {
 	fn at_least_one_into_val() {
 		let val = Val::from( AtLeastOne( nem! { "a".to_string() => Val::U32( 1 ) }));
 		match val {
-			Val::List( items ) => {
+			Val::Map( items ) => {
 				assert_eq!( items.len(), 1 );
 				assert!( matches!( &items[0],
-					Val::Tuple( tuple )
-						if tuple.len() == 2
-						&& matches!( &tuple[0], Val::String( s ) if s == "a" )
-						&& matches!( &tuple[1], Val::U32( 1 ))
+					( Val::String( s ), Val::U32( 1 )) if s == "a"
 				));
 			}
-			other => panic!( "expected list, got {other:?}" ),
+			other => panic!( "expected map, got {other:?}" ),
 		}
 	}
 
@@ -309,22 +306,16 @@ mod tests {
 			( "b".to_string(), Val::U32( 2 )),
 		])));
 		match val {
-			Val::List( items ) => {
+			Val::Map( items ) => {
 				assert_eq!( items.len(), 2 );
-				let mut seen = ( false, false );
-				for item in items {
-					match item {
-						Val::Tuple( tuple ) if tuple.len() == 2 => match (&tuple[0], &tuple[1]) {
-							( Val::String( s ), Val::U32( 1 )) if s == "a" => seen.0 = true,
-							( Val::String( s ), Val::U32( 2 )) if s == "b" => seen.1 = true,
-							_ => {}
-						},
-						_ => {}
-					}
-				}
-				assert!( seen.0 && seen.1 );
+				assert!( items.iter().any(|( key, value )|
+					matches!( ( key, value ), ( Val::String( s ), Val::U32( 1 )) if s == "a" )
+				));
+				assert!( items.iter().any(|( key, value )|
+					matches!( ( key, value ), ( Val::String( s ), Val::U32( 2 )) if s == "b" )
+				));
 			}
-			other => panic!( "expected list, got {other:?}" ),
+			other => panic!( "expected map, got {other:?}" ),
 		}
 	}
 }
