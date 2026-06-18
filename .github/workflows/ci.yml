@@ -17,10 +17,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@v17
+        uses: cachix/install-nix-action@v31
 
       - name: Run clippy
         run: nix develop --quiet --command cargo clippy
