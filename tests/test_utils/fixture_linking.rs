@@ -78,6 +78,7 @@ mod fixture_linking {
 	}
 
 	/// Test context that implements `PluginContext`.
+	#[derive( Debug )]
 	pub struct TestContext {
 		pub resource_table: wasm_link::ResourceTable,
 	}

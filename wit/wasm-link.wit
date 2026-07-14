@@ -1,0 +1,16 @@
+package wasm-link:runtime@0.3.0;
+
+interface errors {
+	variant dispatch-error {
+		lock-rejected,
+		invalid-interface-path(string),
+		invalid-function(string),
+		missing-response,
+		runtime-exception(string),
+		invalid-argument-list,
+		unsupported-type(string),
+		resource-table-full,
+		resource-handle-conversion-failed,
+		invalid-resource-handle,
+	}
+}

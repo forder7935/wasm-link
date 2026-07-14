@@ -85,3 +85,6 @@ impl<Id: 'static + Send + Sync> ResourceWrapper<Id> {
 	}
 
 }
+
+#[cfg(test)]
+mod tests { include!( "resource_wrapper_tests.rs" ); }
