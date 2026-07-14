@@ -13,7 +13,7 @@
     <a href="https://crates.io/crates/wasm-link"><img src="https://img.shields.io/crates/v/wasm-link" alt="crates.io version" /></a>
     <a href="https://docs.rs/wasm-link/latest/wasm_link"><img src="https://img.shields.io/docsrs/wasm-link" alt="documentation status" /></a>
     <a href="https://github.com/forder7935/wasm-link/actions/workflows/ci.yml"><img src="https://github.com/forder7935/wasm-link/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
-    <img src="https://img.shields.io/badge/rustc-1.90%2B-green.svg" alt="rustc 1.90+" />
+    <img src="https://img.shields.io/badge/rustc-1.94%2B-green.svg" alt="rustc 1.94+" />
   </p>
 </div>
 
