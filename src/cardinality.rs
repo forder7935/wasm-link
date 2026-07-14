@@ -1,8 +1,10 @@
 //! Cardinality wrappers for plugin collections.
 
 use std::collections::HashMap ;
+use std::future::Future ;
 use std::hash::Hash ;
 
+use futures::future::{ BoxFuture, join_all };
 use nonempty_collections::{ NEMap, NonEmptyIterator, IntoNonEmptyIterator };
 use wasmtime::component::Val ;
 
@@ -23,6 +25,29 @@ pub trait Cardinality<Id, T>: Sized {
 
 	/// Maps values by value while preserving cardinality.
 	fn map_mut<N>( self, map: impl FnMut( T ) -> N ) -> Self::Rebind<N> ;
+
+	/// Maps cloned values asynchronously while preserving cardinality.
+	///
+	/// Calls for collection cardinalities may run concurrently.
+	///
+	/// # Example
+	///
+	/// ```
+	/// use wasm_link::cardinality::{ Cardinality, ExactlyOne };
+	///
+	/// # futures::executor::block_on( async {
+	/// let values = ExactlyOne( "plugin", 41_u32 );
+	/// let mapped = values.map_async(| _id, value | async move { value + 1 }).await;
+	/// assert_eq!( mapped.1, 42 );
+	/// # });
+	/// ```
+	fn map_async<'a, N, F, Fut>( &'a self, map: F ) -> BoxFuture<'a, Self::Rebind<N>>
+	where
+		Id: Clone + Send + 'a,
+		T: Clone + Send + 'a,
+		N: Send + 'a,
+		F: Fn( Id, T ) -> Fut + Clone + Send + 'a,
+		Fut: Future<Output = N> + Send + 'a;
 
 	/// Returns the value associated with `id`, if present.
 	fn get( &self, id: &Id ) -> Option<&T>
@@ -74,6 +99,22 @@ impl<Id, T> Cardinality<Id, T> for ExactlyOne<Id, T> {
 		ExactlyOne( self.0, map( self.1 ))
 	}
 
+	fn map_async<'a, N, F, Fut>( &'a self, map: F ) -> BoxFuture<'a, Self::Rebind<N>>
+	where
+		Id: Clone + Send + 'a,
+		T: Clone + Send + 'a,
+		N: Send + 'a,
+		F: Fn( Id, T ) -> Fut + Clone + Send + 'a,
+		Fut: Future<Output = N> + Send + 'a,
+	{
+		let id = self.0.clone();
+		let value = self.1.clone();
+		Box::pin( async move {
+			let mapped = map( id.clone(), value ).await;
+			ExactlyOne( id, mapped )
+		})
+	}
+
 	fn get( &self, id: &Id ) -> Option<&T>
 	where
 		Id: Hash + Eq,
@@ -103,6 +144,24 @@ impl<Id, T> Cardinality<Id, T> for AtMostOne<Id, T> {
 			None => AtMostOne( None ),
 			Some(( id, value )) => AtMostOne( Some(( id, map( value )))),
 		}
+	}
+
+	fn map_async<'a, N, F, Fut>( &'a self, map: F ) -> BoxFuture<'a, Self::Rebind<N>>
+	where
+		Id: Clone + Send + 'a,
+		T: Clone + Send + 'a,
+		N: Send + 'a,
+		F: Fn( Id, T ) -> Fut + Clone + Send + 'a,
+		Fut: Future<Output = N> + Send + 'a,
+	{
+		let value = self.0.clone();
+		Box::pin( async move { match value {
+			None => AtMostOne( None ),
+			Some(( id, value )) => {
+				let mapped = map( id.clone(), value ).await;
+				AtMostOne( Some(( id, mapped )))
+			}
+		}})
 	}
 
 	fn get( &self, id: &Id ) -> Option<&T>
@@ -143,6 +202,29 @@ impl<Id: Hash + Eq, T> Cardinality<Id, T> for AtLeastOne<Id, T> {
 		)
 	}
 
+	fn map_async<'a, N, F, Fut>( &'a self, map: F ) -> BoxFuture<'a, Self::Rebind<N>>
+	where
+		Id: Clone + Send + 'a,
+		T: Clone + Send + 'a,
+		N: Send + 'a,
+		F: Fn( Id, T ) -> Fut + Clone + Send + 'a,
+		Fut: Future<Output = N> + Send + 'a,
+	{
+		let entries = self.0.nonempty_iter()
+			.map(|( id, value )| ( id.clone(), value.clone() ))
+			.collect::<Vec<_>>();
+		Box::pin( async move {
+			let mut mapped_values = join_all( entries.into_iter().map(|( id, value )| {
+				let future = map.clone()( id.clone(), value );
+				async move { ( id, future.await ) }
+			})).await.into_iter();
+			let Some(( first_id, first_mapped )) = mapped_values.next() else { unreachable!() };
+			let mut mapped = NEMap::new( first_id, first_mapped );
+			mapped.extend( mapped_values );
+			AtLeastOne( mapped )
+		})
+	}
+
 	fn get( &self, id: &Id ) -> Option<&T>
 	where
 		Id: Hash + Eq,
@@ -163,6 +245,23 @@ impl<Id: Hash + Eq, T> Cardinality<Id, T> for Any<Id, T> {
 
 	fn map_mut<N>( self, mut map: impl FnMut( T ) -> N ) -> Self::Rebind<N> {
 		Any( self.0.into_iter().map(|( id, value )| ( id, map( value ))).collect() )
+	}
+
+	fn map_async<'a, N, F, Fut>( &'a self, map: F ) -> BoxFuture<'a, Self::Rebind<N>>
+	where
+		Id: Clone + Send + 'a,
+		T: Clone + Send + 'a,
+		N: Send + 'a,
+		F: Fn( Id, T ) -> Fut + Clone + Send + 'a,
+		Fut: Future<Output = N> + Send + 'a,
+	{
+		let entries = self.0.iter().map(|( id, value )| ( id.clone(), value.clone() )).collect::<Vec<_>>();
+		Box::pin( async move {
+			Any( join_all( entries.into_iter().map(|( id, value )| {
+				let future = map.clone()( id.clone(), value );
+				async move { ( id, future.await ) }
+			})).await.into_iter().collect() )
+		})
 	}
 
 	fn get( &self, id: &Id ) -> Option<&T>

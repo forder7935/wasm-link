@@ -4,8 +4,9 @@
 //! (via plugs) or what they could depend on (via sockets). It bundles one or more WIT
 //! [`Interface`]s under a single identifier.
 
-use std::sync::{ Arc, Mutex };
+use std::sync::Arc ;
 use std::collections::HashMap ;
+use futures::lock::Mutex ;
 use wasmtime::component::{ Linker, Val };
 
 use crate::{ Interface, PluginContext };
@@ -15,15 +16,15 @@ use crate::plugin_instance::PluginInstance ;
 
 
 type PluginSockets<PluginId, Ctx, Plugins> =
-	<Plugins as Cardinality<PluginId, PluginInstance<Ctx>>>::Rebind<Mutex<PluginInstance<Ctx>>> ;
+	<Plugins as Cardinality<PluginId, PluginInstance<Ctx>>>::Rebind<Arc<Mutex<PluginInstance<Ctx>>>> ;
 
 type DispatchResults<PluginId, Ctx, Plugins> =
-	<PluginSockets<PluginId, Ctx, Plugins> as Cardinality<PluginId, Mutex<PluginInstance<Ctx>>>>::Rebind<
+	<PluginSockets<PluginId, Ctx, Plugins> as Cardinality<PluginId, Arc<Mutex<PluginInstance<Ctx>>>>>::Rebind<
 		Result<wasmtime::component::Val, crate::DispatchError>
 	>;
 
 type DispatchVals<PluginId, Ctx, Plugins> =
-	<PluginSockets<PluginId, Ctx, Plugins> as Cardinality<PluginId, Mutex<PluginInstance<Ctx>>>>::Rebind<
+	<PluginSockets<PluginId, Ctx, Plugins> as Cardinality<PluginId, Arc<Mutex<PluginInstance<Ctx>>>>>::Rebind<
 		wasmtime::component::Val
 	>;
 
@@ -125,7 +126,7 @@ where
 	PluginId: std::hash::Hash + Eq + Clone + Send + Sync + 'static,
 	Ctx: PluginContext + 'static,
 	Plugins: Cardinality<PluginId, PluginInstance<Ctx>> + 'static,
-	PluginSockets<PluginId, Ctx, Plugins>: Cardinality<PluginId, Mutex<PluginInstance<Ctx>>>,
+	PluginSockets<PluginId, Ctx, Plugins>: Cardinality<PluginId, Arc<Mutex<PluginInstance<Ctx>>>>,
 	PluginSockets<PluginId, Ctx, Plugins>: Send + Sync,
 {
 
@@ -138,7 +139,7 @@ where
 		Self( Arc::new( BindingData {
 			package_name: package_name.into(),
 			interfaces,
-			plugins: plugins.map_mut( Mutex::new ),
+			plugins: plugins.map_mut(| plugin | Arc::new( Mutex::new( plugin ))),
 		}))
 	}
 
@@ -150,6 +151,17 @@ where
 		binding.0.interfaces.iter().try_for_each(|( name, interface )| {
 			let interface_ident = format!( "{}/{}", binding.0.package_name, name );
 			interface.add_to_linker( linker, &binding.0.package_name, &interface_ident, name, binding )
+		})
+	}
+
+	pub(crate) fn add_to_linker_async( binding: &Binding<PluginId, Ctx, Plugins>, linker: &mut Linker<Ctx> ) -> Result<(), wasmtime::Error>
+	where
+		PluginId: Into<Val>,
+		DispatchVals<PluginId, Ctx, Plugins>: Into<Val> + Send,
+	{
+		binding.0.interfaces.iter().try_for_each(|( name, interface )| {
+			let interface_ident = format!( "{}/{}", binding.0.package_name, name );
+			interface.add_to_linker_async( linker, &binding.0.package_name, &interface_ident, name, binding )
 		})
 	}
 
@@ -188,7 +200,7 @@ where
 			.ok_or_else(|| crate::DispatchError::InvalidFunction( function_name.to_string() ))?;
 
 		Ok( self.0.plugins.map(| _, plugin | plugin
-			.lock().map_err(|_| crate::DispatchError::LockRejected )
+			.try_lock().ok_or( crate::DispatchError::LockRejected )
 			.and_then(| mut lock | lock.dispatch(
 				&self.0.package_name,
 				interface_name,
@@ -198,6 +210,85 @@ where
 			))
 		))
 
+	}
+
+	/// Asynchronously dispatches a function call to all plugins implementing this binding.
+	///
+	/// This method waits for a busy plugin instead of returning [`DispatchError::LockRejected`](crate::DispatchError::LockRejected).
+	/// It is required for instances created by [`Plugin::instantiate_async`](crate::Plugin::instantiate_async)
+	/// or [`Plugin::link_async`](crate::Plugin::link_async).
+	///
+	/// # Example
+	///
+	/// ```
+	/// # use std::collections::{ HashMap, HashSet };
+	/// # use wasm_link::{ Binding, Component, Engine, Function, FunctionKind, Interface, Linker, Plugin, PluginContext, ResourceTable, ReturnKind, Val };
+	/// # use wasm_link::cardinality::ExactlyOne;
+	/// # struct Context { table: ResourceTable }
+	/// # impl PluginContext for Context { fn resource_table( &mut self ) -> &mut ResourceTable { &mut self.table } }
+	/// # fn main() -> Result<(), Box<dyn std::error::Error>> { futures::executor::block_on( async {
+	/// # let engine = Engine::default();
+	/// # let linker = Linker::new( &engine );
+	/// # let component = Component::new( &engine, r#"(component
+	/// # 	(core module $m (func (export "get") (result i32) i32.const 42))
+	/// # 	(core instance $i (instantiate $m))
+	/// # 	(func $get (result u32) (canon lift (core func $i "get")))
+	/// # 	(instance $root (export "get" (func $get)))
+	/// # 	(export "example:plugin/root" (instance $root))
+	/// # )"# )?;
+	/// # let plugin = Plugin::new( component, Context { table: ResourceTable::new() })
+	/// # 	.instantiate_async( &engine, &linker ).await?;
+	/// # let binding = Binding::new(
+	/// # 	"example:plugin",
+	/// # 	HashMap::from([( "root".to_string(), Interface::new(
+	/// # 		HashMap::from([( "get".to_string(), Function::new( FunctionKind::Freestanding, ReturnKind::AssumeNoResources ))]),
+	/// # 		HashSet::new(),
+	/// # 	))]),
+	/// # 	ExactlyOne( "plugin".to_string(), plugin ),
+	/// # );
+	/// let result = binding.dispatch_async( "root", "get", &[] ).await?;
+	/// assert!( matches!( result, ExactlyOne( _, Ok( Val::U32( 42 )))));
+	/// # Ok(()) }) }
+	/// ```
+	///
+	/// # Errors
+	/// Returns an error if the interface or function is not found in this binding.
+	pub async fn dispatch_async(
+		&self,
+		interface_name: &str,
+		function_name: &str,
+		args: &[wasmtime::component::Val],
+	) -> Result<DispatchResults<PluginId, Ctx, Plugins>, crate::DispatchError>
+	where
+		PluginId: Into<Val>,
+		DispatchResults<PluginId, Ctx, Plugins>: Send,
+	{
+		let interface = self.0.interfaces.get( interface_name )
+			.ok_or_else(|| crate::DispatchError::InvalidInterfacePath( format!( "{}/{}", self.0.package_name, interface_name )))?;
+		let function = interface.function( function_name )
+			.ok_or_else(|| crate::DispatchError::InvalidFunction( function_name.to_string() ))?;
+		let package_name = self.0.package_name.clone();
+		let interface_name = interface_name.to_string();
+		let function_name = function_name.to_string();
+		let function = function.clone();
+		let args = args.to_vec();
+
+		Ok( self.0.plugins.map_async(| _, plugin | {
+			let package_name = package_name.clone();
+			let interface_name = interface_name.clone();
+			let function_name = function_name.clone();
+			let function = function.clone();
+			let args = args.clone();
+			async move {
+				plugin.lock().await.dispatch_async(
+					&package_name,
+					&interface_name,
+					&function_name,
+					&function,
+					&args,
+				).await
+			}
+		}).await )
 	}
 
 }
@@ -232,6 +323,15 @@ where
 			Self::AtMostOne( binding ) => Binding::add_to_linker( binding, linker ),
 			Self::AtLeastOne( binding ) => Binding::add_to_linker( binding, linker ),
 			Self::Any( binding ) => Binding::add_to_linker( binding, linker ),
+		}
+	}
+
+	pub(crate) fn add_to_linker_async( &self, linker: &mut Linker<Ctx> ) -> Result<(), wasmtime::Error> {
+		match self {
+			Self::ExactlyOne( binding ) => Binding::add_to_linker_async( binding, linker ),
+			Self::AtMostOne( binding ) => Binding::add_to_linker_async( binding, linker ),
+			Self::AtLeastOne( binding ) => Binding::add_to_linker_async( binding, linker ),
+			Self::Any( binding ) => Binding::add_to_linker_async( binding, linker ),
 		}
 	}
 }
