@@ -21,7 +21,7 @@
 
 - Unlimited plugin composition with no architectural restrictions
 - Performant language-agnostic plugin system
-- Component Model async support
+- Component Model async functions
 
 ## Contents
 
