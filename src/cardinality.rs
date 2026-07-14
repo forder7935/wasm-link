@@ -46,7 +46,7 @@ pub trait Cardinality<Id, T>: Sized {
 		Id: Clone + Send + 'a,
 		T: Clone + Send + 'a,
 		N: Send + 'a,
-		F: Fn( Id, T ) -> Fut + Clone + Send + 'a,
+		F: Fn( Id, T ) -> Fut + Send + 'a,
 		Fut: Future<Output = N> + Send + 'a;
 
 	/// Returns the value associated with `id`, if present.
@@ -104,7 +104,7 @@ impl<Id, T> Cardinality<Id, T> for ExactlyOne<Id, T> {
 		Id: Clone + Send + 'a,
 		T: Clone + Send + 'a,
 		N: Send + 'a,
-		F: Fn( Id, T ) -> Fut + Clone + Send + 'a,
+		F: Fn( Id, T ) -> Fut + Send + 'a,
 		Fut: Future<Output = N> + Send + 'a,
 	{
 		let id = self.0.clone();
@@ -151,7 +151,7 @@ impl<Id, T> Cardinality<Id, T> for AtMostOne<Id, T> {
 		Id: Clone + Send + 'a,
 		T: Clone + Send + 'a,
 		N: Send + 'a,
-		F: Fn( Id, T ) -> Fut + Clone + Send + 'a,
+		F: Fn( Id, T ) -> Fut + Send + 'a,
 		Fut: Future<Output = N> + Send + 'a,
 	{
 		let value = self.0.clone();
@@ -207,7 +207,7 @@ impl<Id: Hash + Eq, T> Cardinality<Id, T> for AtLeastOne<Id, T> {
 		Id: Clone + Send + 'a,
 		T: Clone + Send + 'a,
 		N: Send + 'a,
-		F: Fn( Id, T ) -> Fut + Clone + Send + 'a,
+		F: Fn( Id, T ) -> Fut + Send + 'a,
 		Fut: Future<Output = N> + Send + 'a,
 	{
 		let entries = self.0.nonempty_iter()
@@ -215,7 +215,7 @@ impl<Id: Hash + Eq, T> Cardinality<Id, T> for AtLeastOne<Id, T> {
 			.collect::<Vec<_>>();
 		Box::pin( async move {
 			let mut mapped_values = join_all( entries.into_iter().map(|( id, value )| {
-				let future = map.clone()( id.clone(), value );
+				let future = map( id.clone(), value );
 				async move { ( id, future.await ) }
 			})).await.into_iter();
 			let Some(( first_id, first_mapped )) = mapped_values.next() else { unreachable!() };
@@ -252,13 +252,13 @@ impl<Id: Hash + Eq, T> Cardinality<Id, T> for Any<Id, T> {
 		Id: Clone + Send + 'a,
 		T: Clone + Send + 'a,
 		N: Send + 'a,
-		F: Fn( Id, T ) -> Fut + Clone + Send + 'a,
+		F: Fn( Id, T ) -> Fut + Send + 'a,
 		Fut: Future<Output = N> + Send + 'a,
 	{
 		let entries = self.0.iter().map(|( id, value )| ( id.clone(), value.clone() )).collect::<Vec<_>>();
 		Box::pin( async move {
 			Any( join_all( entries.into_iter().map(|( id, value )| {
-				let future = map.clone()( id.clone(), value );
+				let future = map( id.clone(), value );
 				async move { ( id, future.await ) }
 			})).await.into_iter().collect() )
 		})
