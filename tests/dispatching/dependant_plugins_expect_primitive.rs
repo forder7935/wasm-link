@@ -38,6 +38,11 @@ fn dispatch_test_dependant_plugins_expect_primitive() {
 		value => panic!( "Expected Ok( ExactlyOne( Ok( U32( 42 )))), found: {:#?}", value ),
 	}
 
+	match futures::executor::block_on( root_binding.dispatch_async( "root", "get-primitive", &[] )) {
+		Ok( ExactlyOne( _, Err( wasm_link::DispatchError::SyncRequired ))) => {}
+		value => panic!( "Expected async dispatch to require sync dispatch, found: {:#?}", value ),
+	}
+
 }
 
 #[test]

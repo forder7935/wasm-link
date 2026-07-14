@@ -335,6 +335,8 @@ where
 	/// and plugins that will be used in a graph created with [`link_async`](Self::link_async).
 	/// The instance owns a dedicated worker so its [`Store`](wasmtime::Store) remains
 	/// isolated and is never driven recursively from another plugin's store.
+	/// Each async instance therefore uses one OS thread; plan thread capacity when
+	/// constructing large plugin graphs.
 	///
 	/// # Example
 	///

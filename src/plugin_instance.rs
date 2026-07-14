@@ -81,6 +81,8 @@ pub enum DispatchError {
 	#[error( "Unsupported type: {0}" )] UnsupportedType( String ),
 	/// This instance was asynchronously instantiated and must be dispatched asynchronously.
 	#[error( "Async dispatch required" )] AsyncRequired,
+	/// This instance was synchronously instantiated and must be dispatched synchronously.
+	#[error( "Sync dispatch required" )] SyncRequired,
 	/// The worker owning an asynchronously instantiated plugin stopped unexpectedly.
 	#[error( "Async plugin worker stopped" )] AsyncWorkerStopped,
 	/// Failed to create a resource handle for cross-plugin transfer.
@@ -99,6 +101,7 @@ impl From<DispatchError> for Val {
 		DispatchError::InvalidArgumentList => Val::Variant( "invalid-argument-list".to_string(), None ),
 		DispatchError::UnsupportedType( name ) => Val::Variant( "unsupported-type".to_string(), Some( Box::new( Val::String( name )))),
 		DispatchError::AsyncRequired => Val::Variant( "async-required".to_string(), None ),
+		DispatchError::SyncRequired => Val::Variant( "sync-required".to_string(), None ),
 		DispatchError::AsyncWorkerStopped => Val::Variant( "async-worker-stopped".to_string(), None ),
 		DispatchError::ResourceCreationError( err ) => err.into(),
 		DispatchError::ResourceReceiveError( err ) => err.into(),
@@ -176,7 +179,7 @@ impl<Ctx: PluginContext + 'static> PluginInstance<Ctx> {
 		data: &[Val],
 	) -> Result<Val, DispatchError> {
 		let PluginRuntime::Async( sender ) = &self.runtime else {
-			return Err( DispatchError::AsyncRequired );
+			return Err( DispatchError::SyncRequired );
 		};
 		let ( response, result ) = futures::channel::oneshot::channel();
 		sender.send( AsyncDispatch {
