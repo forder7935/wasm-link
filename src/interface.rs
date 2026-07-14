@@ -1,10 +1,18 @@
-use std::sync::{ Arc, Mutex };
+use std::sync::Arc ;
 use std::collections::{ HashMap, HashSet };
+use futures::lock::Mutex ;
 use wasmtime::component::{ Linker, ResourceType, Val };
 
 use crate::{ Binding, PluginContext };
 use crate::cardinality::Cardinality ;
-use crate::linker::{ dispatch_all, dispatch_method };
+use crate::linker::{
+	dispatch_all,
+	dispatch_all_async,
+	dispatch_all_async_blocking,
+	dispatch_method,
+	dispatch_method_async,
+	dispatch_method_async_blocking,
+};
 use crate::resource_wrapper::ResourceWrapper ;
 
 /// A single WIT interface within a [`Binding`].
@@ -67,9 +75,9 @@ impl Interface {
 		PluginId: std::hash::Hash + Eq + Clone + Send + Sync + Into<Val> + 'static,
 		Ctx: PluginContext,
 		Plugins: Cardinality<PluginId, crate::PluginInstance<Ctx>> + 'static,
-		<Plugins as Cardinality<PluginId, crate::PluginInstance<Ctx>>>::Rebind<Mutex<crate::PluginInstance<Ctx>>>: Send + Sync,
-		<Plugins as Cardinality<PluginId, crate::PluginInstance<Ctx>>>::Rebind<Mutex<crate::PluginInstance<Ctx>>>: Cardinality<PluginId, Mutex<crate::PluginInstance<Ctx>>>,
-		<<Plugins as Cardinality<PluginId, crate::PluginInstance<Ctx>>>::Rebind<Mutex<crate::PluginInstance<Ctx>>> as Cardinality<PluginId, Mutex<crate::PluginInstance<Ctx>>>>::Rebind<Val>: Into<Val>,
+		<Plugins as Cardinality<PluginId, crate::PluginInstance<Ctx>>>::Rebind<Arc<Mutex<crate::PluginInstance<Ctx>>>>: Send + Sync,
+		<Plugins as Cardinality<PluginId, crate::PluginInstance<Ctx>>>::Rebind<Arc<Mutex<crate::PluginInstance<Ctx>>>>: Cardinality<PluginId, Arc<Mutex<crate::PluginInstance<Ctx>>>>,
+		<<Plugins as Cardinality<PluginId, crate::PluginInstance<Ctx>>>::Rebind<Arc<Mutex<crate::PluginInstance<Ctx>>>> as Cardinality<PluginId, Arc<Mutex<crate::PluginInstance<Ctx>>>>>::Rebind<Val>: Into<Val>,
 	{
 		let mut linker_root = linker.root();
 		let mut linker_instance = linker_root.instance( interface_ident )?;
@@ -103,6 +111,80 @@ impl Interface {
 
 	}
 
+	#[inline]
+	pub(crate) fn add_to_linker_async<PluginId, Ctx, Plugins>(
+		&self,
+		linker: &mut Linker<Ctx>,
+		package_name: &str,
+		interface_ident: &str,
+		interface_name: &str,
+		binding: &Binding<PluginId, Ctx, Plugins>,
+	) -> Result<(), wasmtime::Error>
+	where
+		PluginId: std::hash::Hash + Eq + Clone + Send + Sync + Into<Val> + 'static,
+		Ctx: PluginContext,
+		Plugins: Cardinality<PluginId, crate::PluginInstance<Ctx>> + 'static,
+		<Plugins as Cardinality<PluginId, crate::PluginInstance<Ctx>>>::Rebind<Arc<Mutex<crate::PluginInstance<Ctx>>>>: Send + Sync,
+		<Plugins as Cardinality<PluginId, crate::PluginInstance<Ctx>>>::Rebind<Arc<Mutex<crate::PluginInstance<Ctx>>>>: Cardinality<PluginId, Arc<Mutex<crate::PluginInstance<Ctx>>>>,
+		<<Plugins as Cardinality<PluginId, crate::PluginInstance<Ctx>>>::Rebind<Arc<Mutex<crate::PluginInstance<Ctx>>>> as Cardinality<PluginId, Arc<Mutex<crate::PluginInstance<Ctx>>>>>::Rebind<Val>: Into<Val> + Send,
+	{
+		let mut linker_root = linker.root();
+		let mut linker_instance = linker_root.instance( interface_ident )?;
+
+		self.functions.iter().try_for_each(|( name, metadata )| {
+			let package_name = package_name.to_string();
+			let interface_name = interface_name.to_string();
+			let binding = binding.clone();
+			let function_name = name.clone();
+			let function = metadata.clone();
+
+			macro_rules! link_concurrent {( $dispatch: expr ) => {
+				linker_instance.func_new_concurrent( name, move | ctx, _ty, args, results | {
+					let package_name = package_name.clone();
+					let interface_name = interface_name.clone();
+					let binding = binding.clone();
+					let function_name = function_name.clone();
+					let function = function.clone();
+					Box::pin( async move {
+						results[0] = $dispatch(
+							&binding, ctx, &package_name, &interface_name, &function_name, &function, args,
+						).await;
+						Ok(())
+					})
+				})
+			}}
+
+			macro_rules! link_blocking {( $dispatch: expr ) => {
+				linker_instance.func_new_async( name, move | ctx, _ty, args, results | {
+					let package_name = package_name.clone();
+					let interface_name = interface_name.clone();
+					let binding = binding.clone();
+					let function_name = function_name.clone();
+					let function = function.clone();
+					Box::new( async move {
+						results[0] = $dispatch(
+							&binding, ctx, &package_name, &interface_name, &function_name, &function, args,
+						).await;
+						Ok(())
+					})
+				})
+			}}
+
+			match ( metadata.is_async(), metadata.kind() ) {
+				( true, FunctionKind::Freestanding ) => link_concurrent!( dispatch_all_async ),
+				( true, FunctionKind::Method ) => link_concurrent!( dispatch_method_async ),
+				( false, FunctionKind::Freestanding ) => link_blocking!( dispatch_all_async_blocking ),
+				( false, FunctionKind::Method ) => link_blocking!( dispatch_method_async_blocking ),
+			}
+		})?;
+
+		self.resources.iter().try_for_each(| resource | linker_instance
+			.resource( resource.as_str(), ResourceType::host::<Arc<ResourceWrapper<PluginId>>>(), ResourceWrapper::<PluginId>::drop )
+		)?;
+
+		Ok(())
+	}
+
 }
 
 /// Denotes whether a function is freestanding or a resource method.
@@ -128,6 +210,8 @@ pub struct Function {
 	kind: FunctionKind,
 	/// The function's return kind for dispatch handling
 	return_kind: ReturnKind,
+	/// Whether the WIT function is declared with the `async` effect.
+	is_async: bool,
 }
 
 impl Function {
@@ -136,7 +220,25 @@ impl Function {
 		kind: FunctionKind,
 		return_kind: ReturnKind,
 	) -> Self {
-		Self { kind, return_kind }
+		Self { kind, return_kind, is_async: false }
+	}
+
+	/// Creates metadata for a WIT function declared with the `async` effect.
+	///
+	/// ```
+	/// use wasm_link::{ Function, FunctionKind, ReturnKind };
+	///
+	/// let function = Function::new_async(
+	/// 	FunctionKind::Freestanding,
+	/// 	ReturnKind::AssumeNoResources,
+	/// );
+	/// assert!( function.is_async() );
+	/// ```
+	pub fn new_async(
+		kind: FunctionKind,
+		return_kind: ReturnKind,
+	) -> Self {
+		Self { kind, return_kind, is_async: true }
 	}
 
 	/// The function's return kind for dispatch handling.
@@ -144,6 +246,15 @@ impl Function {
 
 	/// Whether this function is freestanding or a resource method.
 	pub fn kind( &self ) -> FunctionKind { self.kind }
+
+	/// Whether the WIT function is declared with the `async` effect.
+	///
+	/// ```
+	/// # use wasm_link::{ Function, FunctionKind, ReturnKind };
+	/// let function = Function::new( FunctionKind::Freestanding, ReturnKind::Void );
+	/// assert!( !function.is_async() );
+	/// ```
+	pub fn is_async( &self ) -> bool { self.is_async }
 
 }
 

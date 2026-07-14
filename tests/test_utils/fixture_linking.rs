@@ -166,8 +166,8 @@ mod fixture_linking {
 			.name.to_string();
 
 		let functions = interface.functions.iter()
-			.map(|( _, function )| Ok(( function.name.clone(), Function::new(
-				match function.kind {
+			.map(|( _, function )| {
+				let kind = match function.kind {
 					wit_parser::FunctionKind::Freestanding
 					| wit_parser::FunctionKind::AsyncFreestanding
 					| wit_parser::FunctionKind::Static( _ )
@@ -175,9 +175,16 @@ mod fixture_linking {
 					| wit_parser::FunctionKind::Constructor( _ ) => FunctionKind::Freestanding,
 					wit_parser::FunctionKind::Method( _ )
 					| wit_parser::FunctionKind::AsyncMethod( _ ) => FunctionKind::Method,
-				},
-				parse_return_kind( &resolve, function.result )?,
-			))))
+				};
+				let return_kind = parse_return_kind( &resolve, function.result )?;
+				let metadata = match function.kind {
+					wit_parser::FunctionKind::AsyncFreestanding
+					| wit_parser::FunctionKind::AsyncStatic( _ )
+					| wit_parser::FunctionKind::AsyncMethod( _ ) => Function::new_async( kind, return_kind ),
+					_ => Function::new( kind, return_kind ),
+				};
+				Ok(( function.name.clone(), metadata ))
+			})
 			.collect::<Result<HashMap<_, _>,FixtureError>>()?;
 
 		let resources = interface.types.iter().filter_map(|( name, wit_type_id )| match resolve.types.get( *wit_type_id ) {

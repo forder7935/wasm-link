@@ -35,6 +35,18 @@
 //! 	- [`cardinality::Any`]`( HashMap<Id, T> )` - zero or more plugins,
 //!			represented as `map<PluginId, result<T>>`
 //!
+//! # Async Graphs
+//!
+//! Component Model `async func` declarations and synchronous WIT functions backed by async host
+//! work are supported through [`Plugin::instantiate_async`], [`Plugin::link_async`], and
+//! [`Binding::dispatch_async`]. Each asynchronously instantiated plugin owns a serialized worker
+//! for its independent Wasmtime store, so cross-plugin suspension never shares stores or recursively
+//! drives one store from another.
+//!
+//! Component Model `future`, `stream`, and `error-context` values are not supported across plugin
+//! store boundaries. Wasmtime currently exposes those dynamic handles as store-owned values without
+//! a type-erased public API for relaying their payloads into another store.
+//!
 //! # Re-exports
 //!
 //! `wasm_link` re-exports a small set of types from `wasmtime` for convenience

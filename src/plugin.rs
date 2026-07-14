@@ -266,6 +266,48 @@ where
 		Self::instantiate( self, engine, &linker )
 	}
 
+	/// Asynchronously links this plugin with its socket bindings and instantiates it.
+	///
+	/// Use this variant when any socket may suspend or uses Component Model async types.
+	/// Every plugin in an asynchronously linked graph should be created with
+	/// [`instantiate_async`](Self::instantiate_async) or `link_async`.
+	///
+	/// # Example
+	///
+	/// ```
+	/// # use wasm_link::{ BindingAny, Component, Engine, Linker, Plugin, PluginContext, ResourceTable };
+	/// # struct Context { table: ResourceTable }
+	/// # impl PluginContext for Context { fn resource_table( &mut self ) -> &mut ResourceTable { &mut self.table } }
+	/// # fn main() -> Result<(), Box<dyn std::error::Error>> { futures::executor::block_on( async {
+	/// let engine = Engine::default();
+	/// let linker = Linker::new( &engine );
+	/// let instance = Plugin::new(
+	/// 	Component::new( &engine, "(component)" )?,
+	/// 	Context { table: ResourceTable::new() },
+	/// ).link_async( &engine, linker, Vec::<BindingAny<String, Context>>::new() ).await?;
+	/// # let _ = instance;
+	/// # Ok(()) }) }
+	/// ```
+	///
+	/// # Errors
+	/// Returns an error if linking or instantiation fails.
+	pub async fn link_async<PluginId, Sockets>(
+		self,
+		engine: &Engine,
+		mut linker: Linker<Ctx>,
+		sockets: Sockets,
+	) -> Result<PluginInstance<Ctx>, wasmtime::Error>
+	where
+		PluginId: Eq + std::hash::Hash + Clone + std::fmt::Debug + Send + Sync + Into<Val> + 'static,
+		Sockets: IntoIterator,
+		Sockets::Item: Into<BindingAny<PluginId, Ctx>>,
+	{
+		sockets.into_iter()
+			.map( Into::into )
+			.try_for_each(| binding | binding.add_to_linker_async( &mut linker ))?;
+		Self::instantiate_async( self, engine, &linker ).await
+	}
+
 	/// A convenience alias for [`Plugin::link`] with 0 sockets
 	///
 	/// # Errors
@@ -278,13 +320,56 @@ where
 		let mut store = Store::new( engine, self.context );
 		if let Some( limiter ) = self.memory_limiter { store.limiter( limiter ); }
 		let instance = linker.instantiate( &mut store, &self.component )?;
-		Ok( PluginInstance {
+		Ok( PluginInstance::new_sync(
 			store,
 			instance,
-			interface_remaps: self.interface_remaps,
-			fuel_limiter: self.fuel_limiter,
-			epoch_limiter: self.epoch_limiter,
-		})
+			self.interface_remaps,
+			self.fuel_limiter,
+			self.epoch_limiter,
+		))
+	}
+
+	/// Asynchronously instantiates this plugin.
+	///
+	/// This variant is required for WIT async functions, asynchronous host functions,
+	/// and plugins that will be used in a graph created with [`link_async`](Self::link_async).
+	/// The instance owns a dedicated worker so its [`Store`](wasmtime::Store) remains
+	/// isolated and is never driven recursively from another plugin's store.
+	///
+	/// # Example
+	///
+	/// ```
+	/// # use wasm_link::{ Component, Engine, Linker, Plugin, PluginContext, ResourceTable };
+	/// # struct Context { table: ResourceTable }
+	/// # impl PluginContext for Context { fn resource_table( &mut self ) -> &mut ResourceTable { &mut self.table } }
+	/// # fn main() -> Result<(), Box<dyn std::error::Error>> { futures::executor::block_on( async {
+	/// let engine = Engine::default();
+	/// let linker = Linker::new( &engine );
+	/// let instance = Plugin::new(
+	/// 	Component::new( &engine, "(component)" )?,
+	/// 	Context { table: ResourceTable::new() },
+	/// ).instantiate_async( &engine, &linker ).await?;
+	/// # let _ = instance;
+	/// # Ok(()) }) }
+	/// ```
+	///
+	/// # Errors
+	/// Returns an error if instantiation fails.
+	pub async fn instantiate_async(
+		self,
+		engine: &Engine,
+		linker: &Linker<Ctx>,
+	) -> Result<PluginInstance<Ctx>, wasmtime::Error> {
+		let mut store = Store::new( engine, self.context );
+		if let Some( limiter ) = self.memory_limiter { store.limiter( limiter ); }
+		let instance = linker.instantiate_async( &mut store, &self.component ).await?;
+		PluginInstance::new_async(
+			store,
+			instance,
+			self.interface_remaps,
+			self.fuel_limiter,
+			self.epoch_limiter,
+		)
 	}
 
 }

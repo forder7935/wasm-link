@@ -1,0 +1,5 @@
+package test:dependant-async;
+
+interface root {
+	get-primitive: async func() -> u32;
+}

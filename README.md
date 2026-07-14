@@ -21,8 +21,14 @@
 
 - Unlimited plugin composition with no architectural restrictions
 - Performant language-agnostic plugin system
+- Native Component Model async functions without forcing synchronous plugins onto the async API
 
-NOTE: Async types (`Future`, `Stream`, `ErrorContext`) are not yet supported for cross-plugin transfer and will return an error if encountered.
+Each plugin keeps its own Wasmtime `Store`. Async stores run on dedicated, serialized workers so a
+suspended plugin can await another plugin without sharing memory or recursively driving Wasmtime stores.
+
+NOTE: Component Model `future`, `stream`, and `error-context` values cannot yet cross plugin-store
+boundaries because Wasmtime's dynamic API does not expose a type-erased way to relay their payloads.
+WIT `async func` calls and ordinary WIT functions backed by async host work are supported.
 
 ## Contents
 
@@ -31,6 +37,7 @@ NOTE: Async types (`Future`, `Stream`, `ErrorContext`) are not yet supported for
 - [Project Philosophy](#project-philosophy)
 - [Quick Start](#quick-start)
 - [Plugin Error ABI](#plugin-error-abi)
+- [Async](#async)
 - [Goals](#goals)
 - [License](#license)
 - [Contribution](#contribution)
@@ -134,13 +141,26 @@ dispatch errors exposed to WebAssembly plugins. It is included in the published
 crate so plugin bindings can be generated from the same contract used by the
 runtime's ABI tests.
 
+## Async
+
+Build an async graph bottom-up with `instantiate_async()` and `link_async()`, then call it with
+`dispatch_async()`. Synchronous graphs continue to use `instantiate()`, `link()`, and `dispatch()`
+without an executor. Mark metadata for WIT declarations written as `async func` with
+`Function::new_async()`; continue using `Function::new()` for ordinary WIT functions even when an
+async graph forwards those calls between stores.
+
+Async graph methods intentionally have distinct names: making `instantiate()` or `dispatch()` async
+would impose Rust's async coloring on applications whose components never suspend.
+
 ## Goals
 
 - ✅ Basic plugin linking
 - ✅ Component model support
 - ✅ Resource support
 - ✅ Fuel, epoch, and memory resource limits
-- ⬛ Async, streams and threads
+- ✅ Component Model async functions
+- ⬛ Cross-store streams, futures, and error contexts
+- ⬛ Component Model threads
 
 Further goals are yet to be determined.
 
