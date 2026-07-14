@@ -30,3 +30,17 @@ jobs:
 
       - name: Run tests
         run: nix develop --quiet --command cargo test
+
+      - name: Check test coverage
+        run: |
+          nix develop --quiet --command cargo llvm-cov \
+            --workspace \
+            --all-features \
+            --fail-under-functions 100 \
+            --lcov \
+            --output-path target/coverage.lcov
+          if grep -Eq '^DA:[0-9]+,0$' target/coverage.lcov; then
+            echo 'Coverage report contains uncovered source lines:'
+            grep -E '^DA:[0-9]+,0$' target/coverage.lcov
+            exit 1
+          fi

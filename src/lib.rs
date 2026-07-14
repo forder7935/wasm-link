@@ -358,6 +358,8 @@ mod plugin ;
 mod plugin_instance ;
 mod remap ;
 pub mod cardinality ;
+#[cfg(test)] mod cardinality_tests ;
+#[cfg(test)] mod interface_tests ;
 mod linker ;
 mod resource_wrapper ;
 

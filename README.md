@@ -30,6 +30,7 @@ NOTE: Async types (`Future`, `Stream`, `ErrorContext`) are not yet supported for
 - [Contents](#contents)
 - [Project Philosophy](#project-philosophy)
 - [Quick Start](#quick-start)
+- [Plugin Error ABI](#plugin-error-abi)
 - [Goals](#goals)
 - [License](#license)
 - [Contribution](#contribution)
@@ -125,6 +126,13 @@ match result {
 	ExactlyOne( _id, Err( err )) => panic!( "dispatch error: {}", err ),
 }
 ```
+
+## Plugin Error ABI
+
+The versioned [`wasm-link:runtime`](wit/wasm-link.wit) WIT package defines the
+dispatch errors exposed to WebAssembly plugins. It is included in the published
+crate so plugin bindings can be generated from the same contract used by the
+runtime's ABI tests.
 
 ## Goals
 

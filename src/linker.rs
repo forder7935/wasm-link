@@ -195,3 +195,6 @@ where
 		Val::ErrorContext( _ ) => return Err( DispatchError::UnsupportedType( "error-context".to_string() )),
 	})
 }
+
+#[cfg(test)]
+mod tests { include!( "linker_tests.rs" ); }

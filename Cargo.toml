@@ -14,6 +14,7 @@ categories = ["wasm"]
 include = [
 	"src/*",
 	"tests/*",
+	"wit/*",
 	"README.md",
 	"LICENSE-APACHE",
 	"LICENSE-MIT",
@@ -28,7 +29,9 @@ nonempty-collections = "1.3"
 
 [dev-dependencies]
 wit-parser = "0.251.0"
+wit-component = { version = "0.251.0", features = [ "dummy-module" ] }
 once_cell = "1.21.4"
+futures = { version = "0.3.31", features = [ "executor" ] }
 
 [lints.clippy]
 pedantic = { level = "warn", priority = -1 }
