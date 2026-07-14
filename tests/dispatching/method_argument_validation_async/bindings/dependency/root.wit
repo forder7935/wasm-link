@@ -1,0 +1,5 @@
+package test:async-validation-child;
+
+interface root {
+	get-value: async func() -> u32;
+}

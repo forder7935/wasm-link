@@ -1,0 +1,10 @@
+package test:async-resource;
+
+interface root {
+	resource counter {
+		constructor();
+		get-value: async func() -> u32;
+	}
+
+	make-counter: async func() -> counter;
+}

@@ -1,0 +1,5 @@
+package test:async-consumer;
+
+interface root {
+	get-value: async func() -> u32;
+}

@@ -44,3 +44,48 @@ fn method_metadata_rejects_calls_without_resource_argument() -> Result<(), Box<d
 	), "unexpected dispatch result: {result:#?}" );
 	Ok(())
 }
+
+#[test]
+fn async_method_metadata_rejects_calls_without_resource_argument() -> Result<(), Box<dyn std::error::Error>> {
+	futures::executor::block_on( async {
+		let engine = Engine::default();
+		let linker = Linker::new( &engine );
+		let executor = futures::executor::ThreadPool::new()?;
+		let plugins = fixtures::plugins( &engine );
+		let bindings = fixtures::bindings();
+		let child = plugins.child.plugin.instantiate_async( &engine, &linker, executor.clone() ).await?;
+		let dependency = Binding::new(
+			bindings.dependency.package,
+			HashMap::from([(
+				bindings.dependency.name,
+				Interface::new(
+					HashMap::from([(
+						"get-value".to_string(),
+						Function::new( FunctionKind::Method, ReturnKind::AssumeNoResources ),
+					)]),
+					HashSet::new(),
+				),
+			)]),
+			ExactlyOne( "child".to_string(), child ),
+		);
+		let startup = plugins.startup.plugin.link_async(
+			&engine,
+			linker,
+			vec![ dependency ],
+			executor,
+		).await?;
+		let root = Binding::new(
+			bindings.root.package,
+			HashMap::from([( bindings.root.name, bindings.root.spec )]),
+			ExactlyOne( "startup".to_string(), startup ),
+		);
+
+		let result = root.dispatch_async( "root", "get-value", &[] ).await?;
+		assert!( matches!(
+			&result,
+			ExactlyOne( _, Ok( Val::Result( Err( Some( error ))))) if
+			matches!( &**error, Val::Variant( name, None ) if name == "invalid-argument-list" )
+		), "unexpected dispatch result: {result:#?}" );
+		Ok(())
+	})
+}

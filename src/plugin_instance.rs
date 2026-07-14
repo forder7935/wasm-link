@@ -315,3 +315,5 @@ fn ensure_supported_value( value: &Val ) -> Result<(), DispatchError> {
 		_ => Ok(()),
 	}
 }
+
+#[cfg(test)] mod tests { include!( "plugin_instance_tests.rs" ); }

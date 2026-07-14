@@ -7,6 +7,7 @@ include!( "test_utils/assert_no_warnings.rs" );
 	mod dependant_plugins_expect_primitive ;
 	mod dependant_error_encoding ;
 	mod method_argument_validation ;
+	mod method_argument_validation_async ;
 	mod function_resource_name_collision ;
 	mod duplicate_socket_interfaces ;
 	mod dependant_plugins_async ;

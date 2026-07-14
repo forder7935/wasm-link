@@ -5,4 +5,5 @@ include!( "test_utils/assert_no_warnings.rs" );
 #[path = "resource"] mod resource {
 	mod single_plugin ;
 	mod dependant_plugins ;
+	mod dependant_plugins_async ;
 }
