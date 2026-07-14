@@ -16,7 +16,7 @@ impl futures::task::Spawn for RejectingExecutor {
 }
 
 #[test]
-fn dispatches_wit_async_across_plugin_stores() {
+fn links_and_dispatches_wit_async_across_plugin_stores_on_one_worker() {
 	futures::executor::block_on( async {
 		let engine = Engine::default();
 		let linker = Linker::new( &engine );
