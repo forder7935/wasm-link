@@ -1,5 +1,8 @@
 use std::collections::HashMap ;
-use std::sync::mpsc ;
+use std::sync::Arc ;
+use futures::future::BoxFuture ;
+use futures::lock::Mutex ;
+use futures::task::{ FutureObj, Spawn };
 use thiserror::Error ;
 use wasmtime::component::{ Instance, Val };
 use wasmtime::Store ;
@@ -10,20 +13,27 @@ use crate::resource_wrapper::{ ResourceCreationError, ResourceReceiveError };
 type CallLimiter<Ctx> = Box<dyn FnMut( &mut Store<Ctx>, &str, &str, &Function ) -> u64 + Send>;
 
 
-/// An instantiated plugin with its store and instance, ready for dispatch.
+/// A synchronously instantiated plugin, ready for synchronous dispatch.
 ///
 /// Created by calling [`Plugin::instantiate`]( crate::Plugin::instantiate ),
-/// [`Plugin::link`]( crate::Plugin::link ), [`Plugin::instantiate_async`]( crate::Plugin::instantiate_async ),
-/// or [`Plugin::link_async`]( crate::Plugin::link_async ). Synchronous instances hold their Wasmtime
-/// [`Store`] directly. Async instances keep their independent store on a serialized worker.
-pub struct PluginInstance<Ctx: 'static> {
-	runtime: PluginRuntime<Ctx>,
+/// or [`Plugin::link`]( crate::Plugin::link ).
+pub struct PluginInstanceSync<Ctx: 'static> {
+	state: PluginState<Ctx>,
 }
 
-enum PluginRuntime<Ctx: 'static> {
-	Sync( PluginState<Ctx> ),
-	Async( mpsc::Sender<AsyncDispatch> ),
+/// An asynchronously instantiated plugin, ready for asynchronous dispatch.
+///
+/// Created by calling [`Plugin::instantiate_async`]( crate::Plugin::instantiate_async )
+/// or [`Plugin::link_async`]( crate::Plugin::link_async ). Calls are submitted to the
+/// executor supplied during instantiation. The plugin's Wasmtime [`Store`] remains
+/// independent and is serialized by an internal lock.
+pub struct PluginInstanceAsync<Ctx: 'static> {
+	state: Arc<Mutex<PluginState<Ctx>>>,
+	executor: Arc<dyn Spawn + Send + Sync>,
 }
+
+/// Backwards-compatible name for [`PluginInstanceSync`].
+pub type PluginInstance<Ctx> = PluginInstanceSync<Ctx>;
 
 struct PluginState<Ctx: 'static> {
 	store: Store<Ctx>,
@@ -33,28 +43,24 @@ struct PluginState<Ctx: 'static> {
 	epoch_limiter: Option<CallLimiter<Ctx>>,
 }
 
-struct AsyncDispatch {
-	package_name: String,
-	interface_name: String,
-	function_name: String,
-	function: Function,
-	data: Vec<Val>,
-	response: futures::channel::oneshot::Sender<Result<Val, DispatchError>>,
+impl<Ctx: std::fmt::Debug + 'static> std::fmt::Debug for PluginInstanceSync<Ctx> {
+	fn fmt( &self, f: &mut std::fmt::Formatter<'_> ) -> std::result::Result<(), std::fmt::Error> {
+		f.debug_struct( "PluginInstanceSync" )
+			.field( "data", &self.state.store.data() )
+			.field( "store", &self.state.store )
+			.field( "interface_remaps", &self.state.interface_remaps )
+			.field( "fuel_limiter", &self.state.fuel_limiter.as_ref().map(| _ | "<closure>" ))
+			.field( "epoch_limiter", &self.state.epoch_limiter.as_ref().map(| _ | "<closure>" ))
+			.finish_non_exhaustive()
+	}
 }
 
-impl<Ctx: std::fmt::Debug + 'static> std::fmt::Debug for PluginInstance<Ctx> {
+impl<Ctx: 'static> std::fmt::Debug for PluginInstanceAsync<Ctx> {
 	fn fmt( &self, f: &mut std::fmt::Formatter<'_> ) -> std::result::Result<(), std::fmt::Error> {
-		let mut debug = f.debug_struct( "PluginInstance" );
-		match &self.runtime {
-			PluginRuntime::Sync( state ) => debug
-				.field( "data", &state.store.data() )
-				.field( "store", &state.store )
-				.field( "interface_remaps", &state.interface_remaps )
-				.field( "fuel_limiter", &state.fuel_limiter.as_ref().map(| _ | "<closure>" ))
-				.field( "epoch_limiter", &state.epoch_limiter.as_ref().map(| _ | "<closure>" )),
-			PluginRuntime::Async( _ ) => debug.field( "runtime", &"<async worker>" ),
-		};
-		debug.finish_non_exhaustive()
+		f.debug_struct( "PluginInstanceAsync" )
+			.field( "state", &"<serialized store>" )
+			.field( "executor", &"<executor>" )
+			.finish_non_exhaustive()
 	}
 }
 
@@ -79,12 +85,8 @@ pub enum DispatchError {
 	#[error( "Invalid Argument List" )] InvalidArgumentList,
 	/// Async types (`Future`, `Stream`, `ErrorContext`) are not yet supported for cross-plugin transfer.
 	#[error( "Unsupported type: {0}" )] UnsupportedType( String ),
-	/// This instance was asynchronously instantiated and must be dispatched asynchronously.
-	#[error( "Async dispatch required" )] AsyncRequired,
-	/// This instance was synchronously instantiated and must be dispatched synchronously.
-	#[error( "Sync dispatch required" )] SyncRequired,
-	/// The worker owning an asynchronously instantiated plugin stopped unexpectedly.
-	#[error( "Async plugin worker stopped" )] AsyncWorkerStopped,
+	/// The executor supplied for an async plugin rejected a dispatch task.
+	#[error( "Async executor unavailable" )] ExecutorUnavailable,
 	/// Failed to create a resource handle for cross-plugin transfer.
 	#[error( "Resource Create Error: {0}" )] ResourceCreationError( #[from] ResourceCreationError ),
 	/// Failed to receive a resource handle from another plugin.
@@ -100,15 +102,13 @@ impl From<DispatchError> for Val {
 		DispatchError::RuntimeException( exception ) => Val::Variant( "runtime-exception".to_string(), Some( Box::new( Val::String( exception.to_string() )))),
 		DispatchError::InvalidArgumentList => Val::Variant( "invalid-argument-list".to_string(), None ),
 		DispatchError::UnsupportedType( name ) => Val::Variant( "unsupported-type".to_string(), Some( Box::new( Val::String( name )))),
-		DispatchError::AsyncRequired => Val::Variant( "async-required".to_string(), None ),
-		DispatchError::SyncRequired => Val::Variant( "sync-required".to_string(), None ),
-		DispatchError::AsyncWorkerStopped => Val::Variant( "async-worker-stopped".to_string(), None ),
+		DispatchError::ExecutorUnavailable => Val::Variant( "executor-unavailable".to_string(), None ),
 		DispatchError::ResourceCreationError( err ) => err.into(),
 		DispatchError::ResourceReceiveError( err ) => err.into(),
 	}}
 }
 
-impl<Ctx: PluginContext + 'static> PluginInstance<Ctx> {
+impl<Ctx: PluginContext + 'static> PluginInstanceSync<Ctx> {
 	pub(crate) fn new_sync(
 		store: Store<Ctx>,
 		instance: Instance,
@@ -116,44 +116,13 @@ impl<Ctx: PluginContext + 'static> PluginInstance<Ctx> {
 		fuel_limiter: Option<CallLimiter<Ctx>>,
 		epoch_limiter: Option<CallLimiter<Ctx>>,
 	) -> Self {
-		Self { runtime: PluginRuntime::Sync( PluginState {
+		Self { state: PluginState {
 			store,
 			instance,
 			interface_remaps,
 			fuel_limiter,
 			epoch_limiter,
-		})}
-	}
-
-	pub(crate) fn new_async(
-		store: Store<Ctx>,
-		instance: Instance,
-		interface_remaps: HashMap<String, Remap>,
-		fuel_limiter: Option<CallLimiter<Ctx>>,
-		epoch_limiter: Option<CallLimiter<Ctx>>,
-	) -> Result<Self, wasmtime::Error> {
-		let ( sender, receiver ) = mpsc::channel::<AsyncDispatch>();
-		let mut state = PluginState {
-			store,
-			instance,
-			interface_remaps,
-			fuel_limiter,
-			epoch_limiter,
-		};
-		std::thread::Builder::new()
-			.name( "wasm-link-plugin".to_string() )
-			.spawn( move || while let Ok( request ) = receiver.recv() {
-				let result = futures::executor::block_on( state.dispatch_async(
-					&request.package_name,
-					&request.interface_name,
-					&request.function_name,
-					&request.function,
-					&request.data,
-				));
-				let _ = request.response.send( result );
-			})
-			.map_err(| error | wasmtime::Error::msg( format!( "failed to start async plugin worker: {error}" )))?;
-		Ok( Self { runtime: PluginRuntime::Async( sender )})
+		}}
 	}
 
 	pub(crate) fn dispatch(
@@ -164,33 +133,59 @@ impl<Ctx: PluginContext + 'static> PluginInstance<Ctx> {
 		function: &Function,
 		data: &[Val],
 	) -> Result<Val, DispatchError> {
-		match &mut self.runtime {
-			PluginRuntime::Sync( state ) => state.dispatch( package_name, interface_name, function_name, function, data ),
-			PluginRuntime::Async( _ ) => Err( DispatchError::AsyncRequired ),
+		self.state.dispatch( package_name, interface_name, function_name, function, data )
+	}
+}
+
+impl<Ctx: PluginContext + 'static> PluginInstanceAsync<Ctx> {
+	pub(crate) fn new(
+		store: Store<Ctx>,
+		instance: Instance,
+		interface_remaps: HashMap<String, Remap>,
+		fuel_limiter: Option<CallLimiter<Ctx>>,
+		epoch_limiter: Option<CallLimiter<Ctx>>,
+		executor: impl Spawn + Send + Sync + 'static,
+	) -> Self {
+		Self {
+			state: Arc::new( Mutex::new( PluginState {
+				store,
+				instance,
+				interface_remaps,
+				fuel_limiter,
+				epoch_limiter,
+			})),
+			executor: Arc::new( executor ),
 		}
 	}
 
 	pub(crate) async fn dispatch_async(
-		&mut self,
+		&self,
 		package_name: &str,
 		interface_name: &str,
 		function_name: &str,
 		function: &Function,
 		data: &[Val],
 	) -> Result<Val, DispatchError> {
-		let PluginRuntime::Async( sender ) = &self.runtime else {
-			return Err( DispatchError::SyncRequired );
-		};
+		let state = Arc::clone( &self.state );
+		let package_name = package_name.to_string();
+		let interface_name = interface_name.to_string();
+		let function_name = function_name.to_string();
+		let function = function.clone();
+		let data = data.to_vec();
 		let ( response, result ) = futures::channel::oneshot::channel();
-		sender.send( AsyncDispatch {
-			package_name: package_name.to_string(),
-			interface_name: interface_name.to_string(),
-			function_name: function_name.to_string(),
-			function: function.clone(),
-			data: data.to_vec(),
-			response,
-		}).map_err(| _ | DispatchError::AsyncWorkerStopped )?;
-		result.await.map_err(| _ | DispatchError::AsyncWorkerStopped )?
+		let task: BoxFuture<'static, ()> = Box::pin( async move {
+			let result = state.lock().await.dispatch_async(
+				&package_name,
+				&interface_name,
+				&function_name,
+				&function,
+				&data,
+			).await;
+			let _ = response.send( result );
+		});
+		self.executor.spawn_obj( FutureObj::new( task ))
+			.map_err(| _ | DispatchError::ExecutorUnavailable )?;
+		result.await.map_err(| _ | DispatchError::ExecutorUnavailable )?
 	}
 
 }

@@ -3,7 +3,7 @@ use std::collections::{ HashMap, HashSet };
 use futures::lock::Mutex ;
 use wasmtime::component::{ Linker, ResourceType, Val };
 
-use crate::{ Binding, PluginContext };
+use crate::{ Binding, PluginContext, PluginInstanceAsync, PluginInstanceSync };
 use crate::cardinality::Cardinality ;
 use crate::linker::{
 	dispatch_all,
@@ -69,15 +69,15 @@ impl Interface {
 		package_name: &str,
 		interface_ident: &str,
 		interface_name: &str,
-		binding: &Binding<PluginId, Ctx, Plugins>,
+		binding: &Binding<PluginId, Ctx, Plugins, PluginInstanceSync<Ctx>>,
 	) -> Result<(), wasmtime::Error>
 	where
 		PluginId: std::hash::Hash + Eq + Clone + Send + Sync + Into<Val> + 'static,
 		Ctx: PluginContext,
-		Plugins: Cardinality<PluginId, crate::PluginInstance<Ctx>> + 'static,
-		<Plugins as Cardinality<PluginId, crate::PluginInstance<Ctx>>>::Rebind<Arc<Mutex<crate::PluginInstance<Ctx>>>>: Send + Sync,
-		<Plugins as Cardinality<PluginId, crate::PluginInstance<Ctx>>>::Rebind<Arc<Mutex<crate::PluginInstance<Ctx>>>>: Cardinality<PluginId, Arc<Mutex<crate::PluginInstance<Ctx>>>>,
-		<<Plugins as Cardinality<PluginId, crate::PluginInstance<Ctx>>>::Rebind<Arc<Mutex<crate::PluginInstance<Ctx>>>> as Cardinality<PluginId, Arc<Mutex<crate::PluginInstance<Ctx>>>>>::Rebind<Val>: Into<Val>,
+		Plugins: Cardinality<PluginId, PluginInstanceSync<Ctx>> + 'static,
+		<Plugins as Cardinality<PluginId, PluginInstanceSync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceSync<Ctx>>>>: Send + Sync,
+		<Plugins as Cardinality<PluginId, PluginInstanceSync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceSync<Ctx>>>>: Cardinality<PluginId, Arc<Mutex<PluginInstanceSync<Ctx>>>>,
+		<<Plugins as Cardinality<PluginId, PluginInstanceSync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceSync<Ctx>>>> as Cardinality<PluginId, Arc<Mutex<PluginInstanceSync<Ctx>>>>>::Rebind<Val>: Into<Val>,
 	{
 		let mut linker_root = linker.root();
 		let mut linker_instance = linker_root.instance( interface_ident )?;
@@ -118,15 +118,15 @@ impl Interface {
 		package_name: &str,
 		interface_ident: &str,
 		interface_name: &str,
-		binding: &Binding<PluginId, Ctx, Plugins>,
+		binding: &Binding<PluginId, Ctx, Plugins, PluginInstanceAsync<Ctx>>,
 	) -> Result<(), wasmtime::Error>
 	where
 		PluginId: std::hash::Hash + Eq + Clone + Send + Sync + Into<Val> + 'static,
 		Ctx: PluginContext,
-		Plugins: Cardinality<PluginId, crate::PluginInstance<Ctx>> + 'static,
-		<Plugins as Cardinality<PluginId, crate::PluginInstance<Ctx>>>::Rebind<Arc<Mutex<crate::PluginInstance<Ctx>>>>: Send + Sync,
-		<Plugins as Cardinality<PluginId, crate::PluginInstance<Ctx>>>::Rebind<Arc<Mutex<crate::PluginInstance<Ctx>>>>: Cardinality<PluginId, Arc<Mutex<crate::PluginInstance<Ctx>>>>,
-		<<Plugins as Cardinality<PluginId, crate::PluginInstance<Ctx>>>::Rebind<Arc<Mutex<crate::PluginInstance<Ctx>>>> as Cardinality<PluginId, Arc<Mutex<crate::PluginInstance<Ctx>>>>>::Rebind<Val>: Into<Val> + Send,
+		Plugins: Cardinality<PluginId, PluginInstanceAsync<Ctx>> + 'static,
+		<Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceAsync<Ctx>>>>: Send + Sync,
+		<Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceAsync<Ctx>>>>: Cardinality<PluginId, Arc<Mutex<PluginInstanceAsync<Ctx>>>>,
+		<<Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceAsync<Ctx>>>> as Cardinality<PluginId, Arc<Mutex<PluginInstanceAsync<Ctx>>>>>::Rebind<Val>: Into<Val> + Send,
 	{
 		let mut linker_root = linker.root();
 		let mut linker_instance = linker_root.instance( interface_ident )?;
@@ -230,7 +230,7 @@ impl Function {
 	///
 	/// let function = Function::new_async(
 	/// 	FunctionKind::Freestanding,
-	/// 	ReturnKind::AssumeNoResources,
+	/// 	ReturnKind::MayContainResources,
 	/// );
 	/// assert!( function.is_async() );
 	/// ```

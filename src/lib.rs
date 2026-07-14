@@ -19,7 +19,8 @@
 //! 	to host exports; their ids are provided as keys of a `HashMap` when constructing a
 //! 	[`Binding`]. This prevents duplicate ids.
 //!
-//! - [`PluginInstance`]: An instantiated plugin with its store and instance, ready for dispatch.
+//! - [`PluginInstanceSync`] and [`PluginInstanceAsync`]: Instantiated plugins ready for
+//! 	synchronous or asynchronous dispatch.
 //!
 //! - **Plug**: A plugin's declaration that it implements a [`Binding`].
 //!
@@ -34,18 +35,6 @@
 //!			represented as `map<PluginId, result<T>>`
 //! 	- [`cardinality::Any`]`( HashMap<Id, T> )` - zero or more plugins,
 //!			represented as `map<PluginId, result<T>>`
-//!
-//! # Async Graphs
-//!
-//! Component Model `async func` declarations and synchronous WIT functions backed by async host
-//! work are supported through [`Plugin::instantiate_async`], [`Plugin::link_async`], and
-//! [`Binding::dispatch_async`]. Each asynchronously instantiated plugin owns a serialized worker
-//! for its independent Wasmtime store, so cross-plugin suspension never shares stores or recursively
-//! drives one store from another.
-//!
-//! Component Model `future`, `stream`, and `error-context` values are not supported across plugin
-//! store boundaries. Wasmtime currently exposes those dynamic handles as store-owned values without
-//! a type-erased public API for relaying their payloads into another store.
 //!
 //! # Re-exports
 //!
@@ -385,7 +374,7 @@ pub use nonempty_collections::{ NEMap, nem };
 pub use binding::Binding ;
 pub use interface::{ Interface, Function, FunctionKind, ReturnKind };
 pub use plugin::{ PluginContext, Plugin };
-pub use plugin_instance::{ PluginInstance, DispatchError };
+pub use plugin_instance::{ PluginInstance, PluginInstanceAsync, PluginInstanceSync, DispatchError };
 pub use remap::{ ItemResolutionTable, Remap };
 pub use binding::BindingAny ;
 pub use resource_wrapper::{ ResourceCreationError, ResourceReceiveError };

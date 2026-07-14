@@ -38,11 +38,6 @@ fn dispatch_test_dependant_plugins_expect_primitive() {
 		value => panic!( "Expected Ok( ExactlyOne( Ok( U32( 42 )))), found: {:#?}", value ),
 	}
 
-	match futures::executor::block_on( root_binding.dispatch_async( "root", "get-primitive", &[] )) {
-		Ok( ExactlyOne( _, Err( wasm_link::DispatchError::SyncRequired ))) => {}
-		value => panic!( "Expected async dispatch to require sync dispatch, found: {:#?}", value ),
-	}
-
 }
 
 #[test]
@@ -51,11 +46,13 @@ fn dispatch_async_test_dependant_plugins_expect_primitive() {
 	futures::executor::block_on( async {
 		let engine = Engine::default();
 		let linker = Linker::new( &engine );
+		let executor = futures::executor::ThreadPool::new()
+			.expect( "Failed to create async executor" );
 		let plugins = fixtures::plugins( &engine );
 		let bindings = fixtures::bindings();
 
 		let child_instance = plugins.child.plugin
-			.instantiate_async( &engine, &linker )
+			.instantiate_async( &engine, &linker, executor.clone() )
 			.await
 			.expect( "Failed to instantiate child plugin asynchronously" );
 		let dependency_binding = Binding::new(
@@ -65,7 +62,7 @@ fn dispatch_async_test_dependant_plugins_expect_primitive() {
 		);
 
 		let startup_instance = plugins.startup.plugin
-			.link_async( &engine, linker.clone(), vec![ dependency_binding ])
+			.link_async( &engine, linker.clone(), vec![ dependency_binding ], executor )
 			.await
 			.expect( "Failed to link startup plugin asynchronously" );
 		let root_binding = Binding::new(
