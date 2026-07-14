@@ -1,0 +1,18 @@
+package test:method-error ;
+
+interface root {
+	variant dispatch-error {
+		lock-rejected,
+		invalid-interface-path(string),
+		invalid-function(string),
+		missing-response,
+		runtime-exception(string),
+		invalid-argument-list,
+		unsupported-type(string),
+		resource-table-full,
+		resource-handle-conversion-failed,
+		invalid-resource-handle,
+	}
+
+	get-value: func() -> result<u32, dispatch-error>;
+}

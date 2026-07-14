@@ -1,0 +1,34 @@
+use std::collections::HashMap ;
+
+use wasm_link::{ Binding, Engine, Linker };
+use wasm_link::cardinality::ExactlyOne ;
+
+fixtures! {
+	bindings = { root: "root" };
+	plugins  = { plugin: "plugin" };
+}
+
+#[test]
+fn debug_output_exposes_configuration_without_component_internals() -> Result<(), wasmtime::Error> {
+	let engine = Engine::default();
+	let linker = Linker::new( &engine );
+	let plugins = fixtures::plugins( &engine );
+	let bindings = fixtures::bindings();
+	let plugin_debug = format!( "{:?}", plugins.plugin.plugin );
+	assert!( plugin_debug.contains( "component: \"<Component>\"" ));
+	assert!( plugin_debug.contains( "fuel_limiter: None" ));
+
+	let plugin_instance = plugins.plugin.plugin.instantiate( &engine, &linker )?;
+	let instance_debug = format!( "{plugin_instance:?}" );
+	assert!( instance_debug.contains( "data: TestContext" ));
+	assert!( instance_debug.contains( "fuel_limiter: None" ));
+	let binding = Binding::new(
+		bindings.root.package,
+		HashMap::from([( bindings.root.name, bindings.root.spec )]),
+		ExactlyOne( "plugin".to_string(), plugin_instance ),
+	);
+	let binding_debug = format!( "{binding:?}" );
+	assert!( binding_debug.contains( "package_name: \"test:primitive\"" ));
+	assert!( binding_debug.contains( "plugins: ExactlyOne" ));
+	Ok(())
+}

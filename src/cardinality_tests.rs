@@ -15,6 +15,7 @@ fn exactly_one_maps_and_gets() {
 }
 
 #[test]
+#[cfg(debug_assertions)]
 #[should_panic( expected = "singleton cardinality id mismatch" )]
 fn exactly_one_rejects_a_mismatched_id_in_debug_builds() {
 	let value = ExactlyOne( "plugin".to_string(), 10_u32 );
@@ -41,6 +42,7 @@ fn at_most_one_maps_none_and_some() {
 }
 
 #[test]
+#[cfg(debug_assertions)]
 #[should_panic( expected = "singleton cardinality id mismatch" )]
 fn at_most_one_rejects_a_mismatched_id_in_debug_builds() {
 	let value = AtMostOne( Some(( "plugin".to_string(), 10_u32 )));
@@ -113,11 +115,11 @@ fn any_into_val() {
 	])));
 	assert!( matches!( val, Val::Map( items ) if
 		items.len() == 2
-		&& items.iter().any(|( key, value )|
-			matches!( ( key, value ), ( Val::String( id ), Val::U32( 1 )) if id == "a" )
+		&& items.iter().any(|item|
+			matches!( item, ( Val::String( id ), Val::U32( 1 )) if id == "a" )
 		)
-		&& items.iter().any(|( key, value )|
-			matches!( ( key, value ), ( Val::String( id ), Val::U32( 2 )) if id == "b" )
+		&& items.iter().any(|item|
+			matches!( item, ( Val::String( id ), Val::U32( 2 )) if id == "b" )
 		)
 	));
 }
