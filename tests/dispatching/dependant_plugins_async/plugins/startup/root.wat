@@ -1,7 +1,24 @@
 (component
-	(import "test:async-child/root" (instance $child
-		(export "get-value" (func async (result (tuple string (result u32)))))
+	(type $child-interface (instance
+		(type $dispatch-error' (variant
+			(case "lock-rejected")
+			(case "invalid-interface-path" string)
+			(case "invalid-function" string)
+			(case "missing-response")
+			(case "runtime-exception" string)
+			(case "invalid-argument-list")
+			(case "unsupported-type" string)
+			(case "executor-unavailable")
+			(case "resource-table-full")
+			(case "resource-handle-conversion-failed")
+			(case "invalid-resource-handle")
+		))
+		(export "dispatch-error" (type (eq $dispatch-error')))
+		(type $dispatch-result (result u32 (error 1)))
+		(type $get-value (func async (result (tuple string $dispatch-result))))
+		(export "get-value" (func (type $get-value)))
 	))
+	(import "test:async-child/root" (instance $child (type $child-interface)))
 
 	(alias export $child "get-value" (func $get_value))
 
@@ -27,7 +44,10 @@
 
 		(func (export "get-primitive") (result i32)
 			(call $get_value (i32.const 0))
-			(i32.load (i32.const 12))
+			(if (result i32) (i32.load (i32.const 8))
+				(then (i32.const 0))
+				(else (i32.load (i32.const 12)))
+			)
 		)
 	)
 

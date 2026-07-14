@@ -178,9 +178,7 @@ impl Interface {
 			}
 		})?;
 
-		self.resources.iter().try_for_each(| resource | linker_instance
-			.resource( resource.as_str(), ResourceType::host::<Arc<ResourceWrapper<PluginId>>>(), ResourceWrapper::<PluginId>::drop )
-		)?;
+		self.resources.iter().try_for_each(| resource | linker_instance.resource( resource.as_str(), ResourceType::host::<Arc<ResourceWrapper<PluginId>>>(), ResourceWrapper::<PluginId>::drop ))?;
 
 		Ok(())
 	}

@@ -12,6 +12,13 @@ fn exactly_one_maps_and_gets() {
 	assert_eq!( mapped.0, "plugin" );
 	assert_eq!( mapped.1, "plugin:10" );
 	assert_eq!( mapped.get( &"plugin".to_string() ), Some( &"plugin:10".to_string() ));
+
+	let value = ExactlyOne( "plugin".to_string(), 10_u32 );
+	let mapped = futures::executor::block_on(
+		value.map_async(| id, value | async move { format!( "{id}:{value}" )})
+	);
+	assert_eq!( mapped.0, "plugin" );
+	assert_eq!( mapped.1, "plugin:10" );
 }
 
 #[test]
@@ -39,6 +46,15 @@ fn at_most_one_maps_none_and_some() {
 
 	let some = AtMostOne( Some(( "plugin".to_string(), 3_u32 )));
 	assert_eq!( some.map_mut(| value | value + 1 ).0, Some(( "plugin".to_string(), 4 )));
+
+	let none: AtMostOne<String, u32> = AtMostOne( None );
+	assert!( futures::executor::block_on(
+		none.map_async(| _, value | async move { value + 1 })
+	).0.is_none() );
+	let some = AtMostOne( Some(( "plugin".to_string(), 3_u32 )));
+	assert_eq!( futures::executor::block_on(
+		some.map_async(| _, value | async move { value + 1 })
+	).0, Some(( "plugin".to_string(), 4 )));
 }
 
 #[test]
@@ -57,6 +73,13 @@ fn at_least_one_maps_and_gets() {
 	assert_eq!( mapped.get( &"b".to_string() ), Some( &4 ));
 
 	let values = AtLeastOne( nem! { "a".to_string() => 1_u32, "b".to_string() => 2_u32 } );
+	let mapped = futures::executor::block_on(
+		values.map_async(| _, value | async move { value * 2 })
+	);
+	assert_eq!( mapped.get( &"a".to_string() ), Some( &2 ));
+	assert_eq!( mapped.get( &"b".to_string() ), Some( &4 ));
+
+	let values = AtLeastOne( nem! { "a".to_string() => 1_u32, "b".to_string() => 2_u32 } );
 	let mapped = values.map_mut(| value | value * 2 );
 	assert_eq!( mapped.get( &"a".to_string() ), Some( &2 ));
 	assert_eq!( mapped.get( &"b".to_string() ), Some( &4 ));
@@ -69,6 +92,16 @@ fn any_maps_and_gets() {
 		( "b".to_string(), 2_u32 ),
 	]));
 	let mapped = values.map(| _, value | value + 10 );
+	assert_eq!( mapped.get( &"a".to_string() ), Some( &11 ));
+	assert_eq!( mapped.get( &"b".to_string() ), Some( &12 ));
+
+	let values = Any( HashMap::from([
+		( "a".to_string(), 1_u32 ),
+		( "b".to_string(), 2_u32 ),
+	]));
+	let mapped = futures::executor::block_on(
+		values.map_async(| _, value | async move { value + 10 })
+	);
 	assert_eq!( mapped.get( &"a".to_string() ), Some( &11 ));
 	assert_eq!( mapped.get( &"b".to_string() ), Some( &12 ));
 }

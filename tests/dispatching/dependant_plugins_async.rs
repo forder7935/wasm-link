@@ -88,3 +88,38 @@ fn reports_when_the_supplied_executor_rejects_dispatch() {
 		}
 	});
 }
+
+#[test]
+fn propagates_executor_rejection_across_a_plugin_link() {
+	futures::executor::block_on( async {
+		let engine = Engine::default();
+		let linker = Linker::new( &engine );
+		let executor = futures::executor::ThreadPool::new()
+			.expect( "Failed to create async executor" );
+		let plugins = fixtures::plugins( &engine );
+		let bindings = fixtures::bindings();
+		let child = plugins.child.plugin
+			.instantiate_async( &engine, &linker, RejectingExecutor )
+			.await
+			.expect( "Failed to instantiate child plugin asynchronously" );
+		let dependency = Binding::new(
+			bindings.dependency.package,
+			HashMap::from([( bindings.dependency.name, bindings.dependency.spec )]),
+			ExactlyOne( "_".to_string(), child ),
+		);
+		let startup = plugins.startup.plugin
+			.link_async( &engine, linker, vec![ dependency ], executor )
+			.await
+			.expect( "Failed to link startup plugin asynchronously" );
+		let root = Binding::new(
+			bindings.root.package,
+			HashMap::from([( bindings.root.name, bindings.root.spec )]),
+			ExactlyOne( "_".to_string(), startup ),
+		);
+
+		match root.dispatch_async( "root", "get-primitive", &[] ).await {
+			Ok( ExactlyOne( _, Ok( Val::U32( 0 )))) => {}
+			value => panic!( "Expected the consumer's error fallback U32(0), found: {value:#?}" ),
+		}
+	});
+}

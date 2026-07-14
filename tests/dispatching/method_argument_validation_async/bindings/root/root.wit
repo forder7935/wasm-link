@@ -1,0 +1,5 @@
+package test:dependant-async-validation;
+
+interface root {
+	get-primitive: async func() -> result<u32>;
+}
