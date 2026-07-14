@@ -132,7 +132,7 @@ mod fixture_linking {
 		let wasm_path = if wasm_path.exists() { wasm_path } else { root_path.join( "root.wat" ) };
 
 		let component = Component::from_file( engine, &wasm_path )
-			.map_err(| e | FixtureError::WasmLoad( e.to_string() ))?;
+			.map_err(| e | FixtureError::WasmLoad( format!( "{e:#}" )))?;
 
 		Ok( PluginData {
 			plugin: Plugin::new(
