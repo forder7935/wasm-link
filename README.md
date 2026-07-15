@@ -23,6 +23,8 @@
 - Performant language-agnostic plugin system
 - Component Model async functions
 
+NOTE: Cross-plugin support for `future`, `stream`, `error-context`, and threads is waiting for Wasmtime's implementations to be ready.
+
 ## Contents
 
 - [Highlights](#highlights)

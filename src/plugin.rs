@@ -74,7 +74,7 @@ pub trait PluginContext: Send {
 /// # Ok(())
 /// # }
 /// ```
-#[must_use = "call .instantiate() or .link() to create a PluginInstance"]
+#[must_use = "call .instantiate() or .link() to create a PluginInstanceSync"]
 pub struct Plugin<Ctx: 'static> {
 	/// Compiled WASM component
 	component: Component,

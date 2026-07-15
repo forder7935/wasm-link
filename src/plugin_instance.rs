@@ -32,9 +32,6 @@ pub struct PluginInstanceAsync<Ctx: 'static> {
 	executor: Arc<dyn Spawn + Send + Sync>,
 }
 
-/// Backwards-compatible name for [`PluginInstanceSync`].
-pub type PluginInstance<Ctx> = PluginInstanceSync<Ctx>;
-
 struct PluginState<Ctx: 'static> {
 	store: Store<Ctx>,
 	instance: Instance,
