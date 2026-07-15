@@ -1,6 +1,6 @@
 package test:wasm-link-wit;
 
 world validator {
-	use wasm-link:runtime/errors@0.3.0.{dispatch-error};
+	use wasm-link:runtime/errors@0.4.0.{dispatch-error};
 	export validate: func(error: dispatch-error);
 }

@@ -19,6 +19,7 @@ wasm-link is a runtime for loading and linking WebAssembly plugins. Plugins conn
 
 - ALWAYS run `cargo clippy` and `cargo test` after changes
 - make sure to update documentation and the README.md once the api is established
+- For version bumps, update `Cargo.toml`, the package version in `wit/wasm-link.wit`, and the matching import in `tests/wit_contract/validator.wit`.
 
 ## Detailed Guidelines
 

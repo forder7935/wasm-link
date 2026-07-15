@@ -1,4 +1,4 @@
-package wasm-link:runtime@0.3.0;
+package wasm-link:runtime@0.4.0;
 
 interface errors {
 	variant dispatch-error {
