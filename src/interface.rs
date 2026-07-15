@@ -24,13 +24,13 @@ use crate::resource_wrapper::ResourceWrapper ;
 ///
 /// ```
 /// # use std::collections::{ HashMap, HashSet };
-/// # use wasm_link::{ Binding, Interface, PluginContext, PluginInstance, ResourceTable };
+/// # use wasm_link::{ Binding, Interface, PluginContext, PluginInstanceSync, ResourceTable };
 /// # use wasm_link::cardinality::AtMostOne ;
 /// # struct Ctx { resource_table: ResourceTable }
 /// # impl PluginContext for Ctx {
 /// # 	fn resource_table( &mut self ) -> &mut ResourceTable { &mut self.resource_table }
 /// # }
-/// let binding: Binding<String, Ctx, AtMostOne<String, PluginInstance<Ctx>>> = Binding::new(
+/// let binding: Binding<String, Ctx, AtMostOne<String, PluginInstanceSync<Ctx>>> = Binding::new(
 /// 	"my:package",
 /// 	HashMap::from([
 /// 		( "interface-a".to_string(), Interface::new( HashMap::new(), HashSet::new() )),
