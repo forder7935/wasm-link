@@ -1,5 +1,5 @@
 use std::collections::{ HashMap, HashSet };
-use std::sync::{ Arc, atomic::{ AtomicUsize, Ordering } };
+use std::sync::{ Arc, atomic::{ AtomicU64, AtomicUsize, Ordering } };
 use wasm_link::{ Binding, Engine, Function, FunctionKind, Interface, Linker, ReturnKind, Val, DispatchError };
 use wasm_link::cardinality::ExactlyOne ;
 use wasmtime::Config;
@@ -10,7 +10,7 @@ fixtures! {
 }
 
 #[test]
-fn closure_is_called_per_dispatch_and_fuel_is_reset() {
+fn closure_is_called_per_dispatch_and_can_observe_remaining_fuel() {
 
 	let mut config = Config::new();
 	config.consume_fuel( true );
@@ -24,13 +24,20 @@ fn closure_is_called_per_dispatch_and_fuel_is_reset() {
 
 	let dispatch_call_count = Arc::new( AtomicUsize::new( 0 ));
 	let dispatch_call_count_clone = Arc::clone( &dispatch_call_count );
+	let fuel_before_second_call = Arc::new( AtomicU64::new( 0 ));
+	let fuel_before_second_call_clone = Arc::clone( &fuel_before_second_call );
 
 	// First call returns sufficient fuel; subsequent calls return 1 (immediate exhaustion).
 	// The closure is not reset between dispatches.
 	let plugin_instance = plugins.burn_fuel.plugin
-		.with_fuel_limiter( move | _store, _interface, _function, _metadata | {
+		.with_fuel_limiter( move | store, _interface, _function, _metadata | {
 			dispatch_call_count_clone.fetch_add( 1, Ordering::Relaxed );
-			if call_count_clone.fetch_add( 1, Ordering::Relaxed ) == 0 { 100_000 } else { 1 }
+			if call_count_clone.fetch_add( 1, Ordering::Relaxed ) == 0 {
+				100_000
+			} else {
+				fuel_before_second_call_clone.store( store.get_fuel().expect( "fuel should be enabled" ), Ordering::Relaxed );
+				1
+			}
 		})
 		.instantiate( &engine, &linker )
 		.expect( "failed to instantiate plugin" );
@@ -59,4 +66,5 @@ fn closure_is_called_per_dispatch_and_fuel_is_reset() {
 		other => panic!( "Expected RuntimeException on second dispatch, got: {:#?}", other ),
 	}
 	assert_eq!( dispatch_call_count.load( Ordering::Relaxed ), 1, "limiter should be called exactly once per dispatch" );
+	assert!( fuel_before_second_call.load( Ordering::Relaxed ) > 0, "limiter should observe fuel remaining from the previous call" );
 }

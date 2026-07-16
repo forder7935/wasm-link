@@ -204,7 +204,7 @@ impl<Ctx: PluginContext + 'static> PluginState<Ctx> {
 		let ( exported_interface_path, exported_function_name ) = self.resolve_export( package_name, interface_name, function_name );
 		let func = self.function( &exported_interface_path, &exported_function_name )?;
 		let call_result = func.call( &mut self.store, data, &mut buffer );
-		self.finish_call( function, buffer, call_result )
+		Self::finish_call( function, buffer, call_result )
 	}
 
 	async fn dispatch_async(
@@ -220,7 +220,7 @@ impl<Ctx: PluginContext + 'static> PluginState<Ctx> {
 		let ( exported_interface_path, exported_function_name ) = self.resolve_export( package_name, interface_name, function_name );
 		let func = self.function( &exported_interface_path, &exported_function_name )?;
 		let call_result = func.call_async( &mut self.store, data, &mut buffer ).await;
-		self.finish_call( function, buffer, call_result )
+		Self::finish_call( function, buffer, call_result )
 	}
 
 	fn prepare_call(
@@ -260,12 +260,10 @@ impl<Ctx: PluginContext + 'static> PluginState<Ctx> {
 	}
 
 	fn finish_call(
-		&mut self,
 		function: &Function,
 		mut buffer: Vec<Val>,
 		call_result: Result<(), wasmtime::Error>,
 	) -> Result<Val, DispatchError> {
-		if self.fuel_limiter.is_some() { let _ = self.store.set_fuel( 0 ); }
 		call_result.map_err( DispatchError::RuntimeException )?;
 		let result = match function.return_kind() != ReturnKind::Void {
 			true => buffer.pop().ok_or( DispatchError::MissingResponse )?,
