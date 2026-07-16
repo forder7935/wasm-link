@@ -23,9 +23,7 @@ fn instantiate_with_fuel( fuel: u64 ) -> Result<(), wasmtime::Error> {
 }
 
 async fn instantiate_async_with_fuel( fuel: u64 ) -> Result<(), wasmtime::Error> {
-	let mut config = Config::new();
-	config.consume_fuel( true );
-	let engine = Engine::new( &config ).expect( "failed to create engine" );
+	let engine = engine();
 	let linker = Linker::new( &engine );
 	let plugins = fixtures::plugins( &engine );
 	let executor = futures::executor::ThreadPool::new().expect( "failed to create executor" );
