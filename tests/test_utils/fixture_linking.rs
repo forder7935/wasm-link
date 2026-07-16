@@ -14,7 +14,14 @@ macro_rules! fixtures {
 	});
 
 	{
-		bindings = { $($iname:ident : $ipath:literal),* $(,)? };
+		bindings = {};
+		plugins  = { $($pname:ident : $ppath:literal),+ $(,)? };
+	} => ( mod fixtures {
+		fixtures!( @plugins $($pname : $ppath),* );
+	});
+
+	{
+		bindings = { $($iname:ident : $ipath:literal),+ $(,)? };
 		plugins  = { $($pname:ident : $ppath:literal),+ $(,)? };
 	} => ( mod fixtures {
 		fixtures!( @bindings $($iname : $ipath),* );

@@ -241,7 +241,8 @@
 //!
 //! - **Fuel** counts WebAssembly instructions. When fuel runs out, execution traps.
 //! 	Enable with [`Config::consume_fuel`]( wasmtime::Config::consume_fuel ).
-//! 	Set per-call via [`Plugin::with_fuel_limiter`].
+//! 	Set initially via [`Plugin::with_initial_fuel`] and per-call via
+//! 	[`Plugin::with_fuel_limiter`].
 //!
 //! - **Epoch deadline** counts external timer ticks. When the deadline is reached,
 //! 	execution traps. Enable with [`Config::epoch_interruption`]( wasmtime::Config::epoch_interruption ).
@@ -306,8 +307,10 @@
 //!
 //! **Engine enabled but no limiter set.** If you enable fuel/epoch deadlines in the [`Engine`]
 //! but don't set a limiter on the [`Plugin`], the behavior mimics the wasmtime default.
-//! - *Fuel*: A fresh [`Store`]( wasmtime::Store ) starts with 0 fuel, so the first
-//! 	instruction immediately traps. This is likely not what you want.
+//! - *Fuel*: Without [`Plugin::with_initial_fuel`], a fresh [`Store`]( wasmtime::Store )
+//! 	starts with 0 fuel. If component initialization executes fuel-metered Wasm, it
+//! 	immediately traps. Without a per-call limiter, subsequent calls consume any initial
+//! 	fuel remaining after initialization.
 //! - *Epoch deadlines*: No deadline is set, so execution runs indefinitely regardless of epoch
 //! 	ticks.
 //!

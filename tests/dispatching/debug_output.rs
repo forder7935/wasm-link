@@ -18,6 +18,7 @@ fn debug_output_exposes_configuration_without_component_internals() -> Result<()
 	let bindings = fixtures::bindings();
 	let plugin_debug = format!( "{:?}", plugins.plugin.plugin );
 	assert!( plugin_debug.contains( "component: \"<Component>\"" ));
+	assert!( plugin_debug.contains( "initial_fuel: None" ));
 	assert!( plugin_debug.contains( "fuel_limiter: None" ));
 
 	let plugin_instance = plugins.plugin.plugin.instantiate( &engine, &linker )?;

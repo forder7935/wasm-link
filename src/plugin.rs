@@ -82,6 +82,8 @@ pub struct Plugin<Ctx: 'static> {
 	context: Ctx,
 	/// Per-interface export name remaps for this plugin
 	interface_remaps: HashMap<String, Remap>,
+	/// Fuel assigned to the store before component instantiation
+	initial_fuel: Option<u64>,
 	/// Closure that determines fuel for each function call
 	#[allow( clippy::type_complexity )]
 	fuel_limiter: Option<Box<dyn FnMut( &mut Store<Ctx>, &str, &str, &Function ) -> u64 + Send>>,
@@ -110,10 +112,40 @@ where
 			component,
 			context,
 			interface_remaps: HashMap::new(),
+			initial_fuel: None,
 			fuel_limiter: None,
 			epoch_limiter: None,
 			memory_limiter: None,
 		}
+	}
+
+	/// Sets the fuel available when component instantiation begins.
+	///
+	/// Instantiation can execute WebAssembly startup code, including complex global,
+	/// element, table, and memory initializers and explicit start functions. Any fuel
+	/// left after instantiation remains available to subsequent calls. A
+	/// [`with_fuel_limiter`](Self::with_fuel_limiter) invocation may inspect or replace
+	/// that remainder before a call.
+	///
+	/// **Warning:** Fuel consumption must be enabled in the [`Engine`]( wasmtime::Engine )
+	/// via [`Config::consume_fuel`]( wasmtime::Config::consume_fuel ). If not enabled,
+	/// instantiation will fail when the initial fuel is applied.
+	///
+	/// ```
+	/// # use wasm_link::{ Plugin, PluginContext, ResourceTable, Component };
+	/// # struct Ctx { resource_table: ResourceTable }
+	/// # impl PluginContext for Ctx {
+	/// # 	fn resource_table( &mut self ) -> &mut ResourceTable { &mut self.resource_table }
+	/// # }
+	/// # fn example( component: Component ) {
+	/// let plugin = Plugin::new( component, Ctx { resource_table: ResourceTable::new() })
+	/// 	.with_initial_fuel( 100_000 );
+	/// # let _ = plugin;
+	/// # }
+	/// ```
+	pub fn with_initial_fuel( mut self, fuel: u64 ) -> Self {
+		self.initial_fuel = Some( fuel );
+		self
 	}
 
 	/// Sets a closure that determines the fuel limit for each function call.
@@ -330,6 +362,7 @@ where
 		linker: &Linker<Ctx>
 	) -> Result<PluginInstanceSync<Ctx>, wasmtime::Error> {
 		let mut store = Store::new( engine, self.context );
+		if let Some( fuel ) = self.initial_fuel { store.set_fuel( fuel )?; }
 		if let Some( limiter ) = self.memory_limiter { store.limiter( limiter ); }
 		let instance = linker.instantiate( &mut store, &self.component )?;
 		Ok( PluginInstanceSync::new_sync(
@@ -381,6 +414,7 @@ where
 		Executor: Spawn + Send + Sync + 'static,
 	{
 		let mut store = Store::new( engine, self.context );
+		if let Some( fuel ) = self.initial_fuel { store.set_fuel( fuel )?; }
 		if let Some( limiter ) = self.memory_limiter { store.limiter( limiter ); }
 		let instance = linker.instantiate_async( &mut store, &self.component ).await?;
 		Ok( PluginInstanceAsync::new(
@@ -401,6 +435,7 @@ impl<Ctx: std::fmt::Debug + 'static> std::fmt::Debug for Plugin<Ctx> {
 			.field( "component", &"<Component>" )
 			.field( "context", &self.context )
 			.field( "interface_remaps", &self.interface_remaps )
+			.field( "initial_fuel", &self.initial_fuel )
 			.field( "fuel_limiter", &self.fuel_limiter.as_ref().map(| _ | "<closure>" ))
 			.field( "epoch_limiter", &self.epoch_limiter.as_ref().map(| _ | "<closure>" ))
 			.field( "memory_limiter", &self.memory_limiter.as_ref().map(| _ | "<closure>" ))
