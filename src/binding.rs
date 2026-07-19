@@ -296,7 +296,7 @@ where
 		interface_name: &str,
 		function_name: &str,
 		args: &[wasmtime::component::Val],
-	    ) -> Result<DispatchResults<PluginId, Plugins, PluginInstanceAsync<Ctx>>, DispatchError>
+    ) -> Result<DispatchResults<PluginId, Plugins, PluginInstanceAsync<Ctx>>, DispatchError>
 	where
 		DispatchResults<PluginId, Plugins, PluginInstanceAsync<Ctx>>: Send,
 	{
