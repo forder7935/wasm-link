@@ -11,7 +11,7 @@ use wasmtime::component::{ Linker, Val };
 
 use crate::{ Interface, PluginContext };
 use crate::cardinality::{ Any, AtLeastOne, AtMostOne, Cardinality, ExactlyOne };
-use crate::plugin_instance::{ PluginInstanceAsync, PluginInstanceSync };
+use crate::plugin_instance::{ Caller, PluginInstanceAsync, PluginInstanceSync, clone_after_wait };
 
 
 
@@ -38,6 +38,7 @@ where
 	package_name: String,
 	interfaces: HashMap<String, Interface>,
 	plugins: PluginSockets<PluginId, Plugins, Instance>,
+	caller: Caller,
 }
 
 /// An abstract contract specifying what plugins must implement (via plugs) or what
@@ -148,6 +149,7 @@ where
 			package_name: package_name.into(),
 			interfaces,
 			plugins: plugins.map_mut(| plugin | Arc::new( Mutex::new( plugin ))),
+			caller: Caller::new(),
 		}), std::marker::PhantomData )
 	}
 
@@ -192,6 +194,8 @@ where
 	///
 	/// # Errors
 	/// Returns an error if the interface or function is not found in this binding.
+	/// Concurrent calls wait in FIFO order; a same-thread re-entrant call returns
+	/// [`DispatchError::LockRejected`](crate::DispatchError::LockRejected).
 	pub fn dispatch(
 		&self,
 		interface_name: &str,
@@ -205,16 +209,16 @@ where
 		let function = interface.function( function_name )
 			.ok_or_else(|| crate::DispatchError::InvalidFunction( function_name.to_string() ))?;
 
-		Ok( self.0.plugins.map(| _, plugin | plugin
-			.try_lock().ok_or( crate::DispatchError::LockRejected )
-			.and_then(| mut lock | lock.dispatch(
+		Ok( self.0.plugins.map(| _, plugin | {
+			let instance = clone_after_wait( plugin );
+			instance.dispatch_from(
 				&self.0.package_name,
 				interface_name,
 				function_name,
 				function,
 				args,
-			))
-		))
+			)
+		}))
 
 	}
 
@@ -228,20 +232,23 @@ where
 	Plugins: Cardinality<PluginId, PluginInstanceAsync<Ctx>> + 'static,
 	PluginSockets<PluginId, Plugins, PluginInstanceAsync<Ctx>>: Cardinality<PluginId, Arc<Mutex<PluginInstanceAsync<Ctx>>>> + Send + Sync,
 {
-	pub(crate) fn add_to_linker_async( binding: &Self, linker: &mut Linker<Ctx> ) -> Result<(), wasmtime::Error>
+	pub(crate) fn add_to_linker_async( binding: &Self, linker: &mut Linker<Ctx>, caller: &Caller ) -> Result<(), wasmtime::Error>
 	where
 		PluginId: Into<Val>,
 		DispatchVals<PluginId, Plugins, PluginInstanceAsync<Ctx>>: Into<Val> + Send,
 	{
 		binding.0.interfaces.iter().try_for_each(|( name, interface )| {
 			let interface_ident = format!( "{}/{}", binding.0.package_name, name );
-			interface.add_to_linker_async( linker, &binding.0.package_name, &interface_ident, name, binding )
+			interface.add_to_linker_async( linker, &binding.0.package_name, &interface_ident, name, binding, caller )
 		})
 	}
 
 	/// Asynchronously dispatches a function call to all plugins implementing this binding.
 	///
-	/// This method waits for a busy plugin instead of returning [`DispatchError::LockRejected`](crate::DispatchError::LockRejected).
+	/// This method queues behind a busy plugin instead of returning [`DispatchError::LockRejected`](crate::DispatchError::LockRejected).
+	/// Queued calls are serviced round-robin by caller. A call is rejected with
+	/// [`DispatchError::DispatchQueueFull`](crate::DispatchError::DispatchQueueFull)
+	/// when its caller or destination reaches an async dispatch count or byte bound.
 	/// It is required for instances created by [`Plugin::instantiate_async`](crate::Plugin::instantiate_async)
 	/// or [`Plugin::link_async`](crate::Plugin::link_async).
 	///
@@ -295,25 +302,19 @@ where
 			.ok_or_else(|| crate::DispatchError::InvalidInterfacePath( format!( "{}/{}", self.0.package_name, interface_name )))?;
 		let function = interface.function( function_name )
 			.ok_or_else(|| crate::DispatchError::InvalidFunction( function_name.to_string() ))?;
-		let package_name = self.0.package_name.clone();
-		let interface_name = interface_name.to_string();
-		let function_name = function_name.to_string();
-		let function = function.clone();
-		let args = args.to_vec();
+		let package_name = self.0.package_name.as_str();
+		let caller = &self.0.caller;
 
 		Ok( self.0.plugins.map_async(| _, plugin | {
-			let package_name = package_name.clone();
-			let interface_name = interface_name.clone();
-			let function_name = function_name.clone();
-			let function = function.clone();
-			let args = args.clone();
 			async move {
-				plugin.lock().await.dispatch_async(
-					&package_name,
-					&interface_name,
-					&function_name,
-					&function,
-					&args,
+				let instance = plugin.lock().await.clone();
+				instance.dispatch_async_from(
+					caller,
+					package_name,
+					interface_name,
+					function_name,
+					function,
+					args,
 				).await
 			}
 		}).await )
@@ -362,12 +363,12 @@ where
 	PluginId: std::hash::Hash + Eq + Clone + Send + Sync + Into<Val> + 'static,
 	Ctx: PluginContext + 'static,
 {
-	pub(crate) fn add_to_linker_async( &self, linker: &mut Linker<Ctx> ) -> Result<(), wasmtime::Error> {
+	pub(crate) fn add_to_linker_async( &self, linker: &mut Linker<Ctx>, caller: &Caller ) -> Result<(), wasmtime::Error> {
 		match self {
-			Self::ExactlyOne( binding ) => Binding::add_to_linker_async( binding, linker ),
-			Self::AtMostOne( binding ) => Binding::add_to_linker_async( binding, linker ),
-			Self::AtLeastOne( binding ) => Binding::add_to_linker_async( binding, linker ),
-			Self::Any( binding ) => Binding::add_to_linker_async( binding, linker ),
+			Self::ExactlyOne( binding ) => Binding::add_to_linker_async( binding, linker, caller ),
+			Self::AtMostOne( binding ) => Binding::add_to_linker_async( binding, linker, caller ),
+			Self::AtLeastOne( binding ) => Binding::add_to_linker_async( binding, linker, caller ),
+			Self::Any( binding ) => Binding::add_to_linker_async( binding, linker, caller ),
 		}
 	}
 }

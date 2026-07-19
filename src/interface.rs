@@ -14,6 +14,7 @@ use crate::linker::{
 	dispatch_method_async_blocking,
 };
 use crate::resource_wrapper::ResourceWrapper ;
+use crate::plugin_instance::Caller ;
 
 /// A single WIT interface within a [`Binding`].
 ///
@@ -119,6 +120,7 @@ impl Interface {
 		interface_ident: &str,
 		interface_name: &str,
 		binding: &Binding<PluginId, Ctx, Plugins, PluginInstanceAsync<Ctx>>,
+		caller: &Caller,
 	) -> Result<(), wasmtime::Error>
 	where
 		PluginId: std::hash::Hash + Eq + Clone + Send + Sync + Into<Val> + 'static,
@@ -137,6 +139,7 @@ impl Interface {
 			let binding = binding.clone();
 			let function_name = name.clone();
 			let function = metadata.clone();
+			let caller = caller.clone();
 
 			macro_rules! link_concurrent {( $dispatch: expr ) => {
 				linker_instance.func_new_concurrent( name, move | ctx, _ty, args, results | {
@@ -145,9 +148,10 @@ impl Interface {
 					let binding = binding.clone();
 					let function_name = function_name.clone();
 					let function = function.clone();
+					let caller = caller.clone();
 					Box::pin( async move {
 						results[0] = $dispatch(
-							&binding, ctx, &package_name, &interface_name, &function_name, &function, args,
+							&binding, &caller, ctx, &package_name, &interface_name, &function_name, &function, args,
 						).await;
 						Ok(())
 					})
@@ -161,9 +165,10 @@ impl Interface {
 					let binding = binding.clone();
 					let function_name = function_name.clone();
 					let function = function.clone();
+					let caller = caller.clone();
 					Box::new( async move {
 						results[0] = $dispatch(
-							&binding, ctx, &package_name, &interface_name, &function_name, &function, args,
+							&binding, &caller, ctx, &package_name, &interface_name, &function_name, &function, args,
 						).await;
 						Ok(())
 					})

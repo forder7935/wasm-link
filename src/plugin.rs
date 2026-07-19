@@ -11,7 +11,7 @@ use wasmtime::component::{ Component, ResourceTable, Linker, Val };
 use futures::task::Spawn ;
 
 use crate::BindingAny ;
-use crate::plugin_instance::{ PluginInstanceAsync, PluginInstanceSync };
+use crate::plugin_instance::{ Caller, PluginInstanceAsync, PluginInstanceSync };
 use crate::Function ;
 use crate::Remap ;
 
@@ -346,9 +346,10 @@ where
 		Sockets::Item: Into<BindingAny<PluginId, Ctx, PluginInstanceAsync<Ctx>>>,
 		Executor: Spawn + Send + Sync + 'static,
 	{
+		let caller = Caller::new();
 		sockets.into_iter()
 			.map( Into::into )
-			.try_for_each(| binding | binding.add_to_linker_async( &mut linker ))?;
+			.try_for_each(| binding | binding.add_to_linker_async( &mut linker, &caller ))?;
 		Self::instantiate_async( self, engine, &linker, executor ).await
 	}
 

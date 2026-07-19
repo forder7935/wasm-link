@@ -1,8 +1,12 @@
 use wasmtime::{ Config, Engine, Store };
 use wasmtime::component::{ Component, FutureReader, Linker, ResourceTable, StreamReader, Val };
 
-use super::ensure_supported_value ;
-use crate::{ DispatchError, PluginContext };
+use super::{
+	Budget, DispatchQueue, MAX_CALLER_BYTES, MAX_CALLER_CALLS,
+	MAX_DESTINATION_BYTES, MAX_DESTINATION_CALLS, ensure_supported_value,
+	has_capacity, retained_bytes,
+};
+use crate::{ DispatchError, Plugin, PluginContext };
 
 struct Context { table: ResourceTable }
 
@@ -70,4 +74,59 @@ fn rejects_error_context_values() -> Result<(), Box<dyn std::error::Error>> {
 		));
 		Ok(())
 	})
+}
+
+#[test]
+fn measures_nested_retained_argument_bytes() {
+	let values = vec![
+		Val::String( "string".to_string() ),
+		Val::Enum( "enum".to_string() ),
+		Val::List( vec![ Val::U8( 1 ) ]),
+		Val::Tuple( vec![ Val::U16( 2 ) ]),
+		Val::Map( vec![( Val::String( "key".to_string() ), Val::U32( 3 ))]),
+		Val::Record( vec![( "field".to_string(), Val::U64( 4 ))]),
+		Val::Variant( "case".to_string(), Some( Box::new( Val::Bool( true )))),
+		Val::Option( Some( Box::new( Val::Char( 'x' )))),
+		Val::Result( Ok( Some( Box::new( Val::S32( -1 ))))),
+		Val::Flags( vec![ "one".to_string(), "two".to_string() ]),
+	];
+	assert!( retained_bytes( &values ).is_some_and(| bytes | bytes > std::mem::size_of_val( values.as_slice() )));
+}
+
+#[test]
+fn enforces_caller_and_destination_count_and_byte_limits() {
+	assert!( has_capacity( &Budget::default(), &DispatchQueue::default(), MAX_CALLER_BYTES ));
+	assert!( !has_capacity(
+		&Budget { calls: MAX_CALLER_CALLS, bytes: 0 }, &DispatchQueue::default(), 0,
+	));
+	assert!( !has_capacity(
+		&Budget { calls: 0, bytes: 1 }, &DispatchQueue::default(), MAX_CALLER_BYTES,
+	));
+	assert!( !has_capacity(
+		&Budget::default(), &DispatchQueue { calls: MAX_DESTINATION_CALLS, ..DispatchQueue::default() }, 0,
+	));
+	assert!( !has_capacity(
+		&Budget::default(),
+		&DispatchQueue { bytes: MAX_DESTINATION_BYTES, ..DispatchQueue::default() },
+		1,
+	));
+	assert!( !has_capacity( &Budget { calls: 0, bytes: usize::MAX }, &DispatchQueue::default(), 1 ));
+	assert!( !has_capacity(
+		&Budget::default(), &DispatchQueue { bytes: usize::MAX, ..DispatchQueue::default() }, 1,
+	));
+}
+
+#[test]
+fn rejects_same_thread_sync_reentry() -> Result<(), Box<dyn std::error::Error>> {
+	let engine = Engine::default();
+	let component = Component::from_file(
+		&engine,
+		concat!( env!( "CARGO_MANIFEST_DIR" ), "/tests/plugin_instance/sync_empty.wat" ),
+	)?;
+	let linker = Linker::new( &engine );
+	let instance = Plugin::new( component, Context { table: ResourceTable::new() })
+		.instantiate( &engine, &linker )?;
+	let _permit = instance.dispatcher.enter()?;
+	assert!( matches!( instance.dispatcher.enter(), Err( DispatchError::LockRejected )));
+	Ok(())
 }

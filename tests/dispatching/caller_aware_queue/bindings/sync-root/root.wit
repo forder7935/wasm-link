@@ -1,0 +1,5 @@
+package test:caller-aware-queue;
+
+interface root {
+	run: func(value: u32) -> tuple<u32, u32>;
+}

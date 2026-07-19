@@ -83,6 +83,7 @@ fn dispatch_error_values() -> Vec<Val> {
 		DispatchError::InvalidArgumentList.into(),
 		DispatchError::UnsupportedType( "future".to_string() ).into(),
 		DispatchError::ExecutorUnavailable.into(),
+		DispatchError::DispatchQueueFull.into(),
 		DispatchError::ResourceCreationError( ResourceCreationError::ResourceTableFull ).into(),
 		DispatchError::ResourceCreationError( ResourceCreationError::ResourceHandleConversionFailed ).into(),
 		DispatchError::ResourceReceiveError( ResourceReceiveError::InvalidHandle ).into(),
