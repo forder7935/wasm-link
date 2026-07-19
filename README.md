@@ -141,7 +141,7 @@ caller moves behind other callers after every completed call. Outstanding work
 is rejected with `dispatch-queue-full` above 1,024 calls or 64 MiB per caller,
 or above 4,096 calls or 256 MiB per destination. Synchronous destinations use a
 FIFO admission gate, so independent callers wait instead of receiving a timing-
-dependent `lock-rejected` error. A same-thread re-entrant cycle is still rejected.
+dependent dispatch error.
 
 ## Goals
 

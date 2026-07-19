@@ -70,6 +70,27 @@ fn services_callers_round_robin_and_recovers_canceled_capacity() {
 		assert_result( a2.await, 3, 2 );
 		assert_result( a3.await, 4, 3 );
 
+		let flood_args = [ Val::U32( 20 ) ];
+		let mut flood = ( 0..1_024 ).map(| _ |
+			Box::pin( binding_a.dispatch_async( "root", "run", &flood_args ))
+		).collect::<Vec<_>>();
+		for call in &mut flood {
+			assert!( futures::poll!( call.as_mut() ).is_pending() );
+		}
+		let mut newcomer = Box::pin( binding_b.dispatch_async( "root", "run", &[ Val::U32( 21 ) ]));
+		assert!( futures::poll!( newcomer.as_mut() ).is_pending() );
+		let mut rejected = Box::pin( binding_a.dispatch_async( "root", "run", &[ Val::U32( 0 ) ]));
+		match futures::poll!( rejected.as_mut() ) {
+			std::task::Poll::Ready( Ok( ExactlyOne( _, Err( DispatchError::DispatchQueueFull )))) => {}
+			value => panic!( "expected caller count rejection, found {value:#?}" ),
+		}
+		executor.run();
+		assert_result( newcomer.await, 6, 21 );
+		for ( index, call ) in flood.iter_mut().enumerate() {
+			let sequence = match index { 0 => 5, _ => index as u32 + 6 };
+			assert_result( call.as_mut().await, sequence, 20 );
+		}
+
 		for _ in 0..1_024 {
 			let mut canceled = Box::pin( binding_a.dispatch_async( "root", "run", &[ Val::U32( 0 ) ]));
 			assert!( futures::poll!( canceled.as_mut() ).is_pending() );
@@ -84,7 +105,7 @@ fn services_callers_round_robin_and_recovers_canceled_capacity() {
 		let mut recovered = Box::pin( binding_a.dispatch_async( "root", "run", &[ Val::U32( 11 ) ]));
 		assert!( futures::poll!( recovered.as_mut() ).is_pending() );
 		executor.run();
-		assert_result( recovered.await, 5, 11 );
+		assert_result( recovered.await, 1_030, 11 );
 
 		let mut canceled_task = Box::pin( binding_a.dispatch_async( "root", "run", &[ Val::U32( 12 ) ]));
 		assert!( futures::poll!( canceled_task.as_mut() ).is_pending() );
@@ -96,7 +117,7 @@ fn services_callers_round_robin_and_recovers_canceled_capacity() {
 		let mut after_executor_cancel = Box::pin( binding_a.dispatch_async( "root", "run", &[ Val::U32( 13 ) ]));
 		assert!( futures::poll!( after_executor_cancel.as_mut() ).is_pending() );
 		executor.run();
-		assert_result( after_executor_cancel.await, 6, 13 );
+		assert_result( after_executor_cancel.await, 1_031, 13 );
 	});
 }
 

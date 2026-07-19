@@ -63,19 +63,9 @@ struct SyncDispatcher<Ctx: 'static> {
 
 #[derive( Default )]
 struct SyncQueue {
-	waiting: VecDeque<WaitingSyncCall>,
-	active: Option<ActiveSyncCall>,
+	waiting: VecDeque<u64>,
+	active: Option<u64>,
 	next_ticket: u64,
-}
-
-struct WaitingSyncCall {
-	ticket: u64,
-	thread: std::thread::ThreadId,
-}
-
-struct ActiveSyncCall {
-	ticket: u64,
-	thread: std::thread::ThreadId,
 }
 
 struct SyncPermit<'a, Ctx: 'static> {
@@ -180,8 +170,6 @@ impl<Ctx: 'static> std::fmt::Debug for PluginInstanceAsync<Ctx> {
 /// when a function call fails at runtime.
 #[derive( Error, Debug )]
 pub enum DispatchError {
-	/// A synchronous call re-entered the same destination on its executing thread.
-	#[error( "Lock Rejected" )] LockRejected,
 	/// The specified interface path doesn't match any known interface.
 	#[error( "Invalid Interface Path: {0}" )] InvalidInterfacePath( String ),
 	/// The specified function doesn't exist on the interface.
@@ -206,7 +194,6 @@ pub enum DispatchError {
 
 impl From<DispatchError> for Val {
 	fn from( error: DispatchError ) -> Val { match error {
-		DispatchError::LockRejected => Val::Variant( "lock-rejected".to_string(), None ),
 		DispatchError::InvalidInterfacePath( package ) => Val::Variant( "invalid-interface-path".to_string(), Some( Box::new( Val::String( package )))),
 		DispatchError::InvalidFunction( function ) => Val::Variant( "invalid-function".to_string(), Some( Box::new( Val::String( function )))),
 		DispatchError::MissingResponse => Val::Variant( "missing-response".to_string(), None ),
@@ -249,27 +236,23 @@ impl<Ctx: PluginContext + 'static> PluginInstanceSync<Ctx> {
 		function: &Function,
 		data: &[Val],
 	) -> Result<Val, DispatchError> {
-		let _permit = self.dispatcher.enter()?;
+		let _permit = self.dispatcher.enter();
 		lock_unpoisoned( &self.dispatcher.state )
 			.dispatch( package_name, interface_name, function_name, function, data )
 	}
 }
 
 impl<Ctx: 'static> SyncDispatcher<Ctx> {
-	fn enter( &self ) -> Result<SyncPermit<'_, Ctx>, DispatchError> {
-		let thread = std::thread::current().id();
+	fn enter( &self ) -> SyncPermit<'_, Ctx> {
 		let mut queue = lock_unpoisoned( &self.admission );
-		if queue.active.as_ref().is_some_and(| active | active.thread == thread ) {
-			return Err( DispatchError::LockRejected );
-		}
 		let ticket = queue.next_ticket;
 		queue.next_ticket = queue.next_ticket.wrapping_add( 1 );
-		queue.waiting.push_back( WaitingSyncCall { ticket, thread });
+		queue.waiting.push_back( ticket );
 		Self::select_next( &mut queue );
-		while queue.active.as_ref().is_none_or(| active | active.ticket != ticket ) {
+		while queue.active != Some( ticket ) {
 			queue = self.changed.wait( queue ).unwrap_or_else( std::sync::PoisonError::into_inner );
 		}
-		Ok( SyncPermit { dispatcher: self })
+		SyncPermit { dispatcher: self }
 	}
 
 	fn leave( &self ) {
@@ -281,9 +264,7 @@ impl<Ctx: 'static> SyncDispatcher<Ctx> {
 
 	fn select_next( queue: &mut SyncQueue ) {
 		if queue.active.is_some() { return; }
-		if let Some( waiting ) = queue.waiting.pop_front() {
-			queue.active = Some( ActiveSyncCall { ticket: waiting.ticket, thread: waiting.thread });
-		}
+		queue.active = queue.waiting.pop_front();
 	}
 }
 

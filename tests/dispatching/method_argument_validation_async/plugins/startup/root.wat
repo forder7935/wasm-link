@@ -1,7 +1,6 @@
 (component
 	(type $child-interface (instance
 		(type $dispatch-error' (variant
-			(case "lock-rejected")
 			(case "invalid-interface-path" string)
 			(case "invalid-function" string)
 			(case "missing-response")
