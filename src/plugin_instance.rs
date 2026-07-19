@@ -8,8 +8,9 @@ use thiserror::Error ;
 use wasmtime::component::{ Instance, Val };
 use wasmtime::Store ;
 
-use crate::{ Function, PluginContext, Remap, ReturnKind };
-use crate::resource_wrapper::{ ResourceCreationError, ResourceReceiveError };
+use crate::interface::Function;
+use crate::resource_wrapper::{ResourceCreationError, ResourceReceiveError};
+use crate::{PluginContext, Remap, ReturnKind};
 
 type CallLimiter<Ctx> = Box<dyn FnMut( &mut Store<Ctx>, &str, &str, &Function ) -> u64 + Send>;
 
@@ -45,8 +46,8 @@ impl Caller {
 /// A synchronously instantiated plugin, ready for synchronous dispatch.
 ///
 /// Created by calling [`Plugin::instantiate`]( crate::Plugin::instantiate ),
-/// or [`Plugin::link`]( crate::Plugin::link ). Concurrent calls wait at a FIFO
-/// admission gate so shared synchronous dependencies do not fail when busy.
+/// or [`Plugin::link`]( crate::Plugin::link ). Concurrent native threads block on
+/// the instance's store mutex, so shared synchronous dependencies do not fail when busy.
 pub struct PluginInstanceSync<Ctx: 'static> {
 	dispatcher: Arc<SyncDispatcher<Ctx>>,
 }
@@ -57,25 +58,12 @@ impl<Ctx: 'static> Clone for PluginInstanceSync<Ctx> {
 
 struct SyncDispatcher<Ctx: 'static> {
 	state: std::sync::Mutex<PluginState<Ctx>>,
-	admission: std::sync::Mutex<SyncQueue>,
-	changed: std::sync::Condvar,
-}
-
-#[derive( Default )]
-struct SyncQueue {
-	waiting: VecDeque<u64>,
-	active: Option<u64>,
-	next_ticket: u64,
-}
-
-struct SyncPermit<'a, Ctx: 'static> {
-	dispatcher: &'a SyncDispatcher<Ctx>,
 }
 
 /// An asynchronously instantiated plugin, ready for asynchronous dispatch.
 ///
-/// Created by calling [`Plugin::instantiate_async`]( crate::Plugin::instantiate_async )
-/// or [`Plugin::link_async`]( crate::Plugin::link_async ). Calls are submitted to the
+/// Created by calling [`concurrent::Plugin::instantiate`]( crate::concurrent::Plugin::instantiate )
+/// or [`concurrent::Plugin::link`]( crate::concurrent::Plugin::link ). Calls are submitted to the
 /// executor supplied during instantiation. Each destination services one call at a
 /// time using caller-aware round-robin ordering. The plugin's Wasmtime [`Store`]
 /// remains independent and is serialized by the destination's drain task.
@@ -223,9 +211,8 @@ impl<Ctx: PluginContext + 'static> PluginInstanceSync<Ctx> {
 				fuel_limiter,
 				epoch_limiter,
 			}),
-			admission: std::sync::Mutex::new( SyncQueue::default() ),
-			changed: std::sync::Condvar::new(),
-		})}
+            }),
+        }
 	}
 
 	pub(crate) fn dispatch_from(
@@ -236,40 +223,14 @@ impl<Ctx: PluginContext + 'static> PluginInstanceSync<Ctx> {
 		function: &Function,
 		data: &[Val],
 	) -> Result<Val, DispatchError> {
-		let _permit = self.dispatcher.enter();
-		lock_unpoisoned( &self.dispatcher.state )
-			.dispatch( package_name, interface_name, function_name, function, data )
-	}
-}
-
-impl<Ctx: 'static> SyncDispatcher<Ctx> {
-	fn enter( &self ) -> SyncPermit<'_, Ctx> {
-		let mut queue = lock_unpoisoned( &self.admission );
-		let ticket = queue.next_ticket;
-		queue.next_ticket = queue.next_ticket.wrapping_add( 1 );
-		queue.waiting.push_back( ticket );
-		Self::select_next( &mut queue );
-		while queue.active != Some( ticket ) {
-			queue = self.changed.wait( queue ).unwrap_or_else( std::sync::PoisonError::into_inner );
-		}
-		SyncPermit { dispatcher: self }
-	}
-
-	fn leave( &self ) {
-		let mut queue = lock_unpoisoned( &self.admission );
-		if queue.active.take().is_none() { return; }
-		Self::select_next( &mut queue );
-		self.changed.notify_all();
-	}
-
-	fn select_next( queue: &mut SyncQueue ) {
-		if queue.active.is_some() { return; }
-		queue.active = queue.waiting.pop_front();
-	}
-}
-
-impl<Ctx: 'static> Drop for SyncPermit<'_, Ctx> {
-	fn drop( &mut self ) { self.dispatcher.leave(); }
+        lock_unpoisoned(&self.dispatcher.state).dispatch(
+            package_name,
+            interface_name,
+            function_name,
+            function,
+            data,
+        )
+    }
 }
 
 impl<Ctx: PluginContext + 'static> PluginInstanceAsync<Ctx> {
@@ -452,17 +413,6 @@ impl Drop for Reservation {
 
 fn lock_unpoisoned<T>( mutex: &std::sync::Mutex<T> ) -> std::sync::MutexGuard<'_, T> {
 	mutex.lock().unwrap_or_else( std::sync::PoisonError::into_inner )
-}
-
-pub(crate) fn clone_after_wait<T: Clone>( mutex: &Mutex<T> ) -> T {
-	clone_after_wait_with( mutex, std::thread::yield_now )
-}
-
-fn clone_after_wait_with<T: Clone>( mutex: &Mutex<T>, mut wait: impl FnMut() ) -> T {
-	loop {
-		if let Some( value ) = mutex.try_lock() { return value.clone(); }
-		wait();
-	}
 }
 
 fn retained_bytes( values: &[Val] ) -> Option<usize> {

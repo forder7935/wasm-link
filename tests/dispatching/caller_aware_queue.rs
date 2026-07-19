@@ -2,8 +2,9 @@ use std::collections::{ HashMap, VecDeque };
 use std::sync::{ Arc, Mutex };
 
 use futures::task::{ FutureObj, Spawn };
-use wasm_link::{ Binding, DispatchError, Engine, Linker, Val };
-use wasm_link::cardinality::ExactlyOne ;
+use wasm_link::cardinality::ExactlyOne;
+use wasm_link::concurrent::{Binding as ConcurrentBinding, DispatchError};
+use wasm_link::{Binding, Engine, Linker, Val};
 
 fixtures! {
 	bindings = { root: "root", sync_root: "sync-root" };
@@ -39,26 +40,29 @@ fn services_callers_round_robin_and_recovers_canceled_capacity() {
 		let engine = Engine::default();
 		let linker = Linker::new( &engine );
 		let executor = ManualExecutor::default();
-		let plugins = fixtures::plugins( &engine );
-		let bindings = fixtures::bindings();
-		let instance = plugins.plugin.plugin
-			.instantiate_async( &engine, &linker, executor.clone() ).await
+        let plugins = fixtures::plugins_concurrent(&engine);
+        let bindings = fixtures::bindings_concurrent();
+        let instance = plugins
+            .plugin
+            .plugin
+            .instantiate(&engine, &linker, executor.clone())
+            .await
 			.expect( "failed to instantiate scheduler fixture" );
-		let binding_a = Binding::new(
+        let binding_a = ConcurrentBinding::new(
 			bindings.root.package.clone(),
 			HashMap::from([( bindings.root.name.clone(), bindings.root.spec.clone() )]),
 			ExactlyOne( "plugin".to_string(), instance.clone() ),
 		);
-		let binding_b = Binding::new(
+        let binding_b = ConcurrentBinding::new(
 			bindings.root.package,
 			HashMap::from([( bindings.root.name, bindings.root.spec )]),
 			ExactlyOne( "plugin".to_string(), instance ),
 		);
 
-		let mut a1 = Box::pin( binding_a.dispatch_async( "root", "run", &[ Val::U32( 1 ) ]));
-		let mut a2 = Box::pin( binding_a.dispatch_async( "root", "run", &[ Val::U32( 2 ) ]));
-		let mut a3 = Box::pin( binding_a.dispatch_async( "root", "run", &[ Val::U32( 3 ) ]));
-		let mut b1 = Box::pin( binding_b.dispatch_async( "root", "run", &[ Val::U32( 10 ) ]));
+        let mut a1 = Box::pin(binding_a.dispatch("root", "run", &[Val::U32(1)]));
+        let mut a2 = Box::pin(binding_a.dispatch("root", "run", &[Val::U32(2)]));
+        let mut a3 = Box::pin(binding_a.dispatch("root", "run", &[Val::U32(3)]));
+        let mut b1 = Box::pin(binding_b.dispatch("root", "run", &[Val::U32(10)]));
 		assert!( futures::poll!( a1.as_mut() ).is_pending() );
 		assert!( futures::poll!( a2.as_mut() ).is_pending() );
 		assert!( futures::poll!( a3.as_mut() ).is_pending() );
@@ -71,15 +75,15 @@ fn services_callers_round_robin_and_recovers_canceled_capacity() {
 		assert_result( a3.await, 4, 3 );
 
 		let flood_args = [ Val::U32( 20 ) ];
-		let mut flood = ( 0..1_024 ).map(| _ |
-			Box::pin( binding_a.dispatch_async( "root", "run", &flood_args ))
-		).collect::<Vec<_>>();
+        let mut flood = (0..1_024)
+            .map(|_| Box::pin(binding_a.dispatch("root", "run", &flood_args)))
+            .collect::<Vec<_>>();
 		for call in &mut flood {
 			assert!( futures::poll!( call.as_mut() ).is_pending() );
 		}
-		let mut newcomer = Box::pin( binding_b.dispatch_async( "root", "run", &[ Val::U32( 21 ) ]));
+        let mut newcomer = Box::pin(binding_b.dispatch("root", "run", &[Val::U32(21)]));
 		assert!( futures::poll!( newcomer.as_mut() ).is_pending() );
-		let mut rejected = Box::pin( binding_a.dispatch_async( "root", "run", &[ Val::U32( 0 ) ]));
+        let mut rejected = Box::pin(binding_a.dispatch("root", "run", &[Val::U32(0)]));
 		match futures::poll!( rejected.as_mut() ) {
 			std::task::Poll::Ready( Ok( ExactlyOne( _, Err( DispatchError::DispatchQueueFull )))) => {}
 			value => panic!( "expected caller count rejection, found {value:#?}" ),
@@ -92,29 +96,30 @@ fn services_callers_round_robin_and_recovers_canceled_capacity() {
 		}
 
 		for _ in 0..1_024 {
-			let mut canceled = Box::pin( binding_a.dispatch_async( "root", "run", &[ Val::U32( 0 ) ]));
+            let mut canceled = Box::pin(binding_a.dispatch("root", "run", &[Val::U32(0)]));
 			assert!( futures::poll!( canceled.as_mut() ).is_pending() );
 		}
-		let mut rejected = Box::pin( binding_a.dispatch_async( "root", "run", &[ Val::U32( 0 ) ]));
+        let mut rejected = Box::pin(binding_a.dispatch("root", "run", &[Val::U32(0)]));
 		match futures::poll!( rejected.as_mut() ) {
 			std::task::Poll::Ready( Ok( ExactlyOne( _, Err( DispatchError::DispatchQueueFull )))) => {}
 			value => panic!( "expected caller count rejection, found {value:#?}" ),
 		}
 		executor.run();
 
-		let mut recovered = Box::pin( binding_a.dispatch_async( "root", "run", &[ Val::U32( 11 ) ]));
+        let mut recovered = Box::pin(binding_a.dispatch("root", "run", &[Val::U32(11)]));
 		assert!( futures::poll!( recovered.as_mut() ).is_pending() );
 		executor.run();
 		assert_result( recovered.await, 1_030, 11 );
 
-		let mut canceled_task = Box::pin( binding_a.dispatch_async( "root", "run", &[ Val::U32( 12 ) ]));
+        let mut canceled_task = Box::pin(binding_a.dispatch("root", "run", &[Val::U32(12)]));
 		assert!( futures::poll!( canceled_task.as_mut() ).is_pending() );
 		executor.cancel();
 		match canceled_task.await {
 			Ok( ExactlyOne( _, Err( DispatchError::ExecutorUnavailable ))) => {}
 			value => panic!( "expected canceled drain task to report executor failure, found {value:#?}" ),
 		}
-		let mut after_executor_cancel = Box::pin( binding_a.dispatch_async( "root", "run", &[ Val::U32( 13 ) ]));
+        let mut after_executor_cancel =
+            Box::pin(binding_a.dispatch("root", "run", &[Val::U32(13)]));
 		assert!( futures::poll!( after_executor_cancel.as_mut() ).is_pending() );
 		executor.run();
 		assert_result( after_executor_cancel.await, 1_031, 13 );

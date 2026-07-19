@@ -31,6 +31,7 @@ NOTE: Cross-plugin support for `future`, `stream`, `error-context`, and threads 
 - [Contents](#contents)
 - [Project Philosophy](#project-philosophy)
 - [Quick Start](#quick-start)
+- [Runtime Modes](#runtime-modes)
 - [Plugin Error ABI](#plugin-error-abi)
 - [Goals](#goals)
 - [License](#license)
@@ -128,20 +129,48 @@ match result {
 }
 ```
 
+## Runtime Modes
+
+The crate root is the synchronous runtime. Its `Function`, `Interface`,
+`Binding`, `Plugin`, and `PluginInstance` types cannot represent async WIT
+functions or async-capable instances.
+
+Async-capable graphs use the corresponding types from `wasm_link::concurrent`.
+The method names stay the same, but `Plugin::link`, `Plugin::instantiate`, and
+`Binding::dispatch` return futures. A concurrent interface may combine normal
+and WIT-async functions:
+
+```rust
+use wasm_link::{ FunctionKind, ReturnKind };
+use wasm_link::concurrent::Function;
+
+let sync_function = Function::new(
+	FunctionKind::Freestanding,
+	ReturnKind::AssumeNoResources,
+);
+let async_function = Function::new_async(
+	FunctionKind::Freestanding,
+	ReturnKind::AssumeNoResources,
+);
+```
+
+The two sets of graph types are distinct, so a synchronous binding cannot be
+linked into a concurrent plugin or vice versa.
+
 ## Plugin Error ABI
 
-The versioned [`wasm-link:runtime`](wit/wasm-link.wit) WIT package defines the
-dispatch errors exposed to WebAssembly plugins. It is included in the published
-crate so plugin bindings can be generated from the same contract used by the
-runtime's ABI tests.
+The versioned synchronous [`wasm-link:runtime`](wit/wasm-link.wit) and
+async-capable [`wasm-link:concurrent-runtime`](wit/deps/wasm-link-concurrent-runtime-0.5.0/errors.wit)
+WIT packages define the dispatch errors exposed to WebAssembly plugins. The
+former `0.4.0` contract remains available under `wit/deps` for compatibility.
 
 Asynchronous destinations use caller-aware round-robin dispatch. Each linked
 plugin has one opaque caller identity shared by all of its sockets, so a busy
 caller moves behind other callers after every completed call. Outstanding work
 is rejected with `dispatch-queue-full` above 1,024 calls or 64 MiB per caller,
-or above 4,096 calls or 256 MiB per destination. Synchronous destinations use a
-FIFO admission gate, so independent callers wait instead of receiving a timing-
-dependent dispatch error.
+or above 4,096 calls or 256 MiB per destination. Synchronous calls made by
+independent native threads serialize on the destination store mutex instead of
+receiving a timing-dependent dispatch error.
 
 ## Goals
 

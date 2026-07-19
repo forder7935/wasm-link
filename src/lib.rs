@@ -19,8 +19,8 @@
 //! 	to host exports; their ids are provided as keys of a `HashMap` when constructing a
 //! 	[`Binding`]. This prevents duplicate ids.
 //!
-//! - [`PluginInstanceSync`] and [`PluginInstanceAsync`]: Instantiated plugins ready for
-//! 	synchronous or asynchronous dispatch.
+//! - [`PluginInstance`]: An instantiated plugin ready for synchronous dispatch.
+//! 	Async-capable graphs use [`concurrent::PluginInstance`].
 //!
 //! - **Plug**: A plugin's declaration that it implements a [`Binding`].
 //!
@@ -357,6 +357,8 @@
 //! ```
 
 mod binding ;
+pub mod concurrent;
+mod dispatch_error;
 mod interface ;
 mod plugin ;
 mod plugin_instance ;
@@ -366,6 +368,9 @@ pub mod cardinality ;
 #[cfg(test)] mod interface_tests ;
 mod linker ;
 mod resource_wrapper ;
+mod sync;
+mod sync_binding;
+mod sync_plugin;
 
 #[doc( no_inline )]
 pub use wasmtime::Engine ;
@@ -374,10 +379,12 @@ pub use wasmtime::component::{ Component, Linker, ResourceTable, Val };
 #[doc( no_inline )]
 pub use nonempty_collections::{ NEMap, nem };
 
-pub use binding::Binding ;
-pub use interface::{ Interface, Function, FunctionKind, ReturnKind };
-pub use plugin::{ PluginContext, Plugin };
-pub use plugin_instance::{ PluginInstanceAsync, PluginInstanceSync, DispatchError };
+pub use dispatch_error::DispatchError;
+pub use interface::{FunctionKind, ReturnKind};
+pub use plugin::PluginContext;
+pub use plugin_instance::PluginInstanceSync as PluginInstance;
 pub use remap::{ ItemResolutionTable, Remap };
-pub use binding::BindingAny ;
 pub use resource_wrapper::{ ResourceCreationError, ResourceReceiveError };
+pub use sync::{Function, Interface};
+pub use sync_binding::{Binding, BindingAny};
+pub use sync_plugin::Plugin;

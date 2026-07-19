@@ -1,5 +1,8 @@
 use std::collections::{ HashMap, HashSet };
 
+use wasm_link::concurrent::{
+    Binding as ConcurrentBinding, Function as ConcurrentFunction, Interface as ConcurrentInterface,
+};
 use wasm_link::{ Binding, Engine, Function, FunctionKind, Interface, Linker, ReturnKind, Val };
 use wasm_link::cardinality::ExactlyOne ;
 
@@ -51,37 +54,44 @@ fn async_method_metadata_rejects_calls_without_resource_argument() -> Result<(),
 		let engine = Engine::default();
 		let linker = Linker::new( &engine );
 		let executor = futures::executor::ThreadPool::new()?;
-		let plugins = fixtures::plugins( &engine );
-		let bindings = fixtures::bindings();
-		let child = plugins.child.plugin.instantiate_async( &engine, &linker, executor.clone() ).await?;
-		let dependency = Binding::new(
+        let plugins = fixtures::plugins_concurrent(&engine);
+        let bindings = fixtures::bindings_concurrent();
+        let child = plugins
+            .child
+            .plugin
+            .instantiate(&engine, &linker, executor.clone())
+            .await?;
+        let dependency = ConcurrentBinding::new(
 			bindings.dependency.package,
 			HashMap::from([(
 				bindings.dependency.name,
-				Interface::new(
+                ConcurrentInterface::new(
 					HashMap::from([(
 						"get-value".to_string(),
-						Function::new( FunctionKind::Method, ReturnKind::AssumeNoResources ),
+                        ConcurrentFunction::new(
+                            FunctionKind::Method,
+                            ReturnKind::AssumeNoResources,
+                        ),
 					)]),
 					HashSet::new(),
 				),
 			)]),
 			ExactlyOne( "child".to_string(), child ),
 		);
-		let startup = plugins.startup.plugin.link_async(
-			&engine,
-			linker,
-			vec![ dependency ],
-			executor,
-		).await?;
-		let root = Binding::new(
+        let startup = plugins
+            .startup
+            .plugin
+            .link(&engine, linker, vec![dependency], executor)
+            .await?;
+        let root = ConcurrentBinding::new(
 			bindings.root.package,
 			HashMap::from([( bindings.root.name, bindings.root.spec )]),
 			ExactlyOne( "startup".to_string(), startup ),
 		);
 
-		let result = root.dispatch_async( "root", "get-value", &[] ).await?;
-		assert!( matches!(
+        let result = root.dispatch("root", "get-value", &[]).await?;
+        assert!(
+            matches!(
 			&result,
 			ExactlyOne( _, Ok( Val::Result( Err( Some( error ))))) if
 			matches!( &**error, Val::Variant( name, None ) if name == "invalid-argument-list" )

@@ -1,5 +1,6 @@
 use std::collections::HashMap ;
 
+use wasm_link::concurrent::Binding as ConcurrentBinding;
 use wasm_link::{ Binding, Engine, Linker, Remap, Val };
 use wasm_link::cardinality::ExactlyOne ;
 
@@ -56,9 +57,11 @@ fn async_dependant_dispatch_encodes_child_errors() -> Result<(), Box<dyn std::er
 		let engine = Engine::default();
 		let linker = Linker::new( &engine );
 		let executor = futures::executor::ThreadPool::new()?;
-		let plugins = fixtures::plugins( &engine );
-		let bindings = fixtures::bindings();
-		let child = plugins.child.plugin
+        let plugins = fixtures::plugins_concurrent(&engine);
+        let bindings = fixtures::bindings_concurrent();
+        let child = plugins
+            .child
+            .plugin
 			.remap_interfaces( HashMap::from([(
 				"root".to_string(),
 				Remap::found_as_with_item_resolution_table(
@@ -66,26 +69,27 @@ fn async_dependant_dispatch_encodes_child_errors() -> Result<(), Box<dyn std::er
 					HashMap::from([( "get-value".to_string(), "missing".to_string() )]),
 				),
 			)]))
-			.instantiate_async( &engine, &linker, executor.clone() ).await?;
-		let dependency = Binding::new(
+            .instantiate(&engine, &linker, executor.clone())
+            .await?;
+        let dependency = ConcurrentBinding::new(
 			bindings.dependency.package,
 			HashMap::from([( bindings.dependency.name, bindings.dependency.spec )]),
 			ExactlyOne( "child".to_string(), child ),
 		);
-		let startup = plugins.startup.plugin.link_async(
-			&engine,
-			linker,
-			vec![ dependency ],
-			executor,
-		).await?;
-		let root = Binding::new(
+        let startup = plugins
+            .startup
+            .plugin
+            .link(&engine, linker, vec![dependency], executor)
+            .await?;
+        let root = ConcurrentBinding::new(
 			bindings.root.package,
 			HashMap::from([( bindings.root.name, bindings.root.spec )]),
 			ExactlyOne( "startup".to_string(), startup ),
 		);
 
-		let result = root.dispatch_async( "root", "get-value", &[] ).await?;
-		assert!( matches!(
+        let result = root.dispatch("root", "get-value", &[]).await?;
+        assert!(
+            matches!(
 			&result,
 			ExactlyOne( _, Ok( Val::Tuple( items ))) if matches!( items.as_slice(),
 				[ Val::String( id ), Val::Result( Err( Some( error ))) ] if

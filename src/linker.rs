@@ -3,13 +3,14 @@ use futures::lock::Mutex ;
 use wasmtime::{ AsContextMut, StoreContextMut };
 use wasmtime::component::{ Accessor, Val };
 
-use crate::{ Binding, Function, FunctionKind, ReturnKind, PluginContext, DispatchError };
-use crate::cardinality::Cardinality ;
-use crate::plugin_instance::{ PluginInstanceAsync, PluginInstanceSync, clone_after_wait };
-use crate::plugin_instance::Caller ;
-use super::resource_wrapper::ResourceWrapper ;
-
-
+use super::resource_wrapper::ResourceWrapper;
+use crate::binding::Binding;
+use crate::cardinality::Cardinality;
+use crate::interface::Function;
+use crate::plugin_instance::Caller;
+use crate::plugin_instance::DispatchError;
+use crate::plugin_instance::{PluginInstanceAsync, PluginInstanceSync};
+use crate::{FunctionKind, PluginContext, ReturnKind};
 
 struct DispatchTarget<'a> {
 	package_name: &'a str,
@@ -32,9 +33,15 @@ where
 	PluginId: Clone + std::hash::Hash + Eq + Send + Sync + Into<Val> + 'static,
 	Ctx: PluginContext,
 	Plugins: Cardinality<PluginId, PluginInstanceSync<Ctx>>,
-	<Plugins as Cardinality<PluginId, PluginInstanceSync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceSync<Ctx>>>>: Send + Sync,
-	<Plugins as Cardinality<PluginId, PluginInstanceSync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceSync<Ctx>>>>: Cardinality<PluginId, Arc<Mutex<PluginInstanceSync<Ctx>>>>,
-	<<Plugins as Cardinality<PluginId, PluginInstanceSync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceSync<Ctx>>>> as Cardinality<PluginId, Arc<Mutex<PluginInstanceSync<Ctx>>>>>::Rebind<Val>: Into<Val>,
+    <Plugins as Cardinality<PluginId, PluginInstanceSync<Ctx>>>::Rebind<
+        Arc<PluginInstanceSync<Ctx>>,
+    >: Send + Sync,
+    <Plugins as Cardinality<PluginId, PluginInstanceSync<Ctx>>>::Rebind<
+        Arc<PluginInstanceSync<Ctx>>,
+    >: Cardinality<PluginId, Arc<PluginInstanceSync<Ctx>>>,
+    <<Plugins as Cardinality<PluginId, PluginInstanceSync<Ctx>>>::Rebind<
+        Arc<PluginInstanceSync<Ctx>>,
+    > as Cardinality<PluginId, Arc<PluginInstanceSync<Ctx>>>>::Rebind<Val>: Into<Val>,
 {
 	debug_assert_eq!( function.kind(), FunctionKind::Freestanding );
 	let target = DispatchTarget {
@@ -71,8 +78,12 @@ where
 	PluginId: Clone + std::hash::Hash + Eq + Send + Sync + 'static,
 	Ctx: PluginContext,
 	Plugins: Cardinality<PluginId, PluginInstanceSync<Ctx>>,
-	<Plugins as Cardinality<PluginId, PluginInstanceSync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceSync<Ctx>>>>: Send + Sync,
-	<Plugins as Cardinality<PluginId, PluginInstanceSync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceSync<Ctx>>>>: Cardinality<PluginId, Arc<Mutex<PluginInstanceSync<Ctx>>>>,
+    <Plugins as Cardinality<PluginId, PluginInstanceSync<Ctx>>>::Rebind<
+        Arc<PluginInstanceSync<Ctx>>,
+    >: Send + Sync,
+    <Plugins as Cardinality<PluginId, PluginInstanceSync<Ctx>>>::Rebind<
+        Arc<PluginInstanceSync<Ctx>>,
+    >: Cardinality<PluginId, Arc<PluginInstanceSync<Ctx>>>,
 {
 	debug_assert_eq!( function.kind(), FunctionKind::Method );
 	Val::Result( match route_method(
@@ -93,7 +104,7 @@ where
 fn dispatch_of<PluginId, Ctx>(
 	ctx: &mut StoreContextMut<Ctx>,
 	plugin_id: PluginId,
-	plugin: &Arc<Mutex<PluginInstanceSync<Ctx>>>,
+    plugin: &Arc<PluginInstanceSync<Ctx>>,
 	target: &DispatchTarget<'_>,
 	data: &[Val],
 ) -> Result<Val, DispatchError>
@@ -101,10 +112,12 @@ where
 	PluginId: Clone + std::hash::Hash + Eq + Send + Sync + 'static,
 	Ctx: PluginContext,
 {
-
-	let instance = clone_after_wait( plugin );
-	let result = instance.dispatch_from(
-		target.package_name, target.interface_name, target.function_name, target.function, data,
+    let result = plugin.dispatch_from(
+        target.package_name,
+        target.interface_name,
+        target.function_name,
+        target.function,
+        data,
 	)?;
 
 	Ok( match target.function.return_kind() {
@@ -127,8 +140,12 @@ where
 	PluginId: Clone + std::hash::Hash + Eq + Send + Sync + 'static,
 	Ctx: PluginContext,
 	Plugins: Cardinality<PluginId, PluginInstanceSync<Ctx>>,
-	<Plugins as Cardinality<PluginId, PluginInstanceSync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceSync<Ctx>>>>: Send + Sync,
-	<Plugins as Cardinality<PluginId, PluginInstanceSync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceSync<Ctx>>>>: Cardinality<PluginId, Arc<Mutex<PluginInstanceSync<Ctx>>>>,
+    <Plugins as Cardinality<PluginId, PluginInstanceSync<Ctx>>>::Rebind<
+        Arc<PluginInstanceSync<Ctx>>,
+    >: Send + Sync,
+    <Plugins as Cardinality<PluginId, PluginInstanceSync<Ctx>>>::Rebind<
+        Arc<PluginInstanceSync<Ctx>>,
+    >: Cardinality<PluginId, Arc<PluginInstanceSync<Ctx>>>,
 {
 
 	let handle = match data.first() {
@@ -175,9 +192,15 @@ where
 	PluginId: Clone + std::hash::Hash + Eq + Send + Sync + Into<Val> + 'static,
 	Ctx: PluginContext,
 	Plugins: Cardinality<PluginId, PluginInstanceAsync<Ctx>>,
-	<Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceAsync<Ctx>>>>: Send + Sync,
-	<Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceAsync<Ctx>>>>: Cardinality<PluginId, Arc<Mutex<PluginInstanceAsync<Ctx>>>>,
-	<<Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceAsync<Ctx>>>> as Cardinality<PluginId, Arc<Mutex<PluginInstanceAsync<Ctx>>>>>::Rebind<Val>: Into<Val> + Send,
+    <Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<
+        Arc<PluginInstanceAsync<Ctx>>,
+    >: Send + Sync,
+    <Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<
+        Arc<PluginInstanceAsync<Ctx>>,
+    >: Cardinality<PluginId, Arc<PluginInstanceAsync<Ctx>>>,
+    <<Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<
+        Arc<PluginInstanceAsync<Ctx>>,
+    > as Cardinality<PluginId, Arc<PluginInstanceAsync<Ctx>>>>::Rebind<Val>: Into<Val> + Send,
 {
 	debug_assert_eq!( function.kind(), FunctionKind::Freestanding );
 	let target = DispatchTarget {
@@ -210,8 +233,12 @@ where
 	PluginId: Clone + std::hash::Hash + Eq + Send + Sync + 'static,
 	Ctx: PluginContext,
 	Plugins: Cardinality<PluginId, PluginInstanceAsync<Ctx>>,
-	<Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceAsync<Ctx>>>>: Send + Sync,
-	<Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceAsync<Ctx>>>>: Cardinality<PluginId, Arc<Mutex<PluginInstanceAsync<Ctx>>>>,
+    <Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<
+        Arc<PluginInstanceAsync<Ctx>>,
+    >: Send + Sync,
+    <Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<
+        Arc<PluginInstanceAsync<Ctx>>,
+    >: Cardinality<PluginId, Arc<PluginInstanceAsync<Ctx>>>,
 {
 	debug_assert_eq!( function.kind(), FunctionKind::Method );
 	Val::Result( match route_method_async(
@@ -245,9 +272,15 @@ where
 	PluginId: Clone + std::hash::Hash + Eq + Send + Sync + Into<Val> + 'static,
 	Ctx: PluginContext,
 	Plugins: Cardinality<PluginId, PluginInstanceAsync<Ctx>>,
-	<Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceAsync<Ctx>>>>: Send + Sync,
-	<Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceAsync<Ctx>>>>: Cardinality<PluginId, Arc<Mutex<PluginInstanceAsync<Ctx>>>>,
-	<<Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceAsync<Ctx>>>> as Cardinality<PluginId, Arc<Mutex<PluginInstanceAsync<Ctx>>>>>::Rebind<Val>: Into<Val> + Send,
+    <Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<
+        Arc<PluginInstanceAsync<Ctx>>,
+    >: Send + Sync,
+    <Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<
+        Arc<PluginInstanceAsync<Ctx>>,
+    >: Cardinality<PluginId, Arc<PluginInstanceAsync<Ctx>>>,
+    <<Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<
+        Arc<PluginInstanceAsync<Ctx>>,
+    > as Cardinality<PluginId, Arc<PluginInstanceAsync<Ctx>>>>::Rebind<Val>: Into<Val> + Send,
 {
 	debug_assert_eq!( function.kind(), FunctionKind::Freestanding );
 	let ctx = Mutex::new( ctx );
@@ -281,8 +314,12 @@ where
 	PluginId: Clone + std::hash::Hash + Eq + Send + Sync + 'static,
 	Ctx: PluginContext,
 	Plugins: Cardinality<PluginId, PluginInstanceAsync<Ctx>>,
-	<Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceAsync<Ctx>>>>: Send + Sync,
-	<Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceAsync<Ctx>>>>: Cardinality<PluginId, Arc<Mutex<PluginInstanceAsync<Ctx>>>>,
+    <Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<
+        Arc<PluginInstanceAsync<Ctx>>,
+    >: Send + Sync,
+    <Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<
+        Arc<PluginInstanceAsync<Ctx>>,
+    >: Cardinality<PluginId, Arc<PluginInstanceAsync<Ctx>>>,
 {
 	debug_assert_eq!( function.kind(), FunctionKind::Method );
 	let ctx = Mutex::new( ctx );
@@ -305,7 +342,7 @@ async fn dispatch_of_async<PluginId, Ctx>(
 	caller: &Caller,
 	ctx: &Accessor<Ctx>,
 	plugin_id: PluginId,
-	plugin: Arc<Mutex<PluginInstanceAsync<Ctx>>>,
+    plugin: Arc<PluginInstanceAsync<Ctx>>,
 	target: &DispatchTarget<'_>,
 	data: &[Val],
 ) -> Result<Val, DispatchError>
@@ -313,8 +350,8 @@ where
 	PluginId: Clone + std::hash::Hash + Eq + Send + Sync + 'static,
 	Ctx: PluginContext,
 {
-	let instance = plugin.lock().await.clone();
-	let result = instance.dispatch_async_from(
+    let result = plugin
+        .dispatch_async_from(
 		caller,
 		target.package_name,
 		target.interface_name,
@@ -336,7 +373,7 @@ async fn dispatch_of_async_blocking<PluginId, Ctx>(
 	caller: &Caller,
 	ctx: &Mutex<StoreContextMut<'_, Ctx>>,
 	plugin_id: PluginId,
-	plugin: Arc<Mutex<PluginInstanceAsync<Ctx>>>,
+    plugin: Arc<PluginInstanceAsync<Ctx>>,
 	target: &DispatchTarget<'_>,
 	data: &[Val],
 ) -> Result<Val, DispatchError>
@@ -344,8 +381,8 @@ where
 	PluginId: Clone + std::hash::Hash + Eq + Send + Sync + 'static,
 	Ctx: PluginContext,
 {
-	let instance = plugin.lock().await.clone();
-	let result = instance.dispatch_async_from(
+    let result = plugin
+        .dispatch_async_from(
 		caller,
 		target.package_name,
 		target.interface_name,
@@ -378,8 +415,12 @@ where
 	PluginId: Clone + std::hash::Hash + Eq + Send + Sync + 'static,
 	Ctx: PluginContext,
 	Plugins: Cardinality<PluginId, PluginInstanceAsync<Ctx>>,
-	<Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceAsync<Ctx>>>>: Send + Sync,
-	<Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceAsync<Ctx>>>>: Cardinality<PluginId, Arc<Mutex<PluginInstanceAsync<Ctx>>>>,
+    <Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<
+        Arc<PluginInstanceAsync<Ctx>>,
+    >: Send + Sync,
+    <Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<
+        Arc<PluginInstanceAsync<Ctx>>,
+    >: Cardinality<PluginId, Arc<PluginInstanceAsync<Ctx>>>,
 {
 	let handle = match data.first() {
 		Some( Val::Resource( handle )) => Ok( *handle ),
@@ -421,8 +462,12 @@ where
 	PluginId: Clone + std::hash::Hash + Eq + Send + Sync + 'static,
 	Ctx: PluginContext,
 	Plugins: Cardinality<PluginId, PluginInstanceAsync<Ctx>>,
-	<Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceAsync<Ctx>>>>: Send + Sync,
-	<Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceAsync<Ctx>>>>: Cardinality<PluginId, Arc<Mutex<PluginInstanceAsync<Ctx>>>>,
+    <Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<
+        Arc<PluginInstanceAsync<Ctx>>,
+    >: Send + Sync,
+    <Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<
+        Arc<PluginInstanceAsync<Ctx>>,
+    >: Cardinality<PluginId, Arc<PluginInstanceAsync<Ctx>>>,
 {
 	let handle = match data.first() {
 		Some( Val::Resource( handle )) => Ok( *handle ),

@@ -1,5 +1,6 @@
 use std::collections::HashSet ;
 
+use wasm_link::concurrent::DispatchError as ConcurrentDispatchError;
 use wasm_link::{
 	Component, DispatchError, Engine, ResourceCreationError, ResourceReceiveError, Val,
 };
@@ -11,7 +12,14 @@ use wit_parser::{ ManglingAndAbi, Resolve, TypeDefKind, WorldItem };
 
 #[test]
 fn dispatch_errors_cover_the_provided_wit_contract() -> Result<(), Box<dyn std::error::Error>> {
-	let (resolve, world) = load_contract()?;
+    validate_contract("validator", dispatch_error_values())?;
+    validate_contract("concurrent-validator", concurrent_dispatch_error_values())?;
+    validate_contract("legacy-validator", legacy_dispatch_error_values())?;
+    Ok(())
+}
+
+fn validate_contract(world_name: &str, values: Vec<Val>) -> Result<(), Box<dyn std::error::Error>> {
+    let (resolve, world) = load_contract(world_name)?;
 	let contract_case_count = dispatch_error_case_count( &resolve, world )?;
 	let mut module = dummy_module( &resolve, world, ManglingAndAbi::Standard32 );
 	embed_component_metadata( &mut module, &resolve, world, StringEncoding::UTF8 )?;
@@ -24,10 +32,20 @@ fn dispatch_errors_cover_the_provided_wit_contract() -> Result<(), Box<dyn std::
 	let instance = linker.instantiate( &mut store, &component )?;
 	let validate = instance.get_func( &mut store, "validate" ).ok_or( "missing validate export" )?;
 
-	let values = dispatch_error_values();
-	let variant_names = values.iter().map( variant_name ).collect::<Result<HashSet<_>, _>>()?;
-	assert_eq!( variant_names.len(), values.len(), "dispatch errors must have unique WIT variants" );
-	assert_eq!( values.len(), contract_case_count, "every WIT dispatch-error case must be produced" );
+    let variant_names = values
+        .iter()
+        .map(variant_name)
+        .collect::<Result<HashSet<_>, _>>()?;
+    assert_eq!(
+        variant_names.len(),
+        values.len(),
+        "dispatch errors must have unique WIT variants"
+    );
+    assert_eq!(
+        values.len(),
+        contract_case_count,
+        "every WIT dispatch-error case must be produced"
+    );
 	let invalid = Val::Variant( "not-in-contract".to_string(), None );
 	let error = validate.call( &mut store, &[ invalid ], &mut [] )
 		.expect_err( "an unknown WIT variant must be rejected" );
@@ -42,11 +60,13 @@ fn dispatch_errors_cover_the_provided_wit_contract() -> Result<(), Box<dyn std::
 	Ok(())
 }
 
-fn load_contract() -> Result<(Resolve, wit_parser::WorldId), Box<dyn std::error::Error>> {
+fn load_contract(
+    world_name: &str,
+) -> Result<(Resolve, wit_parser::WorldId), Box<dyn std::error::Error>> {
 	let mut resolve = Resolve::new();
 	let _ = resolve.push_path( "wit" )?;
 	let (validator, _) = resolve.push_path( "tests/wit_contract" )?;
-	let world = resolve.select_world( &[ validator ], Some( "validator" ))?;
+    let world = resolve.select_world(&[validator], Some(world_name))?;
 	Ok(( resolve, world ))
 }
 
@@ -81,12 +101,39 @@ fn dispatch_error_values() -> Vec<Val> {
 		DispatchError::RuntimeException( wasmtime::Error::msg( "trap" )).into(),
 		DispatchError::InvalidArgumentList.into(),
 		DispatchError::UnsupportedType( "future".to_string() ).into(),
-		DispatchError::ExecutorUnavailable.into(),
-		DispatchError::DispatchQueueFull.into(),
 		DispatchError::ResourceCreationError( ResourceCreationError::ResourceTableFull ).into(),
 		DispatchError::ResourceCreationError( ResourceCreationError::ResourceHandleConversionFailed ).into(),
 		DispatchError::ResourceReceiveError( ResourceReceiveError::InvalidHandle ).into(),
 	]
+}
+
+fn concurrent_dispatch_error_values() -> Vec<Val> {
+    vec![
+        ConcurrentDispatchError::InvalidInterfacePath("package/interface".to_string()).into(),
+        ConcurrentDispatchError::InvalidFunction("function".to_string()).into(),
+        ConcurrentDispatchError::MissingResponse.into(),
+        ConcurrentDispatchError::RuntimeException(wasmtime::Error::msg("trap")).into(),
+        ConcurrentDispatchError::InvalidArgumentList.into(),
+        ConcurrentDispatchError::UnsupportedType("future".to_string()).into(),
+        ConcurrentDispatchError::ExecutorUnavailable.into(),
+        ConcurrentDispatchError::DispatchQueueFull.into(),
+        ConcurrentDispatchError::ResourceCreationError(ResourceCreationError::ResourceTableFull)
+            .into(),
+        ConcurrentDispatchError::ResourceCreationError(
+            ResourceCreationError::ResourceHandleConversionFailed,
+        )
+        .into(),
+        ConcurrentDispatchError::ResourceReceiveError(ResourceReceiveError::InvalidHandle).into(),
+    ]
+}
+
+fn legacy_dispatch_error_values() -> Vec<Val> {
+    let mut values = concurrent_dispatch_error_values();
+    values.retain(
+        |value| !matches!( value, Val::Variant( name, _ ) if name == "dispatch-queue-full" ),
+    );
+    values.push(Val::Variant("lock-rejected".to_string(), None));
+    values
 }
 
 fn variant_name( value: &Val ) -> Result<&str, &'static str> {

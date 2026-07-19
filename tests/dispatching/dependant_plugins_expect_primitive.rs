@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::{ Arc, mpsc };
 use std::time::Duration ;
+use wasm_link::concurrent::Binding as ConcurrentBinding;
 use wasm_link::{ Binding, Engine, Linker, Val };
 use wasm_link::cardinality::ExactlyOne ;
 use wasmtime::Config ;
@@ -129,32 +130,36 @@ fn dispatch_async_test_dependant_plugins_expect_primitive() {
 	futures::executor::block_on( async {
 		let engine = Engine::default();
 		let linker = Linker::new( &engine );
-		let executor = futures::executor::ThreadPool::new()
-			.expect( "Failed to create async executor" );
-		let plugins = fixtures::plugins( &engine );
-		let bindings = fixtures::bindings();
+        let executor =
+            futures::executor::ThreadPool::new().expect("Failed to create async executor");
+        let plugins = fixtures::plugins_concurrent(&engine);
+        let bindings = fixtures::bindings_concurrent();
 
-		let child_instance = plugins.child.plugin
-			.instantiate_async( &engine, &linker, executor.clone() )
+        let child_instance = plugins
+            .child
+            .plugin
+            .instantiate(&engine, &linker, executor.clone())
 			.await
 			.expect( "Failed to instantiate child plugin asynchronously" );
-		let dependency_binding = Binding::new(
+        let dependency_binding = ConcurrentBinding::new(
 			bindings.dependency.package,
 			HashMap::from([( bindings.dependency.name, bindings.dependency.spec )]),
 			ExactlyOne( "_".to_string(), child_instance ),
 		);
 
-		let startup_instance = plugins.startup.plugin
-			.link_async( &engine, linker.clone(), vec![ dependency_binding ], executor )
+        let startup_instance = plugins
+            .startup
+            .plugin
+            .link(&engine, linker.clone(), vec![dependency_binding], executor)
 			.await
 			.expect( "Failed to link startup plugin asynchronously" );
-		let root_binding = Binding::new(
+        let root_binding = ConcurrentBinding::new(
 			bindings.root.package,
 			HashMap::from([( bindings.root.name, bindings.root.spec )]),
 			ExactlyOne( "_".to_string(), startup_instance ),
 		);
 
-		match root_binding.dispatch_async( "root", "get-primitive", &[] ).await {
+        match root_binding.dispatch("root", "get-primitive", &[]).await {
 			Ok( ExactlyOne( _, Ok( Val::U32( 42 )))) => {}
 			value => panic!( "Expected Ok( ExactlyOne( Ok( U32( 42 )))), found: {:#?}", value ),
 		}

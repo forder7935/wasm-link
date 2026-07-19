@@ -1,4 +1,4 @@
-package wasm-link:runtime@0.5.0;
+package wasm-link:concurrent-runtime@0.5.0;
 
 @since(version = 0.5.0)
 interface errors {
@@ -10,6 +10,8 @@ interface errors {
 		runtime-exception(string),
 		invalid-argument-list,
 		unsupported-type(string),
+		executor-unavailable,
+		dispatch-queue-full,
 		resource-table-full,
 		resource-handle-conversion-failed,
 		invalid-resource-handle,

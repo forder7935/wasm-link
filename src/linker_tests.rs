@@ -13,7 +13,7 @@ impl PluginContext for Context {
 }
 
 #[test]
-fn wraps_nested_component_values_without_resources() -> Result<(), crate::DispatchError> {
+fn wraps_nested_component_values_without_resources() -> Result<(), crate::plugin_instance::DispatchError> {
 	let mut store = Store::new( &Engine::default(), Context { table: ResourceTable::new() });
 	let values = [
 		Val::Bool( true ),
@@ -46,11 +46,11 @@ fn rejects_async_values_during_cross_plugin_transfer() -> Result<(), Box<dyn std
 
 	assert!( matches!(
 		wrap_resources( Val::Future( future ), "plugin".to_string(), &mut store.as_context_mut() ),
-		Err( crate::DispatchError::UnsupportedType( name )) if name == "future"
+		Err( crate::plugin_instance::DispatchError::UnsupportedType( name )) if name == "future"
 	));
 	assert!( matches!(
 		wrap_resources( Val::Stream( stream ), "plugin".to_string(), &mut store.as_context_mut() ),
-		Err( crate::DispatchError::UnsupportedType( name )) if name == "stream"
+		Err( crate::plugin_instance::DispatchError::UnsupportedType( name )) if name == "stream"
 	));
 	Ok(())
 }
@@ -75,7 +75,7 @@ fn rejects_error_contexts_during_cross_plugin_transfer() -> Result<(), Box<dyn s
 		function.call_async( &mut store, &[], &mut results ).await?;
 		assert!( matches!(
 			wrap_resources( results[0].clone(), "plugin".to_string(), &mut store.as_context_mut() ),
-			Err( crate::DispatchError::UnsupportedType( name )) if name == "error-context"
+			Err( crate::plugin_instance::DispatchError::UnsupportedType( name )) if name == "error-context"
 		));
 		Ok::<_, Box<dyn std::error::Error>>(())
 	})

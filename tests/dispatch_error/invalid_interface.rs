@@ -1,6 +1,9 @@
 use std::collections::{ HashMap, HashSet };
 use wasm_link::{ Binding, DispatchError, Engine, Function, FunctionKind, Interface, Linker, ReturnKind };
 use wasm_link::cardinality::ExactlyOne ;
+use wasm_link::concurrent::{
+    Binding as ConcurrentBinding, DispatchError as ConcurrentDispatchError,
+};
 
 fixtures! {
 	bindings = { root: "root" };
@@ -12,22 +15,22 @@ fn async_dispatch_error_invalid_interface() -> Result<(), Box<dyn std::error::Er
 	futures::executor::block_on( async {
 		let engine = Engine::default();
 		let linker = Linker::new( &engine );
-		let plugins = fixtures::plugins( &engine );
-		let bindings = fixtures::bindings();
-		let plugin = plugins.test_plugin.plugin.instantiate_async(
-			&engine,
-			&linker,
-			futures::executor::ThreadPool::new()?,
-		).await?;
-		let binding = Binding::new(
+        let plugins = fixtures::plugins_concurrent(&engine);
+        let bindings = fixtures::bindings_concurrent();
+        let plugin = plugins
+            .test_plugin
+            .plugin
+            .instantiate(&engine, &linker, futures::executor::ThreadPool::new()?)
+            .await?;
+        let binding = ConcurrentBinding::new(
 			bindings.root.package,
 			HashMap::from([( bindings.root.name, bindings.root.spec )]),
 			ExactlyOne( "_".to_string(), plugin ),
 		);
 
 		assert!( matches!(
-			binding.dispatch_async( "nonexistent", "test", &[] ).await,
-			Err( DispatchError::InvalidInterfacePath( _ ))
+            binding.dispatch("nonexistent", "test", &[]).await,
+            Err(ConcurrentDispatchError::InvalidInterfacePath(_))
 		));
 		Ok(())
 	})
