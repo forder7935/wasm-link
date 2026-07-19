@@ -296,9 +296,8 @@ where
 		interface_name: &str,
 		function_name: &str,
 		args: &[wasmtime::component::Val],
-    ) -> Result<DispatchResults<PluginId, Plugins, PluginInstanceAsync<Ctx>>, DispatchError>
+	    ) -> Result<DispatchResults<PluginId, Plugins, PluginInstanceAsync<Ctx>>, DispatchError>
 	where
-		PluginId: Into<Val>,
 		DispatchResults<PluginId, Plugins, PluginInstanceAsync<Ctx>>: Send,
 	{
         let interface = self.0.interfaces.get(interface_name).ok_or_else(|| {

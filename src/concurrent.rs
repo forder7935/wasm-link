@@ -265,7 +265,6 @@ where
         args: &[Val],
     ) -> Result<Results<Id, Ctx, Plugins>, DispatchError>
     where
-        Id: Into<Val>,
         Results<Id, Ctx, Plugins>: Send,
         CoreResults<Id, Ctx, Plugins>: Send,
     {
