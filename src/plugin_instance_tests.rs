@@ -126,7 +126,10 @@ fn clone_waits_for_a_contended_instance_lock() {
 	let waited = AtomicBool::new( false );
 
 	std::thread::scope(| scope | {
-		let clone = scope.spawn(|| clone_after_wait_with( &mutex, || waited.store( true, Ordering::Release )));
+		let clone = scope.spawn(|| clone_after_wait_with( &mutex, || {
+			waited.store( true, Ordering::Release );
+			std::thread::yield_now();
+		}));
 		while !waited.load( Ordering::Acquire ) { std::thread::yield_now(); }
 		drop( lock );
 		assert_eq!( clone.join().expect( "clone thread must not panic" ), 42 );
