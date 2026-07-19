@@ -409,7 +409,7 @@ impl<Ctx: PluginContext + 'static> Dispatcher<Ctx> {
 		if let Some( caller_queue ) = queue.callers.get_mut( &caller_id ) {
 			if caller_queue.calls.is_empty() {
 				remove = true;
-			} else {
+			} else if !caller_queue.ready {
 				caller_queue.ready = true;
 				queue.ready.push_back( caller_id );
 			}
