@@ -6,7 +6,7 @@ use super::{
 	MAX_DESTINATION_BYTES, MAX_DESTINATION_CALLS, ensure_supported_value,
 	has_capacity, retained_bytes,
 };
-use crate::{ DispatchError, Plugin, PluginContext };
+use crate::{ DispatchError, PluginContext };
 
 struct Context { table: ResourceTable }
 
@@ -114,19 +114,4 @@ fn enforces_caller_and_destination_count_and_byte_limits() {
 	assert!( !has_capacity(
 		&Budget::default(), &DispatchQueue { bytes: usize::MAX, ..DispatchQueue::default() }, 1,
 	));
-}
-
-#[test]
-fn rejects_same_thread_sync_reentry() -> Result<(), Box<dyn std::error::Error>> {
-	let engine = Engine::default();
-	let component = Component::from_file(
-		&engine,
-		concat!( env!( "CARGO_MANIFEST_DIR" ), "/tests/plugin_instance/sync_empty.wat" ),
-	)?;
-	let linker = Linker::new( &engine );
-	let instance = Plugin::new( component, Context { table: ResourceTable::new() })
-		.instantiate( &engine, &linker )?;
-	let _permit = instance.dispatcher.enter()?;
-	assert!( matches!( instance.dispatcher.enter(), Err( DispatchError::LockRejected )));
-	Ok(())
 }

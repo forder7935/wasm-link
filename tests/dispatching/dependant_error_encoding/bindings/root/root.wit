@@ -2,7 +2,6 @@ package test:dependant-error ;
 
 interface root {
 	variant dispatch-error {
-		lock-rejected,
 		invalid-interface-path(string),
 		invalid-function(string),
 		missing-response,

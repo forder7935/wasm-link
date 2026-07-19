@@ -194,8 +194,7 @@ where
 	///
 	/// # Errors
 	/// Returns an error if the interface or function is not found in this binding.
-	/// Concurrent calls wait in FIFO order; a same-thread re-entrant call returns
-	/// [`DispatchError::LockRejected`](crate::DispatchError::LockRejected).
+	/// Concurrent calls wait in FIFO order when the destination is already executing.
 	pub fn dispatch(
 		&self,
 		interface_name: &str,
@@ -245,7 +244,7 @@ where
 
 	/// Asynchronously dispatches a function call to all plugins implementing this binding.
 	///
-	/// This method queues behind a busy plugin instead of returning [`DispatchError::LockRejected`](crate::DispatchError::LockRejected).
+	/// This method queues behind a busy plugin.
 	/// Queued calls are serviced round-robin by caller. A call is rejected with
 	/// [`DispatchError::DispatchQueueFull`](crate::DispatchError::DispatchQueueFull)
 	/// when its caller or destination reaches an async dispatch count or byte bound.

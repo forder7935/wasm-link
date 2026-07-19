@@ -2,7 +2,6 @@ package wasm-link:runtime@0.5.0;
 
 interface errors {
 	variant dispatch-error {
-		lock-rejected,
 		invalid-interface-path(string),
 		invalid-function(string),
 		missing-response,

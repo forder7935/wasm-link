@@ -75,7 +75,6 @@ fn variant_case_count(
 
 fn dispatch_error_values() -> Vec<Val> {
 	vec![
-		DispatchError::LockRejected.into(),
 		DispatchError::InvalidInterfacePath( "package/interface".to_string() ).into(),
 		DispatchError::InvalidFunction( "function".to_string() ).into(),
 		DispatchError::MissingResponse.into(),
