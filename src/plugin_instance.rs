@@ -406,13 +406,13 @@ impl<Ctx: PluginContext + 'static> Dispatcher<Ctx> {
 	fn finish_turn( &self, caller_id: u64 ) {
 		let mut queue = lock_unpoisoned( &self.queue );
 		let mut remove = false;
-		if let Some( caller_queue ) = queue.callers.get_mut( &caller_id ) {
-			if caller_queue.calls.is_empty() {
-				remove = true;
-			} else if !caller_queue.ready {
-				caller_queue.ready = true;
-				queue.ready.push_back( caller_id );
-			}
+		let caller_queue = queue.callers.get_mut( &caller_id )
+			.expect( "a caller must remain registered until its active turn finishes" );
+		if caller_queue.calls.is_empty() {
+			remove = true;
+		} else if !caller_queue.ready {
+			caller_queue.ready = true;
+			queue.ready.push_back( caller_id );
 		}
 		if remove { queue.callers.remove( &caller_id ); }
 	}
@@ -455,9 +455,13 @@ fn lock_unpoisoned<T>( mutex: &std::sync::Mutex<T> ) -> std::sync::MutexGuard<'_
 }
 
 pub(crate) fn clone_after_wait<T: Clone>( mutex: &Mutex<T> ) -> T {
+	clone_after_wait_with( mutex, std::thread::yield_now )
+}
+
+fn clone_after_wait_with<T: Clone>( mutex: &Mutex<T>, mut wait: impl FnMut() ) -> T {
 	loop {
 		if let Some( value ) = mutex.try_lock() { return value.clone(); }
-		std::thread::yield_now();
+		wait();
 	}
 }
 

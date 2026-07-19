@@ -1,10 +1,13 @@
+use std::sync::atomic::{ AtomicBool, Ordering };
+
+use futures::lock::Mutex;
 use wasmtime::{ Config, Engine, Store };
 use wasmtime::component::{ Component, FutureReader, Linker, ResourceTable, StreamReader, Val };
 
 use super::{
 	Budget, DispatchQueue, MAX_CALLER_BYTES, MAX_CALLER_CALLS,
 	MAX_DESTINATION_BYTES, MAX_DESTINATION_CALLS, ensure_supported_value,
-	has_capacity, retained_bytes,
+	clone_after_wait_with, has_capacity, retained_bytes,
 };
 use crate::{ DispatchError, PluginContext };
 
@@ -114,4 +117,18 @@ fn enforces_caller_and_destination_count_and_byte_limits() {
 	assert!( !has_capacity(
 		&Budget::default(), &DispatchQueue { bytes: usize::MAX, ..DispatchQueue::default() }, 1,
 	));
+}
+
+#[test]
+fn clone_waits_for_a_contended_instance_lock() {
+	let mutex = Mutex::new( 42 );
+	let lock = mutex.try_lock().expect( "test must hold the instance lock" );
+	let waited = AtomicBool::new( false );
+
+	std::thread::scope(| scope | {
+		let clone = scope.spawn(|| clone_after_wait_with( &mutex, || waited.store( true, Ordering::Release )));
+		while !waited.load( Ordering::Acquire ) { std::thread::yield_now(); }
+		drop( lock );
+		assert_eq!( clone.join().expect( "clone thread must not panic" ), 42 );
+	});
 }
