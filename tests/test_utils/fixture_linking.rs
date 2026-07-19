@@ -111,6 +111,8 @@ mod fixture_linking {
 	#[derive( Debug )]
 	pub struct TestContext {
 		pub resource_table: wasm_link::ResourceTable,
+		#[allow( dead_code )]
+		pub limits: wasmtime::StoreLimits,
 	}
 
 	impl wasm_link::PluginContext for TestContext {
@@ -201,7 +203,10 @@ mod fixture_linking {
 		Ok( PluginData {
 			plugin: Plugin::new(
 				component,
-				TestContext { resource_table: wasm_link::ResourceTable::new() },
+				TestContext {
+					resource_table: wasm_link::ResourceTable::new(),
+					limits: wasmtime::StoreLimits::default(),
+				},
 			),
 		})
 
@@ -219,7 +224,10 @@ mod fixture_linking {
 			.map_err(| error | FixtureError::WasmLoad( format!( "{error:#}" )))?;
 		Ok( PluginDataConcurrent { plugin: concurrent::Plugin::new(
 			component,
-			TestContext { resource_table: wasm_link::ResourceTable::new() },
+			TestContext {
+				resource_table: wasm_link::ResourceTable::new(),
+				limits: wasmtime::StoreLimits::default(),
+			},
 		)})
 	}
 

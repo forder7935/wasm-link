@@ -48,6 +48,9 @@ fn async_debug_output_exposes_configuration_without_component_internals() -> Res
 		let executor = futures::executor::ThreadPool::new()?;
         let plugins = fixtures::plugins_concurrent(&engine);
         let bindings = fixtures::bindings_concurrent();
+        let plugin_debug = format!("{:?}", plugins.plugin.plugin);
+        assert!(plugin_debug.contains("component: \"<Component>\""));
+        assert!(plugin_debug.contains("initial_fuel: None"));
         let plugin_instance = plugins
             .plugin
             .plugin

@@ -449,8 +449,7 @@ fn component_type_contains_async(engine: &Engine, component: &ComponentType) -> 
 fn component_item_contains_async(engine: &Engine, item: ComponentItem) -> bool {
     match item {
         ComponentItem::ComponentFunc(function) => function.async_(),
-        ComponentItem::Component(component) => component_type_contains_async(engine, &component),
-        ComponentItem::ComponentInstance(instance) => instance
+		ComponentItem::ComponentInstance(instance) => instance
             .exports(engine)
             .any(|(_, item)| component_item_contains_async(engine, item.ty)),
         _ => false,

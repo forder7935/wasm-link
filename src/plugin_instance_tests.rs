@@ -16,6 +16,38 @@ impl PluginContext for Context {
 }
 
 #[test]
+fn dispatch_errors_encode_every_wit_variant() {
+	let errors = [
+		DispatchError::InvalidInterfacePath( "path".to_string() ),
+		DispatchError::InvalidFunction( "function".to_string() ),
+		DispatchError::MissingResponse,
+		DispatchError::RuntimeException( wasmtime::Error::msg( "trap" )),
+		DispatchError::InvalidArgumentList,
+		DispatchError::UnsupportedType( "future".to_string() ),
+		DispatchError::ExecutorUnavailable,
+		DispatchError::DispatchQueueFull,
+		DispatchError::ResourceCreationError( crate::ResourceCreationError::ResourceHandleConversionFailed ),
+		DispatchError::ResourceReceiveError( crate::ResourceReceiveError::InvalidHandle ),
+	];
+	let names = errors.into_iter().map( Val::from ).map(| value | match value {
+		Val::Variant( name, _ ) => name,
+		value => panic!( "expected an error variant, found {value:?}" ),
+	}).collect::<Vec<_>>();
+	assert_eq!( names, [
+		"invalid-interface-path",
+		"invalid-function",
+		"missing-response",
+		"runtime-exception",
+		"invalid-argument-list",
+		"unsupported-type",
+		"executor-unavailable",
+		"dispatch-queue-full",
+		"resource-handle-conversion-failed",
+		"invalid-resource-handle",
+	]);
+}
+
+#[test]
 fn accepts_nested_component_values() -> Result<(), DispatchError> {
 	let value = Val::Record( vec![
 		( "list".to_string(), Val::List( vec![ Val::U32( 1 ) ])),

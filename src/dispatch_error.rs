@@ -56,10 +56,9 @@ impl From<crate::plugin_instance::DispatchError> for DispatchError {
             }
             crate::plugin_instance::DispatchError::ExecutorUnavailable
             | crate::plugin_instance::DispatchError::DispatchQueueFull => {
-                debug_assert!(false, "async-only error escaped the synchronous runtime");
-                Self::RuntimeException(wasmtime::Error::msg(
-                    "async-only failure in synchronous runtime",
-                ))
+                // Synchronous dispatchers cannot construct either variant. Reaching
+                // this arm means an internal runtime boundary was violated.
+                panic!("async-only error escaped the synchronous runtime")
             }
         }
     }
@@ -91,5 +90,38 @@ impl From<DispatchError> for wasmtime::component::Val {
             DispatchError::ResourceCreationError(value) => value.into(),
             DispatchError::ResourceReceiveError(value) => value.into(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::plugin_instance::DispatchError as CoreDispatchError;
+    use crate::{ResourceCreationError, ResourceReceiveError};
+    use wasmtime::component::Val;
+
+    #[test]
+    fn converts_every_synchronous_internal_error() {
+        [
+            CoreDispatchError::InvalidInterfacePath("path".to_string()),
+            CoreDispatchError::InvalidFunction("function".to_string()),
+            CoreDispatchError::MissingResponse,
+            CoreDispatchError::RuntimeException(wasmtime::Error::msg("trap")),
+            CoreDispatchError::InvalidArgumentList,
+            CoreDispatchError::UnsupportedType("future".to_string()),
+            CoreDispatchError::ResourceCreationError(ResourceCreationError::ResourceTableFull),
+            CoreDispatchError::ResourceReceiveError(ResourceReceiveError::InvalidHandle),
+        ]
+        .into_iter()
+        .map(super::DispatchError::from)
+        .map(Val::from)
+        .for_each(drop);
+    }
+
+    #[test]
+    #[should_panic(expected = "async-only error escaped the synchronous runtime")]
+    fn rejects_async_only_internal_errors() {
+        let _ = super::DispatchError::from(
+            crate::plugin_instance::DispatchError::DispatchQueueFull,
+        );
     }
 }

@@ -502,3 +502,67 @@ impl<Ctx: std::fmt::Debug + 'static> std::fmt::Debug for Plugin<Ctx> {
         self.0.fmt(formatter)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{DispatchError, Function};
+    use crate::plugin_instance::DispatchError as CoreDispatchError;
+    use crate::{FunctionKind, ResourceCreationError, ResourceReceiveError, ReturnKind};
+    use wasmtime::component::Val;
+
+    fn variant_name(value: Val) -> String {
+        match value { Val::Variant(name, _) => name, _ => "not-an-error-variant".to_string() }
+    }
+
+    #[test]
+    fn function_metadata_preserves_runtime_kind() {
+        let sync = Function::new(FunctionKind::Freestanding, ReturnKind::Void);
+        assert_eq!(sync.kind(), FunctionKind::Freestanding);
+        assert_eq!(sync.return_kind(), ReturnKind::Void);
+        assert!(!sync.is_async());
+
+        let asynchronous =
+            Function::new_async(FunctionKind::Method, ReturnKind::MayContainResources);
+        assert_eq!(asynchronous.kind(), FunctionKind::Method);
+        assert_eq!(asynchronous.return_kind(), ReturnKind::MayContainResources);
+        assert!(asynchronous.is_async());
+    }
+
+    #[test]
+    fn dispatch_errors_preserve_every_concurrent_variant() {
+        let errors = [
+            CoreDispatchError::InvalidInterfacePath("path".to_string()),
+            CoreDispatchError::InvalidFunction("function".to_string()),
+            CoreDispatchError::MissingResponse,
+            CoreDispatchError::RuntimeException(wasmtime::Error::msg("trap")),
+            CoreDispatchError::InvalidArgumentList,
+            CoreDispatchError::UnsupportedType("future".to_string()),
+            CoreDispatchError::ExecutorUnavailable,
+            CoreDispatchError::DispatchQueueFull,
+            CoreDispatchError::ResourceCreationError(ResourceCreationError::ResourceTableFull),
+            CoreDispatchError::ResourceReceiveError(ResourceReceiveError::InvalidHandle),
+        ];
+        let names = errors
+            .into_iter()
+            .map(DispatchError::from)
+            .map(Val::from)
+            .map(variant_name)
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            names,
+            [
+                "invalid-interface-path",
+                "invalid-function",
+                "missing-response",
+                "runtime-exception",
+                "invalid-argument-list",
+                "unsupported-type",
+                "executor-unavailable",
+                "dispatch-queue-full",
+                "resource-table-full",
+                "invalid-resource-handle",
+            ]
+        );
+    }
+}

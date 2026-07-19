@@ -92,7 +92,7 @@ fn links_each_async_type_erased_binding_cardinality() -> Result<(), Box<dyn std:
             .link(
 			&engine,
 			Linker::new( &engine ),
-			vec![ socket ],
+			vec![ socket.clone() ],
 			executor.clone(),
 		).await?;
 
@@ -112,7 +112,7 @@ fn links_each_async_type_erased_binding_cardinality() -> Result<(), Box<dyn std:
             .link(
 			&engine,
 			Linker::new( &engine ),
-			vec![ socket ],
+			vec![ socket.clone() ],
 			executor.clone(),
 		).await?;
 
@@ -137,7 +137,7 @@ fn links_each_async_type_erased_binding_cardinality() -> Result<(), Box<dyn std:
             .link(
 			&engine,
 			Linker::new( &engine ),
-			vec![ socket ],
+			vec![ socket.clone() ],
 			executor.clone(),
 		).await?;
 
@@ -154,7 +154,7 @@ fn links_each_async_type_erased_binding_cardinality() -> Result<(), Box<dyn std:
 		let socket = binding.into_any();
         let plugin = fixtures::plugins_concurrent(&engine).plugin.plugin;
         let _ = plugin
-            .link(&engine, Linker::new(&engine), vec![socket], executor)
+            .link(&engine, Linker::new(&engine), vec![socket.clone()], executor)
             .await?;
 
 		Ok(())
