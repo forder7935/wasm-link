@@ -1,5 +1,6 @@
-use std::collections::HashMap ;
-use std::sync::Arc ;
+use std::collections::{ HashMap, VecDeque };
+use std::sync::{ Arc, Weak };
+use std::sync::atomic::{ AtomicU64, Ordering };
 use futures::future::BoxFuture ;
 use futures::lock::Mutex ;
 use futures::task::{ FutureObj, Spawn };
@@ -12,24 +13,133 @@ use crate::resource_wrapper::{ ResourceCreationError, ResourceReceiveError };
 
 type CallLimiter<Ctx> = Box<dyn FnMut( &mut Store<Ctx>, &str, &str, &Function ) -> u64 + Send>;
 
+const MAX_CALLER_CALLS: usize = 1_024 ;
+const MAX_CALLER_BYTES: usize = 64 * 1_024 * 1_024 ;
+const MAX_DESTINATION_CALLS: usize = 4_096 ;
+const MAX_DESTINATION_BYTES: usize = 256 * 1_024 * 1_024 ;
+
+static NEXT_CALLER_ID: AtomicU64 = AtomicU64::new( 1 );
+
+#[derive( Clone )]
+pub(crate) struct Caller {
+	id: u64,
+	budget: Arc<std::sync::Mutex<Budget>>,
+}
+
+#[derive( Default )]
+struct Budget {
+	calls: usize,
+	bytes: usize,
+}
+
+impl Caller {
+	pub(crate) fn new() -> Self {
+		Self {
+			id: NEXT_CALLER_ID.fetch_add( 1, Ordering::Relaxed ),
+			budget: Arc::new( std::sync::Mutex::new( Budget::default() )),
+		}
+	}
+}
+
 
 /// A synchronously instantiated plugin, ready for synchronous dispatch.
 ///
 /// Created by calling [`Plugin::instantiate`]( crate::Plugin::instantiate ),
-/// or [`Plugin::link`]( crate::Plugin::link ).
+/// or [`Plugin::link`]( crate::Plugin::link ). Concurrent calls wait at a FIFO
+/// admission gate so shared synchronous dependencies do not fail when busy.
 pub struct PluginInstanceSync<Ctx: 'static> {
-	state: PluginState<Ctx>,
+	dispatcher: Arc<SyncDispatcher<Ctx>>,
+}
+
+impl<Ctx: 'static> Clone for PluginInstanceSync<Ctx> {
+	fn clone( &self ) -> Self { Self { dispatcher: Arc::clone( &self.dispatcher )}}
+}
+
+struct SyncDispatcher<Ctx: 'static> {
+	state: std::sync::Mutex<PluginState<Ctx>>,
+	admission: std::sync::Mutex<SyncQueue>,
+	changed: std::sync::Condvar,
+}
+
+#[derive( Default )]
+struct SyncQueue {
+	waiting: VecDeque<WaitingSyncCall>,
+	active: Option<ActiveSyncCall>,
+	next_ticket: u64,
+}
+
+struct WaitingSyncCall {
+	ticket: u64,
+	thread: std::thread::ThreadId,
+}
+
+struct ActiveSyncCall {
+	ticket: u64,
+	thread: std::thread::ThreadId,
+}
+
+struct SyncPermit<'a, Ctx: 'static> {
+	dispatcher: &'a SyncDispatcher<Ctx>,
 }
 
 /// An asynchronously instantiated plugin, ready for asynchronous dispatch.
 ///
 /// Created by calling [`Plugin::instantiate_async`]( crate::Plugin::instantiate_async )
 /// or [`Plugin::link_async`]( crate::Plugin::link_async ). Calls are submitted to the
-/// executor supplied during instantiation. The plugin's Wasmtime [`Store`] remains
-/// independent and is serialized by an internal lock.
+/// executor supplied during instantiation. Each destination services one call at a
+/// time using caller-aware round-robin ordering. The plugin's Wasmtime [`Store`]
+/// remains independent and is serialized by the destination's drain task.
 pub struct PluginInstanceAsync<Ctx: 'static> {
+	dispatcher: Arc<Dispatcher<Ctx>>,
+}
+
+impl<Ctx: 'static> Clone for PluginInstanceAsync<Ctx> {
+	fn clone( &self ) -> Self { Self { dispatcher: Arc::clone( &self.dispatcher )}}
+}
+
+struct Dispatcher<Ctx: 'static> {
 	state: Arc<Mutex<PluginState<Ctx>>>,
 	executor: Arc<dyn Spawn + Send + Sync>,
+	queue: std::sync::Mutex<DispatchQueue>,
+}
+
+struct DrainGuard<Ctx: PluginContext + 'static> {
+	dispatcher: Arc<Dispatcher<Ctx>>,
+}
+
+#[derive( Default )]
+struct DispatchQueue {
+	callers: HashMap<u64, CallerQueue>,
+	ready: VecDeque<u64>,
+	calls: usize,
+	bytes: usize,
+	draining: bool,
+}
+
+#[derive( Default )]
+struct CallerQueue {
+	calls: VecDeque<PendingCall>,
+	ready: bool,
+}
+
+struct PendingCall {
+	package_name: String,
+	interface_name: String,
+	function_name: String,
+	function: Function,
+	data: Vec<Val>,
+	response: futures::channel::oneshot::Sender<Result<Val, DispatchError>>,
+	_reservation: Reservation,
+}
+
+struct Reservation {
+	caller: Caller,
+	destination: Weak<dyn DestinationBudget>,
+	bytes: usize,
+}
+
+trait DestinationBudget: Send + Sync {
+	fn release( &self, bytes: usize );
 }
 
 struct PluginState<Ctx: 'static> {
@@ -42,12 +152,13 @@ struct PluginState<Ctx: 'static> {
 
 impl<Ctx: std::fmt::Debug + 'static> std::fmt::Debug for PluginInstanceSync<Ctx> {
 	fn fmt( &self, f: &mut std::fmt::Formatter<'_> ) -> std::result::Result<(), std::fmt::Error> {
+		let state = lock_unpoisoned( &self.dispatcher.state );
 		f.debug_struct( "PluginInstanceSync" )
-			.field( "data", &self.state.store.data() )
-			.field( "store", &self.state.store )
-			.field( "interface_remaps", &self.state.interface_remaps )
-			.field( "fuel_limiter", &self.state.fuel_limiter.as_ref().map(| _ | "<closure>" ))
-			.field( "epoch_limiter", &self.state.epoch_limiter.as_ref().map(| _ | "<closure>" ))
+			.field( "data", &state.store.data() )
+			.field( "store", &state.store )
+			.field( "interface_remaps", &state.interface_remaps )
+			.field( "fuel_limiter", &state.fuel_limiter.as_ref().map(| _ | "<closure>" ))
+			.field( "epoch_limiter", &state.epoch_limiter.as_ref().map(| _ | "<closure>" ))
 			.finish_non_exhaustive()
 	}
 }
@@ -57,6 +168,7 @@ impl<Ctx: 'static> std::fmt::Debug for PluginInstanceAsync<Ctx> {
 		f.debug_struct( "PluginInstanceAsync" )
 			.field( "state", &"<serialized store>" )
 			.field( "executor", &"<executor>" )
+			.field( "dispatch_queue", &"<caller-aware round-robin>" )
 			.finish_non_exhaustive()
 	}
 }
@@ -68,7 +180,7 @@ impl<Ctx: 'static> std::fmt::Debug for PluginInstanceAsync<Ctx> {
 /// when a function call fails at runtime.
 #[derive( Error, Debug )]
 pub enum DispatchError {
-	/// Failed to acquire lock on plugin instance (another call is in progress).
+	/// A synchronous call re-entered the same destination on its executing thread.
 	#[error( "Lock Rejected" )] LockRejected,
 	/// The specified interface path doesn't match any known interface.
 	#[error( "Invalid Interface Path: {0}" )] InvalidInterfacePath( String ),
@@ -84,6 +196,8 @@ pub enum DispatchError {
 	#[error( "Unsupported type: {0}" )] UnsupportedType( String ),
 	/// The executor supplied for an async plugin rejected a dispatch task.
 	#[error( "Async executor unavailable" )] ExecutorUnavailable,
+	/// The caller or destination async dispatch queue reached a count or byte limit.
+	#[error( "Dispatch queue full" )] DispatchQueueFull,
 	/// Failed to create a resource handle for cross-plugin transfer.
 	#[error( "Resource Create Error: {0}" )] ResourceCreationError( #[from] ResourceCreationError ),
 	/// Failed to receive a resource handle from another plugin.
@@ -100,6 +214,7 @@ impl From<DispatchError> for Val {
 		DispatchError::InvalidArgumentList => Val::Variant( "invalid-argument-list".to_string(), None ),
 		DispatchError::UnsupportedType( name ) => Val::Variant( "unsupported-type".to_string(), Some( Box::new( Val::String( name )))),
 		DispatchError::ExecutorUnavailable => Val::Variant( "executor-unavailable".to_string(), None ),
+		DispatchError::DispatchQueueFull => Val::Variant( "dispatch-queue-full".to_string(), None ),
 		DispatchError::ResourceCreationError( err ) => err.into(),
 		DispatchError::ResourceReceiveError( err ) => err.into(),
 	}}
@@ -113,25 +228,67 @@ impl<Ctx: PluginContext + 'static> PluginInstanceSync<Ctx> {
 		fuel_limiter: Option<CallLimiter<Ctx>>,
 		epoch_limiter: Option<CallLimiter<Ctx>>,
 	) -> Self {
-		Self { state: PluginState {
-			store,
-			instance,
-			interface_remaps,
-			fuel_limiter,
-			epoch_limiter,
-		}}
+		Self { dispatcher: Arc::new( SyncDispatcher {
+			state: std::sync::Mutex::new( PluginState {
+				store,
+				instance,
+				interface_remaps,
+				fuel_limiter,
+				epoch_limiter,
+			}),
+			admission: std::sync::Mutex::new( SyncQueue::default() ),
+			changed: std::sync::Condvar::new(),
+		})}
 	}
 
-	pub(crate) fn dispatch(
-		&mut self,
+	pub(crate) fn dispatch_from(
+		&self,
 		package_name: &str,
 		interface_name: &str,
 		function_name: &str,
 		function: &Function,
 		data: &[Val],
 	) -> Result<Val, DispatchError> {
-		self.state.dispatch( package_name, interface_name, function_name, function, data )
+		let _permit = self.dispatcher.enter()?;
+		lock_unpoisoned( &self.dispatcher.state )
+			.dispatch( package_name, interface_name, function_name, function, data )
 	}
+}
+
+impl<Ctx: 'static> SyncDispatcher<Ctx> {
+	fn enter( &self ) -> Result<SyncPermit<'_, Ctx>, DispatchError> {
+		let thread = std::thread::current().id();
+		let mut queue = lock_unpoisoned( &self.admission );
+		if queue.active.as_ref().is_some_and(| active | active.thread == thread ) {
+			return Err( DispatchError::LockRejected );
+		}
+		let ticket = queue.next_ticket;
+		queue.next_ticket = queue.next_ticket.wrapping_add( 1 );
+		queue.waiting.push_back( WaitingSyncCall { ticket, thread });
+		Self::select_next( &mut queue );
+		while queue.active.as_ref().is_none_or(| active | active.ticket != ticket ) {
+			queue = self.changed.wait( queue ).unwrap_or_else( std::sync::PoisonError::into_inner );
+		}
+		Ok( SyncPermit { dispatcher: self })
+	}
+
+	fn leave( &self ) {
+		let mut queue = lock_unpoisoned( &self.admission );
+		if queue.active.take().is_none() { return; }
+		Self::select_next( &mut queue );
+		self.changed.notify_all();
+	}
+
+	fn select_next( queue: &mut SyncQueue ) {
+		if queue.active.is_some() { return; }
+		if let Some( waiting ) = queue.waiting.pop_front() {
+			queue.active = Some( ActiveSyncCall { ticket: waiting.ticket, thread: waiting.thread });
+		}
+	}
+}
+
+impl<Ctx: 'static> Drop for SyncPermit<'_, Ctx> {
+	fn drop( &mut self ) { self.dispatcher.leave(); }
 }
 
 impl<Ctx: PluginContext + 'static> PluginInstanceAsync<Ctx> {
@@ -143,7 +300,7 @@ impl<Ctx: PluginContext + 'static> PluginInstanceAsync<Ctx> {
 		epoch_limiter: Option<CallLimiter<Ctx>>,
 		executor: impl Spawn + Send + Sync + 'static,
 	) -> Self {
-		Self {
+		let dispatcher = Arc::new( Dispatcher {
 			state: Arc::new( Mutex::new( PluginState {
 				store,
 				instance,
@@ -152,39 +309,205 @@ impl<Ctx: PluginContext + 'static> PluginInstanceAsync<Ctx> {
 				epoch_limiter,
 			})),
 			executor: Arc::new( executor ),
-		}
+			queue: std::sync::Mutex::new( DispatchQueue::default() ),
+		});
+		Self { dispatcher }
 	}
 
-	pub(crate) async fn dispatch_async(
+	pub(crate) async fn dispatch_async_from(
 		&self,
+		caller: &Caller,
 		package_name: &str,
 		interface_name: &str,
 		function_name: &str,
 		function: &Function,
 		data: &[Val],
 	) -> Result<Val, DispatchError> {
-		let state = Arc::clone( &self.state );
-		let package_name = package_name.to_string();
-		let interface_name = interface_name.to_string();
-		let function_name = function_name.to_string();
-		let function = function.clone();
-		let data = data.to_vec();
-		let ( response, result ) = futures::channel::oneshot::channel();
-		let task: BoxFuture<'static, ()> = Box::pin( async move {
-			let result = state.lock().await.dispatch_async(
-				&package_name,
-				&interface_name,
-				&function_name,
-				&function,
-				&data,
-			).await;
-			let _ = response.send( result );
-		});
-		self.executor.spawn_obj( FutureObj::new( task ))
-			.map_err(| _ | DispatchError::ExecutorUnavailable )?;
+		ensure_supported_values( data )?;
+		let result = self.dispatcher.enqueue(
+			caller, package_name, interface_name, function_name, function, data,
+		)?;
 		result.await.map_err(| _ | DispatchError::ExecutorUnavailable )?
 	}
+}
 
+impl<Ctx: PluginContext + 'static> Dispatcher<Ctx> {
+	fn enqueue(
+		self: &Arc<Self>,
+		caller: &Caller,
+		package_name: &str,
+		interface_name: &str,
+		function_name: &str,
+		function: &Function,
+		data: &[Val],
+	) -> Result<futures::channel::oneshot::Receiver<Result<Val, DispatchError>>, DispatchError> {
+		let bytes = retained_bytes( data ).ok_or( DispatchError::DispatchQueueFull )?;
+		let mut caller_budget = lock_unpoisoned( &caller.budget );
+		let mut queue = lock_unpoisoned( &self.queue );
+		if !has_capacity( &caller_budget, &queue, bytes ) {
+			return Err( DispatchError::DispatchQueueFull );
+		}
+
+		caller_budget.calls += 1;
+		caller_budget.bytes += bytes;
+		queue.calls += 1;
+		queue.bytes += bytes;
+		drop( caller_budget );
+
+		let ( response, result ) = futures::channel::oneshot::channel();
+		let destination: Arc<dyn DestinationBudget> = self.clone();
+		let pending = PendingCall {
+			package_name: package_name.to_string(),
+			interface_name: interface_name.to_string(),
+			function_name: function_name.to_string(),
+			function: function.clone(),
+			data: data.to_vec(),
+			response,
+			_reservation: Reservation { caller: caller.clone(), destination: Arc::downgrade( &destination ), bytes },
+		};
+		let caller_queue = queue.callers.entry( caller.id ).or_default();
+		caller_queue.calls.push_back( pending );
+		if !caller_queue.ready {
+			caller_queue.ready = true;
+			queue.ready.push_back( caller.id );
+		}
+		let start_drain = !queue.draining;
+		queue.draining = true;
+		drop( queue );
+
+		if start_drain {
+			let dispatcher = self.clone();
+			let guard = DrainGuard { dispatcher: dispatcher.clone() };
+			let task: BoxFuture<'static, ()> = Box::pin( async move {
+				let _guard = guard;
+				dispatcher.drain().await;
+			});
+			if self.executor.spawn_obj( FutureObj::new( task )).is_err() {
+				self.reject_all();
+				return Err( DispatchError::ExecutorUnavailable );
+			}
+		}
+		Ok( result )
+	}
+
+	async fn drain( self: Arc<Self> ) {
+		loop {
+			let Some(( caller_id, pending )) = self.next() else { return };
+			if pending.response.is_canceled() {
+				self.finish_turn( caller_id );
+				continue;
+			}
+			let result = self.state.lock().await.dispatch_async(
+				&pending.package_name,
+				&pending.interface_name,
+				&pending.function_name,
+				&pending.function,
+				&pending.data,
+			).await;
+			self.finish_turn( caller_id );
+			let PendingCall { response, _reservation: reservation, .. } = pending;
+			drop( reservation );
+			let _ = response.send( result );
+		}
+	}
+
+	fn next( &self ) -> Option<(u64, PendingCall)> {
+		let mut queue = lock_unpoisoned( &self.queue );
+		let Some( caller_id ) = queue.ready.pop_front() else {
+			queue.draining = false;
+			return None;
+		};
+		let caller_queue = queue.callers.get_mut( &caller_id )?;
+		caller_queue.ready = false;
+		caller_queue.calls.pop_front().map(| pending | ( caller_id, pending ))
+	}
+
+	fn finish_turn( &self, caller_id: u64 ) {
+		let mut queue = lock_unpoisoned( &self.queue );
+		let mut remove = false;
+		if let Some( caller_queue ) = queue.callers.get_mut( &caller_id ) {
+			if caller_queue.calls.is_empty() {
+				remove = true;
+			} else {
+				caller_queue.ready = true;
+				queue.ready.push_back( caller_id );
+			}
+		}
+		if remove { queue.callers.remove( &caller_id ); }
+	}
+
+	fn reject_all( &self ) {
+		let pending = {
+			let mut queue = lock_unpoisoned( &self.queue );
+			queue.draining = false;
+			queue.ready.clear();
+			queue.callers.drain().flat_map(|( _, caller )| caller.calls ).collect::<Vec<_>>()
+		};
+		drop( pending );
+	}
+}
+
+impl<Ctx: PluginContext + 'static> Drop for DrainGuard<Ctx> {
+	fn drop( &mut self ) { self.dispatcher.reject_all(); }
+}
+
+impl<Ctx: PluginContext + 'static> DestinationBudget for Dispatcher<Ctx> {
+	fn release( &self, bytes: usize ) {
+		let mut queue = lock_unpoisoned( &self.queue );
+		queue.calls = queue.calls.saturating_sub( 1 );
+		queue.bytes = queue.bytes.saturating_sub( bytes );
+	}
+}
+
+impl Drop for Reservation {
+	fn drop( &mut self ) {
+		let mut caller = lock_unpoisoned( &self.caller.budget );
+		caller.calls = caller.calls.saturating_sub( 1 );
+		caller.bytes = caller.bytes.saturating_sub( self.bytes );
+		drop( caller );
+		if let Some( destination ) = self.destination.upgrade() { destination.release( self.bytes ); }
+	}
+}
+
+fn lock_unpoisoned<T>( mutex: &std::sync::Mutex<T> ) -> std::sync::MutexGuard<'_, T> {
+	mutex.lock().unwrap_or_else( std::sync::PoisonError::into_inner )
+}
+
+pub(crate) fn clone_after_wait<T: Clone>( mutex: &Mutex<T> ) -> T {
+	loop {
+		if let Some( value ) = mutex.try_lock() { return value.clone(); }
+		std::thread::yield_now();
+	}
+}
+
+fn retained_bytes( values: &[Val] ) -> Option<usize> {
+	values.iter().try_fold( 0usize, | total, value | total.checked_add( retained_value_bytes( value )? ))
+}
+
+fn has_capacity( caller: &Budget, destination: &DispatchQueue, bytes: usize ) -> bool {
+	caller.calls < MAX_CALLER_CALLS
+		&& caller.bytes.checked_add( bytes ).is_some_and(| total | total <= MAX_CALLER_BYTES )
+		&& destination.calls < MAX_DESTINATION_CALLS
+		&& destination.bytes.checked_add( bytes ).is_some_and(| total | total <= MAX_DESTINATION_BYTES )
+}
+
+fn retained_value_bytes( value: &Val ) -> Option<usize> {
+	let dynamic = match value {
+		Val::String( value ) | Val::Enum( value ) => value.len(),
+		Val::List( values ) | Val::Tuple( values ) => retained_bytes( values )?,
+		Val::Map( values ) => values.iter().try_fold( 0usize, | total, ( key, value )| {
+			total.checked_add( retained_value_bytes( key )? )?.checked_add( retained_value_bytes( value )? )
+		})?,
+		Val::Record( values ) => values.iter().try_fold( 0usize, | total, ( name, value )| {
+			total.checked_add( name.len() )?.checked_add( retained_value_bytes( value )? )
+		})?,
+		Val::Variant( name, value ) => name.len().checked_add( value.as_deref().map_or( Some( 0 ), retained_value_bytes )? )?,
+		Val::Option( value ) | Val::Result( Ok( value )) | Val::Result( Err( value )) =>
+			value.as_deref().map_or( Some( 0 ), retained_value_bytes )?,
+		Val::Flags( names ) => names.iter().try_fold( 0usize, | total, name | total.checked_add( name.len() ))?,
+		_ => 0,
+	};
+	std::mem::size_of::<Val>().checked_add( dynamic )
 }
 
 impl<Ctx: PluginContext + 'static> PluginState<Ctx> {

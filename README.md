@@ -135,6 +135,14 @@ dispatch errors exposed to WebAssembly plugins. It is included in the published
 crate so plugin bindings can be generated from the same contract used by the
 runtime's ABI tests.
 
+Asynchronous destinations use caller-aware round-robin dispatch. Each linked
+plugin has one opaque caller identity shared by all of its sockets, so a busy
+caller moves behind other callers after every completed call. Outstanding work
+is rejected with `dispatch-queue-full` above 1,024 calls or 64 MiB per caller,
+or above 4,096 calls or 256 MiB per destination. Synchronous destinations use a
+FIFO admission gate, so independent callers wait instead of receiving a timing-
+dependent `lock-rejected` error. A same-thread re-entrant cycle is still rejected.
+
 ## Goals
 
 - ✅ Basic plugin linking

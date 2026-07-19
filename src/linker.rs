@@ -5,7 +5,8 @@ use wasmtime::component::{ Accessor, Val };
 
 use crate::{ Binding, Function, FunctionKind, ReturnKind, PluginContext, DispatchError };
 use crate::cardinality::Cardinality ;
-use crate::plugin_instance::{ PluginInstanceAsync, PluginInstanceSync };
+use crate::plugin_instance::{ PluginInstanceAsync, PluginInstanceSync, clone_after_wait };
+use crate::plugin_instance::Caller ;
 use super::resource_wrapper::ResourceWrapper ;
 
 
@@ -101,8 +102,10 @@ where
 	Ctx: PluginContext,
 {
 
-	let mut lock = plugin.try_lock().ok_or( DispatchError::LockRejected )?;
-	let result = lock.dispatch( target.package_name, target.interface_name, target.function_name, target.function, data )?;
+	let instance = clone_after_wait( plugin );
+	let result = instance.dispatch_from(
+		target.package_name, target.interface_name, target.function_name, target.function, data,
+	)?;
 
 	Ok( match target.function.return_kind() {
 		ReturnKind::Void | ReturnKind::AssumeNoResources => result,
@@ -157,8 +160,10 @@ where
 }
 
 /// Asynchronously dispatches a non-method function call to all plugins.
+#[allow( clippy::too_many_arguments )]
 pub(crate) async fn dispatch_all_async<PluginId, Ctx, Plugins>(
 	binding: &Binding<PluginId, Ctx, Plugins, PluginInstanceAsync<Ctx>>,
+	caller: &Caller,
 	ctx: &Accessor<Ctx>,
 	package_name: &str,
 	interface_name: &str,
@@ -182,7 +187,7 @@ where
 		function,
 	};
 	binding.plugins().map_async(| plugin_id, plugin | async {
-		Val::Result( match dispatch_of_async( ctx, plugin_id, plugin, &target, data ).await {
+		Val::Result( match dispatch_of_async( caller, ctx, plugin_id, plugin, &target, data ).await {
 			Ok( val ) => Ok( Some( Box::new( val ))),
 			Err( err ) => Err( Some( Box::new( err.into() ))),
 		})
@@ -190,8 +195,10 @@ where
 }
 
 /// Asynchronously dispatches a method call to the plugin owning its resource.
+#[allow( clippy::too_many_arguments )]
 pub(crate) async fn dispatch_method_async<PluginId, Ctx, Plugins>(
 	binding: &Binding<PluginId, Ctx, Plugins, PluginInstanceAsync<Ctx>>,
+	caller: &Caller,
 	ctx: &Accessor<Ctx>,
 	package_name: &str,
 	interface_name: &str,
@@ -209,6 +216,7 @@ where
 	debug_assert_eq!( function.kind(), FunctionKind::Method );
 	Val::Result( match route_method_async(
 		binding,
+		caller,
 		ctx,
 		package_name,
 		interface_name,
@@ -222,8 +230,10 @@ where
 }
 
 /// Asynchronously implements a synchronous WIT import without blocking its host thread.
+#[allow( clippy::too_many_arguments )]
 pub(crate) async fn dispatch_all_async_blocking<PluginId, Ctx, Plugins>(
 	binding: &Binding<PluginId, Ctx, Plugins, PluginInstanceAsync<Ctx>>,
+	caller: &Caller,
 	ctx: StoreContextMut<'_, Ctx>,
 	package_name: &str,
 	interface_name: &str,
@@ -248,7 +258,7 @@ where
 		function,
 	};
 	binding.plugins().map_async(| plugin_id, plugin | async {
-		Val::Result( match dispatch_of_async_blocking( &ctx, plugin_id, plugin, &target, data ).await {
+		Val::Result( match dispatch_of_async_blocking( caller, &ctx, plugin_id, plugin, &target, data ).await {
 			Ok( val ) => Ok( Some( Box::new( val ))),
 			Err( err ) => Err( Some( Box::new( err.into() ))),
 		})
@@ -256,8 +266,10 @@ where
 }
 
 /// Asynchronously implements a synchronous WIT method import.
+#[allow( clippy::too_many_arguments )]
 pub(crate) async fn dispatch_method_async_blocking<PluginId, Ctx, Plugins>(
 	binding: &Binding<PluginId, Ctx, Plugins, PluginInstanceAsync<Ctx>>,
+	caller: &Caller,
 	ctx: StoreContextMut<'_, Ctx>,
 	package_name: &str,
 	interface_name: &str,
@@ -276,6 +288,7 @@ where
 	let ctx = Mutex::new( ctx );
 	Val::Result( match route_method_async_blocking(
 		binding,
+		caller,
 		&ctx,
 		package_name,
 		interface_name,
@@ -289,6 +302,7 @@ where
 }
 
 async fn dispatch_of_async<PluginId, Ctx>(
+	caller: &Caller,
 	ctx: &Accessor<Ctx>,
 	plugin_id: PluginId,
 	plugin: Arc<Mutex<PluginInstanceAsync<Ctx>>>,
@@ -299,8 +313,9 @@ where
 	PluginId: Clone + std::hash::Hash + Eq + Send + Sync + 'static,
 	Ctx: PluginContext,
 {
-	let lock = plugin.lock().await;
-	let result = lock.dispatch_async(
+	let instance = plugin.lock().await.clone();
+	let result = instance.dispatch_async_from(
+		caller,
 		target.package_name,
 		target.interface_name,
 		target.function_name,
@@ -318,6 +333,7 @@ where
 }
 
 async fn dispatch_of_async_blocking<PluginId, Ctx>(
+	caller: &Caller,
 	ctx: &Mutex<StoreContextMut<'_, Ctx>>,
 	plugin_id: PluginId,
 	plugin: Arc<Mutex<PluginInstanceAsync<Ctx>>>,
@@ -328,8 +344,9 @@ where
 	PluginId: Clone + std::hash::Hash + Eq + Send + Sync + 'static,
 	Ctx: PluginContext,
 {
-	let lock = plugin.lock().await;
-	let result = lock.dispatch_async(
+	let instance = plugin.lock().await.clone();
+	let result = instance.dispatch_async_from(
+		caller,
 		target.package_name,
 		target.interface_name,
 		target.function_name,
@@ -346,8 +363,10 @@ where
 	}
 }
 
+#[allow( clippy::too_many_arguments )]
 async fn route_method_async<PluginId, Ctx, Plugins>(
 	binding: &Binding<PluginId, Ctx, Plugins, PluginInstanceAsync<Ctx>>,
+	caller: &Caller,
 	ctx: &Accessor<Ctx>,
 	package_name: &str,
 	interface_name: &str,
@@ -384,11 +403,13 @@ where
 		function,
 	};
 
-	dispatch_of_async( ctx, plugin_id, plugin, &target, &data ).await
+	dispatch_of_async( caller, ctx, plugin_id, plugin, &target, &data ).await
 }
 
+#[allow( clippy::too_many_arguments )]
 async fn route_method_async_blocking<PluginId, Ctx, Plugins>(
 	binding: &Binding<PluginId, Ctx, Plugins, PluginInstanceAsync<Ctx>>,
+	caller: &Caller,
 	ctx: &Mutex<StoreContextMut<'_, Ctx>>,
 	package_name: &str,
 	interface_name: &str,
@@ -424,7 +445,7 @@ where
 		function,
 	};
 
-	dispatch_of_async_blocking( ctx, plugin_id, plugin, &target, &data ).await
+	dispatch_of_async_blocking( caller, ctx, plugin_id, plugin, &target, &data ).await
 }
 
 fn wrap_resources<T, Id>( val: Val, plugin_id: Id, store: &mut StoreContextMut<T> ) -> Result<Val, DispatchError>
