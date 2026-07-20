@@ -9,7 +9,8 @@ use std::collections::HashMap ;
 use futures::lock::Mutex ;
 use wasmtime::component::{ Linker, Val };
 
-use crate::{ Interface, PluginContext };
+use crate::interface::Interface;
+use crate::plugin::PluginContext;
 use crate::cardinality::{ Any, AtLeastOne, AtMostOne, Cardinality, ExactlyOne };
 use crate::plugin_instance::{ PluginInstanceAsync, PluginInstanceSync };
 
@@ -50,7 +51,8 @@ where
 ///
 /// ```
 /// # use std::collections::{ HashMap, HashSet };
-/// # use wasm_link::{ Binding, Interface, Function, FunctionKind, ReturnKind, Plugin, Engine, Component, Linker, ResourceTable };
+/// # use wasm_link::sync::{ Binding, Interface, Function, Plugin };
+/// # use wasm_link::{ FunctionKind, ReturnKind, Engine, Component, Linker, ResourceTable };
 /// # use wasm_link::cardinality::ExactlyOne ;
 /// # struct Ctx { resource_table: ResourceTable }
 /// # impl wasm_link::PluginContext for Ctx {
@@ -242,14 +244,14 @@ where
 	/// Asynchronously dispatches a function call to all plugins implementing this binding.
 	///
 	/// This method waits for a busy plugin instead of returning [`DispatchError::LockRejected`](crate::DispatchError::LockRejected).
-	/// It is required for instances created by [`Plugin::instantiate_async`](crate::Plugin::instantiate_async)
-	/// or [`Plugin::link_async`](crate::Plugin::link_async).
+	/// It is used internally by [`crate::concurrent::Binding::dispatch`].
 	///
 	/// # Example
 	///
 	/// ```
 	/// # use std::collections::{ HashMap, HashSet };
-	/// # use wasm_link::{ Binding, Component, Engine, Function, FunctionKind, Interface, Linker, Plugin, PluginContext, ResourceTable, ReturnKind, Val };
+	/// # use wasm_link::concurrent::{ Binding, Function, Interface, Plugin };
+	/// # use wasm_link::{ Component, Engine, FunctionKind, Linker, PluginContext, ResourceTable, ReturnKind, Val };
 	/// # use wasm_link::cardinality::ExactlyOne;
 	/// # struct Context { table: ResourceTable }
 	/// # impl PluginContext for Context { fn resource_table( &mut self ) -> &mut ResourceTable { &mut self.table } }
@@ -265,7 +267,7 @@ where
 	/// # 	(export "example:plugin/root" (instance $root))
 	/// # )"# )?;
 	/// # let plugin = Plugin::new( component, Context { table: ResourceTable::new() })
-	/// # 	.instantiate_async( &engine, &linker, executor ).await?;
+	/// # 	.instantiate( &engine, &linker, executor ).await?;
 	/// # let binding = Binding::new(
 	/// # 	"example:plugin",
 	/// # 	HashMap::from([( "root".to_string(), Interface::new(
@@ -274,7 +276,7 @@ where
 	/// # 	))]),
 	/// # 	ExactlyOne( "plugin".to_string(), plugin ),
 	/// # );
-	/// let result = binding.dispatch_async( "root", "get", &[] ).await?;
+	/// let result = binding.dispatch( "root", "get", &[] ).await?;
 	/// assert!( matches!( result, ExactlyOne( _, Ok( Val::U32( 42 )))));
 	/// # Ok(()) }) }
 	/// ```
@@ -288,7 +290,6 @@ where
 		args: &[wasmtime::component::Val],
 	) -> Result<DispatchResults<PluginId, Plugins, PluginInstanceAsync<Ctx>>, crate::DispatchError>
 	where
-		PluginId: Into<Val>,
 		DispatchResults<PluginId, Plugins, PluginInstanceAsync<Ctx>>: Send,
 	{
 		let interface = self.0.interfaces.get( interface_name )
@@ -413,21 +414,6 @@ where
 {
 	fn from( binding: Binding<PluginId, Ctx, Any<PluginId, Instance>, Instance> ) -> Self {
 		Self::Any( binding )
-	}
-}
-
-impl<PluginId, Ctx, Plugins, Instance> Binding<PluginId, Ctx, Plugins, Instance>
-where
-	PluginId: std::hash::Hash + Eq + Clone + Send + Sync + 'static,
-	Ctx: PluginContext + 'static,
-	Instance: Send + 'static,
-	Plugins: Cardinality<PluginId, Instance>,
-	PluginSockets<PluginId, Plugins, Instance>: Send + Sync,
-	BindingAny<PluginId, Ctx, Instance>: From<Binding<PluginId, Ctx, Plugins, Instance>>,
-{
-	/// Converts this binding into a type-erased [`BindingAny`] for heterogeneous socket lists.
-	pub fn into_any( self ) -> BindingAny<PluginId, Ctx, Instance> {
-		self.into()
 	}
 }
 

@@ -40,6 +40,17 @@ macro_rules! fixtures {
 				.expect( &format!( "Binding {} failed to initialise", $ipath )), )*
 			}
 		}
+		#[allow( dead_code )]
+		pub struct ConcurrentBindings {
+			$( pub $iname: $crate::fixture_linking::ConcurrentBindingData, )*
+		}
+		#[allow( dead_code )]
+		pub fn concurrent_bindings() -> ConcurrentBindings {
+			ConcurrentBindings {
+			$( $iname: $crate::fixture_linking::parse_concurrent_binding( $crate::fixture_linking::strip_rs( file!() ), $ipath )
+				.expect( &format!( "Binding {} failed to initialise", $ipath )), )*
+			}
+		}
 	};
 
 	( @plugins $($pname:ident : $ppath:literal),+ $(,)? ) => {
@@ -54,6 +65,17 @@ macro_rules! fixtures {
 				.expect( &format!( "Plugin {} failed to initialise", $ppath )), )*
 			}
 		}
+		#[allow( dead_code )]
+		pub struct ConcurrentPlugins {
+			$( pub $pname: $crate::fixture_linking::ConcurrentPluginData, )*
+		}
+		#[allow( dead_code )]
+		pub fn concurrent_plugins( engine: &wasm_link::Engine ) -> ConcurrentPlugins {
+			ConcurrentPlugins {
+			$( $pname: $crate::fixture_linking::parse_concurrent_plugin( $crate::fixture_linking::strip_rs( file!() ), $ppath, engine )
+				.expect( &format!( "Plugin {} failed to initialise", $ppath )), )*
+			}
+		}
 	};
 
 }
@@ -61,7 +83,8 @@ macro_rules! fixtures {
 mod fixture_linking {
 
 	use std::collections::{ HashMap, HashSet };
-	use wasm_link::{ Component, Engine, Interface, Function, FunctionKind, Plugin };
+	use wasm_link::{ Component, Engine, FunctionKind };
+	use wasm_link::{ concurrent, sync };
 
 	pub const fn strip_rs( path: &'static str ) -> &'static str {
 		match path.as_bytes() {
@@ -104,14 +127,26 @@ mod fixture_linking {
 		/// The interface name (e.g., "root")
 		pub name: String,
 		/// The parsed interface with functions and resources
-		pub spec: Interface,
+		pub spec: sync::Interface,
 	}
 
 	/// Parsed plugin data from fixtures.
 	#[allow( dead_code )]
 	pub struct PluginData {
 		/// The Plugin ready to link
-		pub plugin: Plugin<TestContext>,
+		pub plugin: sync::Plugin<TestContext>,
+	}
+
+	#[allow( dead_code )]
+	pub struct ConcurrentBindingData {
+		pub package: String,
+		pub name: String,
+		pub spec: concurrent::Interface,
+	}
+
+	#[allow( dead_code )]
+	pub struct ConcurrentPluginData {
+		pub plugin: concurrent::Plugin<TestContext>,
 	}
 
 	pub fn parse_binding( fixtures_dir: &'static str, id: &str ) -> Result<BindingData, FixtureError> {
@@ -122,9 +157,33 @@ mod fixture_linking {
 		Ok( BindingData {
 			package: wit_data.package,
 			name: wit_data.name,
-			spec: Interface::new( wit_data.functions, wit_data.resources ),
+			spec: sync::Interface::new(
+				wit_data.functions.into_iter()
+					.map(|( name, function )| ( name, sync::Function::new( function.kind, function.return_kind )))
+					.collect(),
+				wit_data.resources,
+			),
 		})
 
+	}
+
+	pub fn parse_concurrent_binding( fixtures_dir: &'static str, id: &str ) -> Result<ConcurrentBindingData, FixtureError> {
+		let root_path = std::path::PathBuf::from( fixtures_dir ).join( "bindings" ).join( id );
+		let wit_data = parse_wit( &root_path )?;
+		Ok( ConcurrentBindingData {
+			package: wit_data.package,
+			name: wit_data.name,
+			spec: concurrent::Interface::new(
+				wit_data.functions.into_iter().map(|( name, function )| {
+					let metadata = match function.is_async {
+						true => concurrent::Function::new_async( function.kind, function.return_kind ),
+						false => concurrent::Function::new( function.kind, function.return_kind ),
+					};
+					( name, metadata )
+				}).collect(),
+				wit_data.resources,
+			),
+		})
 	}
 
 	pub fn parse_plugin(
@@ -142,7 +201,7 @@ mod fixture_linking {
 			.map_err(| e | FixtureError::WasmLoad( format!( "{e:#}" )))?;
 
 		Ok( PluginData {
-			plugin: Plugin::new(
+			plugin: sync::Plugin::new(
 				component,
 				TestContext { resource_table: wasm_link::ResourceTable::new() },
 			),
@@ -150,11 +209,33 @@ mod fixture_linking {
 
 	}
 
+	pub fn parse_concurrent_plugin(
+		fixtures_dir: &'static str,
+		id: &str,
+		engine: &Engine,
+	) -> Result<ConcurrentPluginData, FixtureError> {
+		let root_path = std::path::PathBuf::from( fixtures_dir ).join( "plugins" ).join( id );
+		let wasm_path = root_path.join( "root.wasm" );
+		let wasm_path = if wasm_path.exists() { wasm_path } else { root_path.join( "root.wat" ) };
+		let component = Component::from_file( engine, &wasm_path )
+			.map_err(| error | FixtureError::WasmLoad( format!( "{error:#}" )))?;
+		Ok( ConcurrentPluginData { plugin: concurrent::Plugin::new(
+			component,
+			TestContext { resource_table: wasm_link::ResourceTable::new() },
+		)})
+	}
+
 	struct BindingWitData {
 		package: String,
 		name: String,
-		functions: HashMap<String, Function>,
+		functions: HashMap<String, ParsedFunction>,
 		resources: HashSet<String>,
+	}
+
+	struct ParsedFunction {
+		kind: FunctionKind,
+		return_kind: wasm_link::ReturnKind,
+		is_async: bool,
 	}
 
 	fn parse_wit( root_path: &std::path::Path ) -> Result<BindingWitData, FixtureError> {
@@ -184,13 +265,12 @@ mod fixture_linking {
 					| wit_parser::FunctionKind::AsyncMethod( _ ) => FunctionKind::Method,
 				};
 				let return_kind = parse_return_kind( &resolve, function.result )?;
-				let metadata = match function.kind {
+				let is_async = matches!( function.kind,
 					wit_parser::FunctionKind::AsyncFreestanding
 					| wit_parser::FunctionKind::AsyncStatic( _ )
-					| wit_parser::FunctionKind::AsyncMethod( _ ) => Function::new_async( kind, return_kind ),
-					_ => Function::new( kind, return_kind ),
-				};
-				Ok(( function.name.clone(), metadata ))
+					| wit_parser::FunctionKind::AsyncMethod( _ )
+				);
+				Ok(( function.name.clone(), ParsedFunction { kind, return_kind, is_async } ))
 			})
 			.collect::<Result<HashMap<_, _>,FixtureError>>()?;
 

@@ -3,7 +3,9 @@ use std::collections::{ HashMap, HashSet };
 use futures::lock::Mutex ;
 use wasmtime::component::{ Linker, ResourceType, Val };
 
-use crate::{ Binding, PluginContext, PluginInstanceAsync, PluginInstanceSync };
+use crate::binding::Binding;
+use crate::plugin::PluginContext;
+use crate::plugin_instance::{ PluginInstanceAsync, PluginInstanceSync };
 use crate::cardinality::Cardinality ;
 use crate::linker::{
 	dispatch_all,
@@ -24,13 +26,14 @@ use crate::resource_wrapper::ResourceWrapper ;
 ///
 /// ```
 /// # use std::collections::{ HashMap, HashSet };
-/// # use wasm_link::{ Binding, Interface, PluginContext, PluginInstanceSync, ResourceTable };
+/// # use wasm_link::sync::{ Binding, Interface, PluginInstance };
+/// # use wasm_link::{ PluginContext, ResourceTable };
 /// # use wasm_link::cardinality::AtMostOne ;
 /// # struct Ctx { resource_table: ResourceTable }
 /// # impl PluginContext for Ctx {
 /// # 	fn resource_table( &mut self ) -> &mut ResourceTable { &mut self.resource_table }
 /// # }
-/// let binding: Binding<String, Ctx, AtMostOne<String, PluginInstanceSync<Ctx>>> = Binding::new(
+/// let binding: Binding<String, Ctx, AtMostOne<String, PluginInstance<Ctx>>> = Binding::new(
 /// 	"my:package",
 /// 	HashMap::from([
 /// 		( "interface-a".to_string(), Interface::new( HashMap::new(), HashSet::new() )),
@@ -224,7 +227,8 @@ impl Function {
 	/// Creates metadata for a WIT function declared with the `async` effect.
 	///
 	/// ```
-	/// use wasm_link::{ Function, FunctionKind, ReturnKind };
+	/// use wasm_link::concurrent::Function;
+	/// use wasm_link::{ FunctionKind, ReturnKind };
 	///
 	/// let function = Function::new_async(
 	/// 	FunctionKind::Freestanding,
@@ -248,7 +252,8 @@ impl Function {
 	/// Whether the WIT function is declared with the `async` effect.
 	///
 	/// ```
-	/// # use wasm_link::{ Function, FunctionKind, ReturnKind };
+	/// # use wasm_link::concurrent::Function;
+	/// # use wasm_link::{ FunctionKind, ReturnKind };
 	/// let function = Function::new( FunctionKind::Freestanding, ReturnKind::Void );
 	/// assert!( !function.is_async() );
 	/// ```

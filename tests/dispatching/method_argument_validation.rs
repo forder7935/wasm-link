@@ -1,6 +1,6 @@
 use std::collections::{ HashMap, HashSet };
 
-use wasm_link::{ Binding, Engine, Function, FunctionKind, Interface, Linker, ReturnKind, Val };
+use wasm_link::{ sync::Binding, Engine, sync::Function, FunctionKind, sync::Interface, Linker, ReturnKind, Val };
 use wasm_link::cardinality::ExactlyOne ;
 
 fixtures! {
@@ -51,36 +51,36 @@ fn async_method_metadata_rejects_calls_without_resource_argument() -> Result<(),
 		let engine = Engine::default();
 		let linker = Linker::new( &engine );
 		let executor = futures::executor::ThreadPool::new()?;
-		let plugins = fixtures::plugins( &engine );
-		let bindings = fixtures::bindings();
-		let child = plugins.child.plugin.instantiate_async( &engine, &linker, executor.clone() ).await?;
-		let dependency = Binding::new(
+		let plugins = fixtures::concurrent_plugins( &engine );
+		let bindings = fixtures::concurrent_bindings();
+		let child = plugins.child.plugin.instantiate( &engine, &linker, executor.clone() ).await?;
+		let dependency = wasm_link::concurrent::Binding::new(
 			bindings.dependency.package,
 			HashMap::from([(
 				bindings.dependency.name,
-				Interface::new(
+				wasm_link::concurrent::Interface::new(
 					HashMap::from([(
 						"get-value".to_string(),
-						Function::new( FunctionKind::Method, ReturnKind::AssumeNoResources ),
+						wasm_link::concurrent::Function::new( FunctionKind::Method, ReturnKind::AssumeNoResources ),
 					)]),
 					HashSet::new(),
 				),
 			)]),
 			ExactlyOne( "child".to_string(), child ),
 		);
-		let startup = plugins.startup.plugin.link_async(
+		let startup = plugins.startup.plugin.link(
 			&engine,
 			linker,
 			vec![ dependency ],
 			executor,
 		).await?;
-		let root = Binding::new(
+		let root = wasm_link::concurrent::Binding::new(
 			bindings.root.package,
 			HashMap::from([( bindings.root.name, bindings.root.spec )]),
 			ExactlyOne( "startup".to_string(), startup ),
 		);
 
-		let result = root.dispatch_async( "root", "get-value", &[] ).await?;
+		let result = root.dispatch( "root", "get-value", &[] ).await?;
 		assert!( matches!(
 			&result,
 			ExactlyOne( _, Ok( Val::Result( Err( Some( error ))))) if

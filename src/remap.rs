@@ -1,7 +1,7 @@
 //! Export name remapping for plugin implementations.
 //!
 //! Remaps are per-plugin lookup tables. They let a plugin satisfy a canonical
-//! [`Binding`](crate::Binding) even when the plugin exports matching interfaces or
+//! [`crate::sync::Binding`] even when the plugin exports matching interfaces or
 //! functions under different names.
 
 use std::collections::HashMap;
@@ -18,7 +18,7 @@ pub type ItemResolutionTable = HashMap<String, String>;
 /// Describes where a requested interface is found in a plugin's exports.
 ///
 /// `Plugin::remap_interfaces` stores these values in a map whose key is the
-/// requested interface name from the [`Binding`](crate::Binding). The [`Remap`]
+/// requested interface name from the [`crate::sync::Binding`]. The [`Remap`]
 /// value then describes the interface name and item names actually exported by
 /// that plugin.
 ///

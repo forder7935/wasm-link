@@ -3,7 +3,10 @@ use futures::lock::Mutex ;
 use wasmtime::{ AsContextMut, StoreContextMut };
 use wasmtime::component::{ Accessor, Val };
 
-use crate::{ Binding, Function, FunctionKind, ReturnKind, PluginContext, DispatchError };
+use crate::binding::Binding;
+use crate::interface::{ Function, FunctionKind, ReturnKind };
+use crate::plugin::PluginContext;
+use crate::plugin_instance::DispatchError;
 use crate::cardinality::Cardinality ;
 use crate::plugin_instance::{ PluginInstanceAsync, PluginInstanceSync };
 use super::resource_wrapper::ResourceWrapper ;

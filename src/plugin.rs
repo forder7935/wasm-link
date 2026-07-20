@@ -8,11 +8,12 @@
 use std::collections::HashMap ;
 use wasmtime::{ Engine, Store };
 use wasmtime::component::{ Component, ResourceTable, Linker, Val };
+use wasmtime::component::types::{ Component as ComponentType, ComponentInstance, ComponentItem };
 use futures::task::Spawn ;
 
-use crate::BindingAny ;
+use crate::binding::BindingAny ;
 use crate::plugin_instance::{ PluginInstanceAsync, PluginInstanceSync };
-use crate::Function ;
+use crate::interface::Function ;
 use crate::Remap ;
 
 /// Trait for accessing a [`ResourceTable`] from the store's data type.
@@ -57,7 +58,8 @@ pub trait PluginContext: Send {
 /// # Example
 ///
 /// ```
-/// # use wasm_link::{ Plugin, PluginContext, ResourceTable, Component, Engine, Linker };
+/// # use wasm_link::sync::Plugin;
+/// # use wasm_link::{ PluginContext, ResourceTable, Component, Engine, Linker };
 /// # struct Ctx { resource_table: ResourceTable }
 /// # impl PluginContext for Ctx {
 /// # 	fn resource_table( &mut self ) -> &mut ResourceTable { &mut self.resource_table }
@@ -99,6 +101,13 @@ impl<Ctx> Plugin<Ctx>
 where
 	Ctx: PluginContext + 'static,
 {
+	pub(crate) fn ensure_synchronous( &self, engine: &Engine ) -> Result<(), wasmtime::Error> {
+		let component_type = self.component.component_type();
+		match component_contains_async( engine, &component_type ) {
+			true => Err( wasmtime::Error::msg( "synchronous plugins cannot contain WIT-async functions" )),
+			false => Ok(()),
+		}
+	}
 
 	/// Creates a new plugin declaration.
 	///
@@ -132,7 +141,8 @@ where
 	/// instantiation will fail when the initial fuel is applied.
 	///
 	/// ```
-	/// # use wasm_link::{ Plugin, PluginContext, ResourceTable, Component };
+	/// # use wasm_link::sync::Plugin;
+	/// # use wasm_link::{ PluginContext, ResourceTable, Component };
 	/// # struct Ctx { resource_table: ResourceTable }
 	/// # impl PluginContext for Ctx {
 	/// # 	fn resource_table( &mut self ) -> &mut ResourceTable { &mut self.resource_table }
@@ -159,7 +169,8 @@ where
 	/// at call time.
 	///
 	/// ```
-	/// # use wasm_link::{ Plugin, PluginContext, ResourceTable, Component, Engine };
+	/// # use wasm_link::sync::Plugin;
+	/// # use wasm_link::{ PluginContext, ResourceTable, Component, Engine };
 	/// # struct Ctx { resource_table: ResourceTable }
 	/// # impl PluginContext for Ctx {
 	/// # 	fn resource_table( &mut self ) -> &mut ResourceTable { &mut self.resource_table }
@@ -185,7 +196,8 @@ where
 	/// enabled, the deadline is silently ignored.
 	///
 	/// ```
-	/// # use wasm_link::{ Plugin, PluginContext, ResourceTable, Component, Engine };
+	/// # use wasm_link::sync::Plugin;
+	/// # use wasm_link::{ PluginContext, ResourceTable, Component, Engine };
 	/// # struct Ctx { resource_table: ResourceTable }
 	/// # impl PluginContext for Ctx {
 	/// # 	fn resource_table( &mut self ) -> &mut ResourceTable { &mut self.resource_table }
@@ -210,7 +222,8 @@ where
 	/// so that wasmtime can access it through a `&mut Ctx` reference.
 	///
 	/// ```
-	/// # use wasm_link::{ Plugin, PluginContext, ResourceTable, Component, Engine };
+	/// # use wasm_link::sync::Plugin;
+	/// # use wasm_link::{ PluginContext, ResourceTable, Component, Engine };
 	/// # struct Ctx { resource_table: ResourceTable, limiter: MyLimiter }
 	/// # impl PluginContext for Ctx {
 	/// # 	fn resource_table( &mut self ) -> &mut ResourceTable { &mut self.resource_table }
@@ -250,7 +263,8 @@ where
 	///
 	/// ```
 	/// # use std::collections::HashMap ;
-	/// # use wasm_link::{ Plugin, PluginContext, ResourceTable, Component, Engine, Remap };
+	/// # use wasm_link::sync::Plugin;
+	/// # use wasm_link::{ PluginContext, ResourceTable, Component, Engine, Remap };
 	/// # struct Ctx { resource_table: ResourceTable }
 	/// # impl PluginContext for Ctx {
 	/// # 	fn resource_table( &mut self ) -> &mut ResourceTable { &mut self.resource_table }
@@ -311,7 +325,8 @@ where
 	/// # Example
 	///
 	/// ```
-	/// # use wasm_link::{ BindingAny, Component, Engine, Linker, Plugin, PluginContext, ResourceTable };
+	/// # use wasm_link::concurrent::{ BindingAny, Plugin };
+	/// # use wasm_link::{ Component, Engine, Linker, PluginContext, ResourceTable };
 	/// # struct Context { table: ResourceTable }
 	/// # impl PluginContext for Context { fn resource_table( &mut self ) -> &mut ResourceTable { &mut self.table } }
 	/// # fn main() -> Result<(), Box<dyn std::error::Error>> { futures::executor::block_on( async {
@@ -321,10 +336,10 @@ where
 	/// let instance = Plugin::new(
 	/// 	Component::new( &engine, "(component)" )?,
 	/// 	Context { table: ResourceTable::new() },
-	/// ).link_async(
+	/// ).link(
 	/// 	&engine,
 	/// 	linker,
-	/// 	Vec::<BindingAny<String, Context, wasm_link::PluginInstanceAsync<Context>>>::new(),
+	/// 	Vec::<BindingAny<String, Context>>::new(),
 	/// 	executor,
 	/// ).await?;
 	/// # let _ = instance;
@@ -387,7 +402,8 @@ where
 	/// # Example
 	///
 	/// ```
-	/// # use wasm_link::{ Component, Engine, Linker, Plugin, PluginContext, ResourceTable };
+	/// # use wasm_link::concurrent::Plugin;
+	/// # use wasm_link::{ Component, Engine, Linker, PluginContext, ResourceTable };
 	/// # struct Context { table: ResourceTable }
 	/// # impl PluginContext for Context { fn resource_table( &mut self ) -> &mut ResourceTable { &mut self.table } }
 	/// # fn main() -> Result<(), Box<dyn std::error::Error>> { futures::executor::block_on( async {
@@ -397,7 +413,7 @@ where
 	/// let instance = Plugin::new(
 	/// 	Component::new( &engine, "(component)" )?,
 	/// 	Context { table: ResourceTable::new() },
-	/// ).instantiate_async( &engine, &linker, executor ).await?;
+	/// ).instantiate( &engine, &linker, executor ).await?;
 	/// # let _ = instance;
 	/// # Ok(()) }) }
 	/// ```
@@ -427,6 +443,27 @@ where
 		))
 	}
 
+}
+
+fn component_contains_async( engine: &Engine, component: &ComponentType ) -> bool {
+	component.imports( engine ).any(|( _, item )| item_contains_async( engine, item.ty ))
+		|| component.exports( engine ).any(|( _, item )| item_contains_async( engine, item.ty ))
+}
+
+fn instance_contains_async( engine: &Engine, instance: &ComponentInstance ) -> bool {
+	instance.exports( engine ).any(|( _, item )| item_contains_async( engine, item.ty ))
+}
+
+fn item_contains_async( engine: &Engine, item: ComponentItem ) -> bool {
+	match item {
+		ComponentItem::ComponentFunc( function ) => function.async_(),
+		ComponentItem::Component( component ) => component_contains_async( engine, &component ),
+		ComponentItem::ComponentInstance( instance ) => instance_contains_async( engine, &instance ),
+		ComponentItem::CoreFunc( _ )
+		| ComponentItem::Module( _ )
+		| ComponentItem::Type( _ )
+		| ComponentItem::Resource( _ ) => false,
+	}
 }
 
 impl<Ctx: std::fmt::Debug + 'static> std::fmt::Debug for Plugin<Ctx> {

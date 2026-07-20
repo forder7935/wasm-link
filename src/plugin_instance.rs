@@ -7,7 +7,9 @@ use thiserror::Error ;
 use wasmtime::component::{ Instance, Val };
 use wasmtime::Store ;
 
-use crate::{ Function, PluginContext, Remap, ReturnKind };
+use crate::interface::{ Function, ReturnKind };
+use crate::plugin::PluginContext;
+use crate::Remap;
 use crate::resource_wrapper::{ ResourceCreationError, ResourceReceiveError };
 
 type CallLimiter<Ctx> = Box<dyn FnMut( &mut Store<Ctx>, &str, &str, &Function ) -> u64 + Send>;
@@ -15,16 +17,16 @@ type CallLimiter<Ctx> = Box<dyn FnMut( &mut Store<Ctx>, &str, &str, &Function ) 
 
 /// A synchronously instantiated plugin, ready for synchronous dispatch.
 ///
-/// Created by calling [`Plugin::instantiate`]( crate::Plugin::instantiate ),
-/// or [`Plugin::link`]( crate::Plugin::link ).
+/// Created by calling [`crate::sync::Plugin::instantiate`],
+/// or [`crate::sync::Plugin::link`].
 pub struct PluginInstanceSync<Ctx: 'static> {
 	state: PluginState<Ctx>,
 }
 
 /// An asynchronously instantiated plugin, ready for asynchronous dispatch.
 ///
-/// Created by calling [`Plugin::instantiate_async`]( crate::Plugin::instantiate_async )
-/// or [`Plugin::link_async`]( crate::Plugin::link_async ). Calls are submitted to the
+/// Created by calling [`crate::concurrent::Plugin::instantiate`]
+/// or [`crate::concurrent::Plugin::link`]. Calls are submitted to the
 /// executor supplied during instantiation. The plugin's Wasmtime [`Store`] remains
 /// independent and is serialized by an internal lock.
 pub struct PluginInstanceAsync<Ctx: 'static> {
@@ -64,7 +66,7 @@ impl<Ctx: 'static> std::fmt::Debug for PluginInstanceAsync<Ctx> {
 /// Errors that can occur when dispatching a function call to plugins.
 ///
 /// Returned inside a cardinality wrapper from
-/// [`Binding::dispatch`]( crate::binding::Binding::dispatch )
+/// [`crate::sync::Binding::dispatch`]
 /// when a function call fails at runtime.
 #[derive( Error, Debug )]
 pub enum DispatchError {

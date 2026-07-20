@@ -7,24 +7,24 @@
 //!
 //! # Core Concepts
 //!
-//! - [`Binding`]: An abstract contract declaring what an implementer exports and what a
+//! - [`sync::Binding`]: An abstract contract declaring what an implementer exports and what a
 //! 	consumer may import. Contains a package name, a set of interfaces, and plugged-in
 //! 	plugin instances.
 //!
-//! - [`Interface`]: A single WIT interface with functions and resources. Note that
+//! - [`sync::Interface`]: A single WIT interface with functions and resources. Note that
 //! 	interfaces don't have a name field; their names are provided as keys of a `HashMap`
-//! 	when constructing a [`Binding`]. This prevents duplicate interface names.
+//! 	when constructing a [`sync::Binding`]. This prevents duplicate interface names.
 //!
-//! - [`Plugin`]: A struct containing a wasm component and the runtime context made available
+//! - [`sync::Plugin`]: A struct containing a wasm component and the runtime context made available
 //! 	to host exports; their ids are provided as keys of a `HashMap` when constructing a
-//! 	[`Binding`]. This prevents duplicate ids.
+//! 	[`sync::Binding`]. This prevents duplicate ids.
 //!
-//! - [`PluginInstanceSync`] and [`PluginInstanceAsync`]: Instantiated plugins ready for
-//! 	synchronous or asynchronous dispatch.
+//! - [`sync::PluginInstance`] and [`concurrent::PluginInstance`]: Instantiated plugins ready
+//! 	for synchronous or concurrent dispatch.
 //!
-//! - **Plug**: A plugin's declaration that it implements a [`Binding`].
+//! - **Plug**: A plugin's declaration that it implements a [`sync::Binding`].
 //!
-//! - **Socket**: A plugin's declaration that it depends on a [`Binding`]. Cardinality is
+//! - **Socket**: A plugin's declaration that it depends on a [`sync::Binding`]. Cardinality is
 //! 	expressed with wrapper types in [`crate::cardinality`], and socket responses are
 //! 	represented in the importing plugin's ABI using the corresponding shape:
 //! 	- [`cardinality::ExactlyOne`]`( Id, T )` - exactly one plugin,
@@ -47,9 +47,9 @@
 //!
 //! ```
 //! use std::collections::{ HashMap, HashSet };
+//! use wasm_link::sync::{ Binding, Function, Interface, Plugin };
 //! use wasm_link::{
-//! 	Binding, Interface, Function, FunctionKind, ReturnKind,
-//! 	Plugin, PluginContext, Engine, Component, Linker, ResourceTable, Val,
+//! 	FunctionKind, ReturnKind, PluginContext, Engine, Component, Linker, ResourceTable, Val,
 //! };
 //! use wasm_link::cardinality::ExactlyOne ;
 //!
@@ -138,7 +138,8 @@
 //!
 //! ```
 //! # use std::collections::HashMap ;
-//! # use wasm_link::{ Binding, Plugin, PluginContext, Engine, Component, Linker, ResourceTable };
+//! # use wasm_link::sync::{ Binding, Plugin };
+//! # use wasm_link::{ PluginContext, Engine, Component, Linker, ResourceTable };
 //! # use wasm_link::cardinality::ExactlyOne ;
 //! # struct Context { resource_table: ResourceTable }
 //! # impl PluginContext for Context {
@@ -178,9 +179,9 @@
 //!
 //! ```
 //! # use std::collections::{ HashMap, HashSet };
+//! # use wasm_link::sync::{ Binding, Function, Interface, Plugin };
 //! # use wasm_link::{
-//! # 	Binding, Interface, Function, FunctionKind, ReturnKind, Plugin, PluginContext,
-//! # 	Engine, Component, Linker, ResourceTable, Val,
+//! # 	FunctionKind, ReturnKind, PluginContext, Engine, Component, Linker, ResourceTable, Val,
 //! # };
 //! # use wasm_link::cardinality::Any ;
 //! # struct Context { resource_table: ResourceTable }
@@ -241,16 +242,16 @@
 //!
 //! - **Fuel** counts WebAssembly instructions. When fuel runs out, execution traps.
 //! 	Enable with [`Config::consume_fuel`]( wasmtime::Config::consume_fuel ).
-//! 	Set initially via [`Plugin::with_initial_fuel`] and per-call via
-//! 	[`Plugin::with_fuel_limiter`].
+//! 	Set initially via [`sync::Plugin::with_initial_fuel`] and per-call via
+//! 	[`sync::Plugin::with_fuel_limiter`].
 //!
 //! - **Epoch deadline** counts external timer ticks. When the deadline is reached,
 //! 	execution traps. Enable with [`Config::epoch_interruption`]( wasmtime::Config::epoch_interruption ).
-//! 	Set per-call via [`Plugin::with_epoch_limiter`].
+//! 	Set per-call via [`sync::Plugin::with_epoch_limiter`].
 //!
 //! - **Memory** limits linear memory and table growth via wasmtime's
 //! 	[`ResourceLimiter`]( wasmtime::ResourceLimiter ). No engine configuration required.
-//! 	Set once at instantiation via [`Plugin::with_memory_limiter`].
+//! 	Set once at instantiation via [`sync::Plugin::with_memory_limiter`].
 //!
 //! ## Fuel and Epoch Limits
 //!
@@ -260,7 +261,8 @@
 //!
 //! ```
 //! # use std::collections::{ HashMap, HashSet };
-//! # use wasm_link::{ Binding, Interface, Function, FunctionKind, ReturnKind, Plugin, PluginContext, Component, Linker, ResourceTable };
+//! # use wasm_link::sync::{ Binding, Function, Interface, Plugin };
+//! # use wasm_link::{ FunctionKind, ReturnKind, PluginContext, Component, Linker, ResourceTable };
 //! # use wasm_link::cardinality::ExactlyOne ;
 //! # use wasmtime::{ Config, Engine };
 //! # struct Context { resource_table: ResourceTable }
@@ -306,8 +308,8 @@
 //! a trap.
 //!
 //! **Engine enabled but no limiter set.** If you enable fuel/epoch deadlines in the [`Engine`]
-//! but don't set a limiter on the [`Plugin`], the behavior mimics the wasmtime default.
-//! - *Fuel*: Without [`Plugin::with_initial_fuel`], a fresh [`Store`]( wasmtime::Store )
+//! but don't set a limiter on the [`sync::Plugin`], the behavior mimics the wasmtime default.
+//! - *Fuel*: Without [`sync::Plugin::with_initial_fuel`], a fresh [`Store`]( wasmtime::Store )
 //! 	starts with 0 fuel. If component initialization executes fuel-metered Wasm, it
 //! 	immediately traps. Without a per-call limiter, subsequent calls consume any initial
 //! 	fuel remaining after initialization.
@@ -322,7 +324,8 @@
 //! No engine configuration is required.
 //!
 //! ```
-//! # use wasm_link::{ Plugin, PluginContext, ResourceTable, Component, Engine, Linker };
+//! # use wasm_link::sync::Plugin;
+//! # use wasm_link::{ PluginContext, ResourceTable, Component, Engine, Linker };
 //! # use wasmtime::ResourceLimiter;
 //! struct Ctx {
 //! 	resource_table: ResourceTable,
@@ -357,6 +360,7 @@
 //! ```
 
 mod binding ;
+pub mod concurrent ;
 mod interface ;
 mod plugin ;
 mod plugin_instance ;
@@ -366,6 +370,7 @@ pub mod cardinality ;
 #[cfg(test)] mod interface_tests ;
 mod linker ;
 mod resource_wrapper ;
+pub mod sync ;
 
 #[doc( no_inline )]
 pub use wasmtime::Engine ;
@@ -374,10 +379,8 @@ pub use wasmtime::component::{ Component, Linker, ResourceTable, Val };
 #[doc( no_inline )]
 pub use nonempty_collections::{ NEMap, nem };
 
-pub use binding::Binding ;
-pub use interface::{ Interface, Function, FunctionKind, ReturnKind };
-pub use plugin::{ PluginContext, Plugin };
-pub use plugin_instance::{ PluginInstanceAsync, PluginInstanceSync, DispatchError };
+pub use interface::{ FunctionKind, ReturnKind };
+pub use plugin::PluginContext ;
+pub use plugin_instance::DispatchError ;
 pub use remap::{ ItemResolutionTable, Remap };
-pub use binding::BindingAny ;
 pub use resource_wrapper::{ ResourceCreationError, ResourceReceiveError };
