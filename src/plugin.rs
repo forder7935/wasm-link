@@ -455,9 +455,10 @@ fn instance_contains_async( engine: &Engine, instance: &ComponentInstance ) -> b
 }
 
 fn item_contains_async( engine: &Engine, item: ComponentItem ) -> bool {
-	match item {
+	// Wasmtime currently rejects component-valued imports and exports, but recurse here so
+	// synchronous validation remains correct if support is added upstream.
+	match item { ComponentItem::Component( component ) => component_contains_async( engine, &component ),
 		ComponentItem::ComponentFunc( function ) => function.async_(),
-		ComponentItem::Component( component ) => component_contains_async( engine, &component ),
 		ComponentItem::ComponentInstance( instance ) => instance_contains_async( engine, &instance ),
 		ComponentItem::CoreFunc( _ )
 		| ComponentItem::Module( _ )

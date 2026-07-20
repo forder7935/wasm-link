@@ -50,6 +50,8 @@ fn async_debug_output_exposes_configuration_without_component_internals() -> Res
 		let executor = futures::executor::ThreadPool::new()?;
 		let plugins = fixtures::concurrent_plugins( &engine );
 		let bindings = fixtures::concurrent_bindings();
+		let plugin_debug = format!( "{:?}", plugins.plugin.plugin );
+		assert!( plugin_debug.contains( "component: \"<Component>\"" ));
 		let plugin_instance = plugins.plugin.plugin.instantiate( &engine, &linker, executor ).await?;
 		let instance_debug = format!( "{plugin_instance:?}" );
 		assert!( instance_debug.contains( "state: \"<serialized store>\"" ));
@@ -63,9 +65,11 @@ fn async_debug_output_exposes_configuration_without_component_internals() -> Res
 			HashMap::from([( bindings.root.name, bindings.root.spec )]),
 			ExactlyOne( "plugin".to_string(), plugin_instance ),
 		);
-		let binding_debug = format!( "{binding:?}" );
+		let binding_debug = format!( "{:?}", binding.clone() );
 		assert!( binding_debug.contains( "package_name: \"test:primitive\"" ));
 		assert!( binding_debug.contains( "plugins: ExactlyOne" ));
+		let socket = binding.into_any();
+		let _socket_clone = socket.clone();
 		Ok(())
 	})
 }

@@ -169,19 +169,17 @@ where
 
 /// A synchronous binding with erased cardinality.
 #[derive( Debug )]
-pub enum BindingAny<Id, Ctx>
+pub struct BindingAny<Id, Ctx>( BindingAnyCore<Id, Ctx, PluginInstanceSync<Ctx>> )
+where
+	Id: std::hash::Hash + Eq + Clone + Send + Sync + 'static,
+	Ctx: PluginContext + 'static;
+
+impl<Id, Ctx> Clone for BindingAny<Id, Ctx>
 where
 	Id: std::hash::Hash + Eq + Clone + Send + Sync + 'static,
 	Ctx: PluginContext + 'static,
 {
-	/// Exactly one plugin.
-	ExactlyOne( Binding<Id, Ctx, ExactlyOne<Id, PluginInstanceSync<Ctx>>> ),
-	/// Zero or one plugins.
-	AtMostOne( Binding<Id, Ctx, AtMostOne<Id, PluginInstanceSync<Ctx>>> ),
-	/// One or more plugins.
-	AtLeastOne( Binding<Id, Ctx, AtLeastOne<Id, PluginInstanceSync<Ctx>>> ),
-	/// Any number of plugins.
-	Any( Binding<Id, Ctx, Any<Id, PluginInstanceSync<Ctx>>> ),
+	fn clone( &self ) -> Self { Self( self.0.clone() ) }
 }
 
 impl<Id, Ctx> BindingAny<Id, Ctx>
@@ -190,48 +188,28 @@ where
 	Ctx: PluginContext + 'static,
 {
 	fn into_core( self ) -> BindingAnyCore<Id, Ctx, PluginInstanceSync<Ctx>> {
-		match self {
-			Self::ExactlyOne( binding ) => BindingAnyCore::ExactlyOne( binding.0 ),
-			Self::AtMostOne( binding ) => BindingAnyCore::AtMostOne( binding.0 ),
-			Self::AtLeastOne( binding ) => BindingAnyCore::AtLeastOne( binding.0 ),
-			Self::Any( binding ) => BindingAnyCore::Any( binding.0 ),
-		}
+		self.0
 	}
 }
 
 macro_rules! binding_from {
-	( $variant:ident, $cardinality:ident ) => {
+	( $cardinality:ident ) => {
 		impl<Id, Ctx> From<Binding<Id, Ctx, $cardinality<Id, PluginInstanceSync<Ctx>>>> for BindingAny<Id, Ctx>
 		where
 			Id: std::hash::Hash + Eq + Clone + Send + Sync + 'static,
 			Ctx: PluginContext + 'static,
 		{
 			fn from( binding: Binding<Id, Ctx, $cardinality<Id, PluginInstanceSync<Ctx>>> ) -> Self {
-				Self::$variant( binding )
+				Self( binding.0.into() )
 			}
 		}
 	};
 }
 
-binding_from!( ExactlyOne, ExactlyOne );
-binding_from!( AtMostOne, AtMostOne );
-binding_from!( AtLeastOne, AtLeastOne );
-binding_from!( Any, Any );
-
-impl<Id, Ctx> Clone for BindingAny<Id, Ctx>
-where
-	Id: std::hash::Hash + Eq + Clone + Send + Sync + 'static,
-	Ctx: PluginContext + 'static,
-{
-	fn clone( &self ) -> Self {
-		match self {
-			Self::ExactlyOne( binding ) => Self::ExactlyOne( binding.clone() ),
-			Self::AtMostOne( binding ) => Self::AtMostOne( binding.clone() ),
-			Self::AtLeastOne( binding ) => Self::AtLeastOne( binding.clone() ),
-			Self::Any( binding ) => Self::Any( binding.clone() ),
-		}
-	}
-}
+binding_from!( ExactlyOne );
+binding_from!( AtMostOne );
+binding_from!( AtLeastOne );
+binding_from!( Any );
 
 impl<Id, Ctx, Plugins> Binding<Id, Ctx, Plugins>
 where
