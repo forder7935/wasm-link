@@ -4,18 +4,15 @@
 //! awaited. Runtime-state types cannot be mixed across the two modules.
 
 use std::collections::{ HashMap, HashSet };
-use std::sync::Arc;
-
-use futures::lock::Mutex;
 use futures::task::Spawn;
 use wasmtime::component::{ Component, Linker, Val };
 use wasmtime::{ Engine, Store };
 
-use crate::binding::{ Binding as BindingCore, BindingAny as BindingAnyCore };
-use crate::cardinality::{ Any, AtLeastOne, AtMostOne, Cardinality, ExactlyOne };
+use crate::cardinality::Cardinality;
 use crate::interface::{ Function as FunctionMetadata, Interface as InterfaceMetadata };
 use crate::plugin::Plugin as PluginCore;
 use crate::plugin_instance::PluginInstanceAsync;
+use crate::runtime_binding::define_runtime_bindings;
 use crate::{ DispatchError, FunctionKind, PluginContext, Remap, ReturnKind };
 
 /// An instantiated plugin in the concurrent runtime.
@@ -88,43 +85,22 @@ impl Interface {
 	}
 }
 
-type PluginSockets<Id, Ctx, Plugins> =
-	<Plugins as Cardinality<Id, PluginInstanceAsync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceAsync<Ctx>>>>;
-type Results<Id, Ctx, Plugins> =
-	<PluginSockets<Id, Ctx, Plugins> as Cardinality<Id, Arc<Mutex<PluginInstanceAsync<Ctx>>>>>::Rebind<Result<Val, DispatchError>>;
-
-/// A binding in the concurrent runtime.
-pub struct Binding<Id, Ctx, Plugins = ExactlyOne<Id, PluginInstanceAsync<Ctx>>>(
-	BindingCore<Id, Ctx, Plugins, PluginInstanceAsync<Ctx>>,
-)
-where
-	Id: std::hash::Hash + Eq + Clone + Send + Sync + 'static,
-	Ctx: PluginContext + 'static,
-	Plugins: Cardinality<Id, PluginInstanceAsync<Ctx>> + 'static,
-	PluginSockets<Id, Ctx, Plugins>: Send + Sync;
+define_runtime_bindings!(
+	PluginInstanceAsync,
+	"A binding in the concurrent runtime.",
+	"A concurrent binding with erased cardinality."
+);
 
 impl<Id, Ctx, Plugins> Binding<Id, Ctx, Plugins>
 where
 	Id: std::hash::Hash + Eq + Clone + Send + Sync + 'static,
 	Ctx: PluginContext + 'static,
 	Plugins: Cardinality<Id, PluginInstanceAsync<Ctx>> + 'static,
-	PluginSockets<Id, Ctx, Plugins>: Cardinality<Id, Arc<Mutex<PluginInstanceAsync<Ctx>>>> + Send + Sync,
+	PluginSockets<Id, Ctx, Plugins>: Cardinality<
+		Id,
+		std::sync::Arc<futures::lock::Mutex<PluginInstanceAsync<Ctx>>>,
+	> + Send + Sync,
 {
-	/// Creates a binding.
-	pub fn new(
-		package_name: impl Into<String>,
-		interfaces: HashMap<String, Interface>,
-		plugins: Plugins,
-	) -> Self {
-		Self( BindingCore::new(
-			package_name,
-			interfaces.into_iter()
-				.map(|( name, interface )| ( name, interface.into_metadata() ))
-				.collect(),
-			plugins,
-		))
-	}
-
 	/// Dispatches a function call.
 	///
 	/// # Errors
@@ -141,84 +117,6 @@ where
 	{
 		self.0.dispatch_async( interface_name, function_name, args ).await
 	}
-}
-
-impl<Id, Ctx, Plugins> Clone for Binding<Id, Ctx, Plugins>
-where
-	Id: std::hash::Hash + Eq + Clone + Send + Sync + 'static,
-	Ctx: PluginContext + 'static,
-	Plugins: Cardinality<Id, PluginInstanceAsync<Ctx>> + 'static,
-	PluginSockets<Id, Ctx, Plugins>: Send + Sync,
-{
-	fn clone( &self ) -> Self { Self( self.0.clone() ) }
-}
-
-impl<Id, Ctx, Plugins> std::fmt::Debug for Binding<Id, Ctx, Plugins>
-where
-	Id: std::hash::Hash + Eq + Clone + Send + Sync + std::fmt::Debug + 'static,
-	Ctx: PluginContext + std::fmt::Debug + 'static,
-	Plugins: Cardinality<Id, PluginInstanceAsync<Ctx>> + 'static,
-	PluginSockets<Id, Ctx, Plugins>: Send + Sync + std::fmt::Debug,
-{
-	fn fmt( &self, formatter: &mut std::fmt::Formatter<'_> ) -> std::fmt::Result {
-		self.0.fmt( formatter )
-	}
-}
-
-/// A concurrent binding with erased cardinality.
-#[derive( Debug )]
-pub struct BindingAny<Id, Ctx>( BindingAnyCore<Id, Ctx, PluginInstanceAsync<Ctx>> )
-where
-	Id: std::hash::Hash + Eq + Clone + Send + Sync + 'static,
-	Ctx: PluginContext + 'static;
-
-impl<Id, Ctx> Clone for BindingAny<Id, Ctx>
-where
-	Id: std::hash::Hash + Eq + Clone + Send + Sync + 'static,
-	Ctx: PluginContext + 'static,
-{
-	fn clone( &self ) -> Self { Self( self.0.clone() ) }
-}
-
-impl<Id, Ctx> BindingAny<Id, Ctx>
-where
-	Id: std::hash::Hash + Eq + Clone + Send + Sync + 'static,
-	Ctx: PluginContext + 'static,
-{
-	fn into_core( self ) -> BindingAnyCore<Id, Ctx, PluginInstanceAsync<Ctx>> {
-		self.0
-	}
-}
-
-macro_rules! binding_from {
-	( $cardinality:ident ) => {
-		impl<Id, Ctx> From<Binding<Id, Ctx, $cardinality<Id, PluginInstanceAsync<Ctx>>>> for BindingAny<Id, Ctx>
-		where
-			Id: std::hash::Hash + Eq + Clone + Send + Sync + 'static,
-			Ctx: PluginContext + 'static,
-		{
-			fn from( binding: Binding<Id, Ctx, $cardinality<Id, PluginInstanceAsync<Ctx>>> ) -> Self {
-				Self( binding.0.into() )
-			}
-		}
-	};
-}
-
-binding_from!( ExactlyOne );
-binding_from!( AtMostOne );
-binding_from!( AtLeastOne );
-binding_from!( Any );
-
-impl<Id, Ctx, Plugins> Binding<Id, Ctx, Plugins>
-where
-	Id: std::hash::Hash + Eq + Clone + Send + Sync + 'static,
-	Ctx: PluginContext + 'static,
-	Plugins: Cardinality<Id, PluginInstanceAsync<Ctx>> + 'static,
-	PluginSockets<Id, Ctx, Plugins>: Send + Sync,
-	BindingAny<Id, Ctx>: From<Self>,
-{
-	/// Erases this binding's cardinality.
-	pub fn into_any( self ) -> BindingAny<Id, Ctx> { self.into() }
 }
 
 /// A component and context configured for the concurrent runtime.
