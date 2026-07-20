@@ -128,14 +128,13 @@ match result {
 }
 ```
 
-Runtime state lives in one of two separate module worlds:
+wasm-link provides two separate runtimes:
 
-- `wasm_link::sync` provides synchronous `Plugin`, `Binding`, and `PluginInstance` types.
-- `wasm_link::concurrent` provides the same method names, but `instantiate`, `link`, and
-  `dispatch` must be awaited. It also supports WIT functions declared with the `async` effect.
+- `wasm_link::concurrent` supports both synchronous and asynchronous WebAssembly functions.
+- `wasm_link::sync` supports synchronous WebAssembly functions only and returns an error upon
+  encountering an asynchronous function.
 
-Bindings and plugin instances from the two modules cannot be combined in one tree. Choose a
-module for the root and use it throughout the graph.
+A plugin graph must use one runtime throughout.
 
 ## Plugin Error ABI
 
