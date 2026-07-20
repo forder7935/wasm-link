@@ -17,6 +17,7 @@ fn runtime_function_metadata_has_matching_accessors() {
 	);
 	assert_eq!( sync.kind(), FunctionKind::Method );
 	assert_eq!( sync.return_kind(), ReturnKind::MayContainResources );
+	assert!( !sync.is_async() );
 
 	let concurrent = crate::concurrent::Function::new(
 		FunctionKind::Freestanding,

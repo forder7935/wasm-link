@@ -58,6 +58,12 @@ impl Function {
 	/// Returns how dispatch handles the function's return value.
 	pub fn return_kind( &self ) -> ReturnKind { self.return_kind }
 
+	/// Returns whether the WIT function has the `async` effect.
+	///
+	/// Synchronous function metadata cannot represent that state, so this always
+	/// returns `false`.
+	pub fn is_async( &self ) -> bool { false }
+
 	fn into_metadata( self ) -> FunctionMetadata {
 		FunctionMetadata::new( self.kind, self.return_kind )
 	}
