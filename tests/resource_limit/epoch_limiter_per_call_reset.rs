@@ -1,7 +1,7 @@
 use std::collections::{ HashMap, HashSet };
 use std::sync::{ Arc, atomic::{ AtomicBool, AtomicUsize, Ordering }};
 use std::thread;
-use wasm_link::{ Binding, Engine, Function, FunctionKind, Interface, Linker, ReturnKind, Val, DispatchError };
+use wasm_link::{ sync::Binding, Engine, sync::Function, FunctionKind, sync::Interface, Linker, ReturnKind, Val, DispatchError };
 use wasm_link::cardinality::ExactlyOne ;
 use wasmtime::Config;
 

@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use wasm_link::{ Binding, Engine, Linker, DispatchError };
+use wasm_link::{ sync::Binding, Engine, Linker, DispatchError };
 use wasm_link::cardinality::ExactlyOne ;
 
 fixtures! {

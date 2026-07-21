@@ -47,9 +47,9 @@ NOTE: Cross-plugin support for `future`, `stream`, `error-context`, and threads 
 
 ```rust
 use std::collections::{ HashMap, HashSet };
+use wasm_link::sync::{ Binding, Function, Interface, Plugin };
 use wasm_link::{
-	Binding, Interface, Function, FunctionKind, ReturnKind,
-	Plugin, PluginContext, Engine, Component, Linker, ResourceTable, Val,
+	FunctionKind, ReturnKind, PluginContext, Engine, Component, Linker, ResourceTable, Val,
 };
 use wasm_link::cardinality::ExactlyOne ;
 
@@ -127,6 +127,14 @@ match result {
 	ExactlyOne( _id, Err( err )) => panic!( "dispatch error: {}", err ),
 }
 ```
+
+wasm-link provides two separate runtimes:
+
+- `wasm_link::concurrent` supports both synchronous and asynchronous WebAssembly functions.
+- `wasm_link::sync` supports synchronous WebAssembly functions only and returns an error upon
+  encountering an asynchronous function.
+
+A plugin graph must use one runtime throughout.
 
 ## Plugin Error ABI
 

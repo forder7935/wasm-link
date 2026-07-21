@@ -9,9 +9,10 @@ use std::collections::HashMap ;
 use futures::lock::Mutex ;
 use wasmtime::component::{ Linker, Val };
 
-use crate::{ Interface, PluginContext };
+use crate::interface::Interface;
+use crate::plugin::PluginContext;
 use crate::cardinality::{ Any, AtLeastOne, AtMostOne, Cardinality, ExactlyOne };
-use crate::plugin_instance::{ PluginInstanceAsync, PluginInstanceSync };
+use crate::plugin_instance::{ concurrent, sync };
 
 
 
@@ -50,7 +51,8 @@ where
 ///
 /// ```
 /// # use std::collections::{ HashMap, HashSet };
-/// # use wasm_link::{ Binding, Interface, Function, FunctionKind, ReturnKind, Plugin, Engine, Component, Linker, ResourceTable };
+/// # use wasm_link::sync::{ Binding, Interface, Function, Plugin };
+/// # use wasm_link::{ FunctionKind, ReturnKind, Engine, Component, Linker, ResourceTable };
 /// # use wasm_link::cardinality::ExactlyOne ;
 /// # struct Ctx { resource_table: ResourceTable }
 /// # impl wasm_link::PluginContext for Ctx {
@@ -85,8 +87,8 @@ where
 /// - `PluginId`: Unique identifier type for plugins (e.g., `String`, `UUID`)
 /// - `Ctx`: Context stored in each plugin's Wasmtime store
 /// - `Plugins`: Cardinality wrapper containing the plugin instances
-/// - `Instance`: [`PluginInstanceSync`] or [`PluginInstanceAsync`]
-pub struct Binding<PluginId, Ctx, Plugins = ExactlyOne<PluginId, PluginInstanceSync<Ctx>>, Instance = PluginInstanceSync<Ctx>>(
+/// - `Instance`: [`sync::PluginInstance`] or [`concurrent::PluginInstance`]
+pub struct Binding<PluginId, Ctx, Plugins = ExactlyOne<PluginId, sync::PluginInstance<Ctx>>, Instance = sync::PluginInstance<Ctx>>(
 	Arc<BindingData<PluginId, Plugins, Instance>>,
 	std::marker::PhantomData<fn() -> Ctx>,
 )
@@ -154,20 +156,28 @@ where
 	pub(crate) fn plugins( &self ) -> &PluginSockets<PluginId, Plugins, Instance> {
 		&self.0.plugins
 	}
+
+	/// Erases this binding's cardinality.
+	pub fn into_any( self ) -> BindingAny<PluginId, Ctx, Instance>
+	where
+		BindingAny<PluginId, Ctx, Instance>: From<Self>,
+	{
+		self.into()
+	}
 }
 
-impl<PluginId, Ctx, Plugins> Binding<PluginId, Ctx, Plugins, PluginInstanceSync<Ctx>>
+impl<PluginId, Ctx, Plugins> Binding<PluginId, Ctx, Plugins, sync::PluginInstance<Ctx>>
 where
 	PluginId: std::hash::Hash + Eq + Clone + Send + Sync + 'static,
 	Ctx: PluginContext + 'static,
-	Plugins: Cardinality<PluginId, PluginInstanceSync<Ctx>> + 'static,
-	PluginSockets<PluginId, Plugins, PluginInstanceSync<Ctx>>: Cardinality<PluginId, Arc<Mutex<PluginInstanceSync<Ctx>>>> + Send + Sync,
+	Plugins: Cardinality<PluginId, sync::PluginInstance<Ctx>> + 'static,
+	PluginSockets<PluginId, Plugins, sync::PluginInstance<Ctx>>: Cardinality<PluginId, Arc<Mutex<sync::PluginInstance<Ctx>>>> + Send + Sync,
 {
 
 	pub(crate) fn add_to_linker( binding: &Binding<PluginId, Ctx, Plugins>, linker: &mut Linker<Ctx> ) -> Result<(), wasmtime::Error>
 	where
 		PluginId: Into<Val>,
-		DispatchVals<PluginId, Plugins, PluginInstanceSync<Ctx>>: Into<Val>,
+		DispatchVals<PluginId, Plugins, sync::PluginInstance<Ctx>>: Into<Val>,
 	{
 		binding.0.interfaces.iter().try_for_each(|( name, interface )| {
 			let interface_ident = format!( "{}/{}", binding.0.package_name, name );
@@ -197,7 +207,7 @@ where
 		interface_name: &str,
 		function_name: &str,
 		args: &[wasmtime::component::Val],
-	) -> Result<DispatchResults<PluginId, Plugins, PluginInstanceSync<Ctx>>, crate::DispatchError> {
+	) -> Result<DispatchResults<PluginId, Plugins, sync::PluginInstance<Ctx>>, crate::DispatchError> {
 
 		let interface = self.0.interfaces.get( interface_name )
 			.ok_or_else(|| crate::DispatchError::InvalidInterfacePath( format!( "{}/{}", self.0.package_name, interface_name )))?;
@@ -221,17 +231,17 @@ where
 
 }
 
-impl<PluginId, Ctx, Plugins> Binding<PluginId, Ctx, Plugins, PluginInstanceAsync<Ctx>>
+impl<PluginId, Ctx, Plugins> Binding<PluginId, Ctx, Plugins, concurrent::PluginInstance<Ctx>>
 where
 	PluginId: std::hash::Hash + Eq + Clone + Send + Sync + 'static,
 	Ctx: PluginContext + 'static,
-	Plugins: Cardinality<PluginId, PluginInstanceAsync<Ctx>> + 'static,
-	PluginSockets<PluginId, Plugins, PluginInstanceAsync<Ctx>>: Cardinality<PluginId, Arc<Mutex<PluginInstanceAsync<Ctx>>>> + Send + Sync,
+	Plugins: Cardinality<PluginId, concurrent::PluginInstance<Ctx>> + 'static,
+	PluginSockets<PluginId, Plugins, concurrent::PluginInstance<Ctx>>: Cardinality<PluginId, Arc<Mutex<concurrent::PluginInstance<Ctx>>>> + Send + Sync,
 {
 	pub(crate) fn add_to_linker_async( binding: &Self, linker: &mut Linker<Ctx> ) -> Result<(), wasmtime::Error>
 	where
 		PluginId: Into<Val>,
-		DispatchVals<PluginId, Plugins, PluginInstanceAsync<Ctx>>: Into<Val> + Send,
+		DispatchVals<PluginId, Plugins, concurrent::PluginInstance<Ctx>>: Into<Val> + Send,
 	{
 		binding.0.interfaces.iter().try_for_each(|( name, interface )| {
 			let interface_ident = format!( "{}/{}", binding.0.package_name, name );
@@ -242,14 +252,14 @@ where
 	/// Asynchronously dispatches a function call to all plugins implementing this binding.
 	///
 	/// This method waits for a busy plugin instead of returning [`DispatchError::LockRejected`](crate::DispatchError::LockRejected).
-	/// It is required for instances created by [`Plugin::instantiate_async`](crate::Plugin::instantiate_async)
-	/// or [`Plugin::link_async`](crate::Plugin::link_async).
+	/// It is used internally by [`crate::concurrent::Binding::dispatch`].
 	///
 	/// # Example
 	///
 	/// ```
 	/// # use std::collections::{ HashMap, HashSet };
-	/// # use wasm_link::{ Binding, Component, Engine, Function, FunctionKind, Interface, Linker, Plugin, PluginContext, ResourceTable, ReturnKind, Val };
+	/// # use wasm_link::concurrent::{ Binding, Function, Interface, Plugin };
+	/// # use wasm_link::{ Component, Engine, FunctionKind, Linker, PluginContext, ResourceTable, ReturnKind, Val };
 	/// # use wasm_link::cardinality::ExactlyOne;
 	/// # struct Context { table: ResourceTable }
 	/// # impl PluginContext for Context { fn resource_table( &mut self ) -> &mut ResourceTable { &mut self.table } }
@@ -265,7 +275,7 @@ where
 	/// # 	(export "example:plugin/root" (instance $root))
 	/// # )"# )?;
 	/// # let plugin = Plugin::new( component, Context { table: ResourceTable::new() })
-	/// # 	.instantiate_async( &engine, &linker, executor ).await?;
+	/// # 	.instantiate( &engine, &linker, executor ).await?;
 	/// # let binding = Binding::new(
 	/// # 	"example:plugin",
 	/// # 	HashMap::from([( "root".to_string(), Interface::new(
@@ -274,22 +284,21 @@ where
 	/// # 	))]),
 	/// # 	ExactlyOne( "plugin".to_string(), plugin ),
 	/// # );
-	/// let result = binding.dispatch_async( "root", "get", &[] ).await?;
+	/// let result = binding.dispatch( "root", "get", &[] ).await?;
 	/// assert!( matches!( result, ExactlyOne( _, Ok( Val::U32( 42 )))));
 	/// # Ok(()) }) }
 	/// ```
 	///
 	/// # Errors
 	/// Returns an error if the interface or function is not found in this binding.
-	pub async fn dispatch_async(
+	pub async fn dispatch(
 		&self,
 		interface_name: &str,
 		function_name: &str,
 		args: &[wasmtime::component::Val],
-	) -> Result<DispatchResults<PluginId, Plugins, PluginInstanceAsync<Ctx>>, crate::DispatchError>
+	) -> Result<DispatchResults<PluginId, Plugins, concurrent::PluginInstance<Ctx>>, crate::DispatchError>
 	where
-		PluginId: Into<Val>,
-		DispatchResults<PluginId, Plugins, PluginInstanceAsync<Ctx>>: Send,
+		DispatchResults<PluginId, Plugins, concurrent::PluginInstance<Ctx>>: Send,
 	{
 		let interface = self.0.interfaces.get( interface_name )
 			.ok_or_else(|| crate::DispatchError::InvalidInterfacePath( format!( "{}/{}", self.0.package_name, interface_name )))?;
@@ -325,7 +334,7 @@ where
 ///
 /// Use when a plugin's sockets include bindings with different cardinalities.
 #[derive( Debug )]
-pub enum BindingAny<PluginId, Ctx, Instance = PluginInstanceSync<Ctx>>
+pub enum BindingAny<PluginId, Ctx, Instance = sync::PluginInstance<Ctx>>
 where
 	PluginId: std::hash::Hash + Eq + Clone + Send + Sync + 'static,
 	Ctx: PluginContext + 'static,
@@ -341,7 +350,7 @@ where
 	Any( Binding<PluginId, Ctx, Any<PluginId, Instance>, Instance> ),
 }
 
-impl<PluginId, Ctx> BindingAny<PluginId, Ctx, PluginInstanceSync<Ctx>>
+impl<PluginId, Ctx> BindingAny<PluginId, Ctx, sync::PluginInstance<Ctx>>
 where
 	PluginId: std::hash::Hash + Eq + Clone + Send + Sync + Into<Val> + 'static,
 	Ctx: PluginContext + 'static,
@@ -357,7 +366,7 @@ where
 
 }
 
-impl<PluginId, Ctx> BindingAny<PluginId, Ctx, PluginInstanceAsync<Ctx>>
+impl<PluginId, Ctx> BindingAny<PluginId, Ctx, concurrent::PluginInstance<Ctx>>
 where
 	PluginId: std::hash::Hash + Eq + Clone + Send + Sync + Into<Val> + 'static,
 	Ctx: PluginContext + 'static,
@@ -413,21 +422,6 @@ where
 {
 	fn from( binding: Binding<PluginId, Ctx, Any<PluginId, Instance>, Instance> ) -> Self {
 		Self::Any( binding )
-	}
-}
-
-impl<PluginId, Ctx, Plugins, Instance> Binding<PluginId, Ctx, Plugins, Instance>
-where
-	PluginId: std::hash::Hash + Eq + Clone + Send + Sync + 'static,
-	Ctx: PluginContext + 'static,
-	Instance: Send + 'static,
-	Plugins: Cardinality<PluginId, Instance>,
-	PluginSockets<PluginId, Plugins, Instance>: Send + Sync,
-	BindingAny<PluginId, Ctx, Instance>: From<Binding<PluginId, Ctx, Plugins, Instance>>,
-{
-	/// Converts this binding into a type-erased [`BindingAny`] for heterogeneous socket lists.
-	pub fn into_any( self ) -> BindingAny<PluginId, Ctx, Instance> {
-		self.into()
 	}
 }
 

@@ -1,6 +1,6 @@
 use std::collections::{ HashMap, HashSet };
 
-use wasm_link::{ Binding, Engine, Function, FunctionKind, Interface, Linker, ReturnKind };
+use wasm_link::{ sync::Binding, Engine, sync::Function, FunctionKind, sync::Interface, Linker, ReturnKind };
 use wasm_link::cardinality::ExactlyOne ;
 
 fixtures! {
