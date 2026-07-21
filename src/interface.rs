@@ -5,7 +5,7 @@ use wasmtime::component::{ Linker, ResourceType, Val };
 
 use crate::binding::Binding;
 use crate::plugin::PluginContext;
-use crate::plugin_instance::{ PluginInstanceAsync, PluginInstanceSync };
+use crate::plugin_instance::{ concurrent, sync };
 use crate::cardinality::Cardinality ;
 use crate::linker::{
 	dispatch_all,
@@ -36,8 +36,8 @@ use crate::resource_wrapper::ResourceWrapper ;
 /// let binding: Binding<String, Ctx, AtMostOne<String, PluginInstance<Ctx>>> = Binding::new(
 /// 	"my:package",
 /// 	HashMap::from([
-/// 		( "interface-a".to_string(), Interface::new( HashMap::new(), HashSet::new() )),
-/// 		( "interface-b".to_string(), Interface::new( HashMap::new(), HashSet::new() )),
+/// 		( "interface-a".to_string(), Interface::new( HashMap::<String, wasm_link::sync::Function>::new(), HashSet::new() )),
+/// 		( "interface-b".to_string(), Interface::new( HashMap::<String, wasm_link::sync::Function>::new(), HashSet::new() )),
 /// 	]),
 /// 	AtMostOne( None ),
 /// );
@@ -46,22 +46,30 @@ use crate::resource_wrapper::ResourceWrapper ;
 #[derive( Debug, Clone, Default )]
 pub struct Interface {
 	/// Functions exported by this interface
-	functions: HashMap<String, Function>,
+	functions: HashMap<String, FunctionMetadata>,
 	/// Resource types defined by this interface
 	resources: HashSet<String>,
 }
 
 impl Interface {
 	/// Creates a new interface declaration.
-	pub fn new(
-		functions: HashMap<String, Function>,
+	pub fn new<FunctionSpec>(
+		functions: HashMap<String, FunctionSpec>,
 		resources: HashSet<String>,
-	) -> Self {
-		Self { functions, resources }
+	) -> Self
+	where
+		FunctionSpec: Into<FunctionMetadata>,
+	{
+		Self {
+			functions: functions.into_iter()
+				.map(|( name, function )| ( name, function.into() ))
+				.collect(),
+			resources,
+		}
 	}
 
 	#[inline]
-	pub(crate) fn function( &self, name: &str ) -> Option<&Function> {
+	pub(crate) fn function( &self, name: &str ) -> Option<&FunctionMetadata> {
 		self.functions.get( name )
 	}
 
@@ -72,15 +80,15 @@ impl Interface {
 		package_name: &str,
 		interface_ident: &str,
 		interface_name: &str,
-		binding: &Binding<PluginId, Ctx, Plugins, PluginInstanceSync<Ctx>>,
+		binding: &Binding<PluginId, Ctx, Plugins, sync::PluginInstance<Ctx>>,
 	) -> Result<(), wasmtime::Error>
 	where
 		PluginId: std::hash::Hash + Eq + Clone + Send + Sync + Into<Val> + 'static,
 		Ctx: PluginContext,
-		Plugins: Cardinality<PluginId, PluginInstanceSync<Ctx>> + 'static,
-		<Plugins as Cardinality<PluginId, PluginInstanceSync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceSync<Ctx>>>>: Send + Sync,
-		<Plugins as Cardinality<PluginId, PluginInstanceSync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceSync<Ctx>>>>: Cardinality<PluginId, Arc<Mutex<PluginInstanceSync<Ctx>>>>,
-		<<Plugins as Cardinality<PluginId, PluginInstanceSync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceSync<Ctx>>>> as Cardinality<PluginId, Arc<Mutex<PluginInstanceSync<Ctx>>>>>::Rebind<Val>: Into<Val>,
+		Plugins: Cardinality<PluginId, sync::PluginInstance<Ctx>> + 'static,
+		<Plugins as Cardinality<PluginId, sync::PluginInstance<Ctx>>>::Rebind<Arc<Mutex<sync::PluginInstance<Ctx>>>>: Send + Sync,
+		<Plugins as Cardinality<PluginId, sync::PluginInstance<Ctx>>>::Rebind<Arc<Mutex<sync::PluginInstance<Ctx>>>>: Cardinality<PluginId, Arc<Mutex<sync::PluginInstance<Ctx>>>>,
+		<<Plugins as Cardinality<PluginId, sync::PluginInstance<Ctx>>>::Rebind<Arc<Mutex<sync::PluginInstance<Ctx>>>> as Cardinality<PluginId, Arc<Mutex<sync::PluginInstance<Ctx>>>>>::Rebind<Val>: Into<Val>,
 	{
 		let mut linker_root = linker.root();
 		let mut linker_instance = linker_root.instance( interface_ident )?;
@@ -121,15 +129,15 @@ impl Interface {
 		package_name: &str,
 		interface_ident: &str,
 		interface_name: &str,
-		binding: &Binding<PluginId, Ctx, Plugins, PluginInstanceAsync<Ctx>>,
+		binding: &Binding<PluginId, Ctx, Plugins, concurrent::PluginInstance<Ctx>>,
 	) -> Result<(), wasmtime::Error>
 	where
 		PluginId: std::hash::Hash + Eq + Clone + Send + Sync + Into<Val> + 'static,
 		Ctx: PluginContext,
-		Plugins: Cardinality<PluginId, PluginInstanceAsync<Ctx>> + 'static,
-		<Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceAsync<Ctx>>>>: Send + Sync,
-		<Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceAsync<Ctx>>>>: Cardinality<PluginId, Arc<Mutex<PluginInstanceAsync<Ctx>>>>,
-		<<Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceAsync<Ctx>>>> as Cardinality<PluginId, Arc<Mutex<PluginInstanceAsync<Ctx>>>>>::Rebind<Val>: Into<Val> + Send,
+		Plugins: Cardinality<PluginId, concurrent::PluginInstance<Ctx>> + 'static,
+		<Plugins as Cardinality<PluginId, concurrent::PluginInstance<Ctx>>>::Rebind<Arc<Mutex<concurrent::PluginInstance<Ctx>>>>: Send + Sync,
+		<Plugins as Cardinality<PluginId, concurrent::PluginInstance<Ctx>>>::Rebind<Arc<Mutex<concurrent::PluginInstance<Ctx>>>>: Cardinality<PluginId, Arc<Mutex<concurrent::PluginInstance<Ctx>>>>,
+		<<Plugins as Cardinality<PluginId, concurrent::PluginInstance<Ctx>>>::Rebind<Arc<Mutex<concurrent::PluginInstance<Ctx>>>> as Cardinality<PluginId, Arc<Mutex<concurrent::PluginInstance<Ctx>>>>>::Rebind<Val>: Into<Val> + Send,
 	{
 		let mut linker_root = linker.root();
 		let mut linker_instance = linker_root.instance( interface_ident )?;
@@ -206,7 +214,7 @@ pub enum FunctionKind {
 ///
 /// Provides information needed during linking to wire up cross-plugin dispatch.
 #[derive( Debug, Clone )]
-pub struct Function {
+pub struct FunctionMetadata {
 	/// Whether this function is freestanding or a resource method.
 	kind: FunctionKind,
 	/// The function's return kind for dispatch handling
@@ -215,7 +223,7 @@ pub struct Function {
 	is_async: bool,
 }
 
-impl Function {
+impl FunctionMetadata {
 	/// Creates a new function metadata entry.
 	pub fn new(
 		kind: FunctionKind,

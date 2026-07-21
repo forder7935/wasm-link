@@ -12,8 +12,8 @@ use wasmtime::component::types::{ Component as ComponentType, ComponentInstance,
 use futures::task::Spawn ;
 
 use crate::binding::BindingAny ;
-use crate::plugin_instance::{ PluginInstanceAsync, PluginInstanceSync };
-use crate::interface::Function ;
+use crate::plugin_instance::{ concurrent, sync };
+use crate::interface::FunctionMetadata as Function ;
 use crate::Remap ;
 
 /// Trait for accessing a [`ResourceTable`] from the store's data type.
@@ -76,7 +76,7 @@ pub trait PluginContext: Send {
 /// # Ok(())
 /// # }
 /// ```
-#[must_use = "call .instantiate() or .link() to create a PluginInstanceSync"]
+#[must_use = "call .instantiate() or .link() to create a plugin instance"]
 pub struct Plugin<Ctx: 'static> {
 	/// Compiled WASM component
 	component: Component,
@@ -301,7 +301,7 @@ where
 		engine: &Engine,
 		mut linker: Linker<Ctx>,
 		sockets: Sockets,
-	) -> Result<PluginInstanceSync<Ctx>, wasmtime::Error>
+	) -> Result<sync::PluginInstance<Ctx>, wasmtime::Error>
 	where
 		PluginId: Eq + std::hash::Hash + Clone + std::fmt::Debug + Send + Sync + Into<Val> + 'static,
 		Sockets: IntoIterator,
@@ -354,11 +354,11 @@ where
 		mut linker: Linker<Ctx>,
 		sockets: Sockets,
 		executor: Executor,
-	) -> Result<PluginInstanceAsync<Ctx>, wasmtime::Error>
+	) -> Result<concurrent::PluginInstance<Ctx>, wasmtime::Error>
 	where
 		PluginId: Eq + std::hash::Hash + Clone + std::fmt::Debug + Send + Sync + Into<Val> + 'static,
 		Sockets: IntoIterator,
-		Sockets::Item: Into<BindingAny<PluginId, Ctx, PluginInstanceAsync<Ctx>>>,
+		Sockets::Item: Into<BindingAny<PluginId, Ctx, concurrent::PluginInstance<Ctx>>>,
 		Executor: Spawn + Send + Sync + 'static,
 	{
 		sockets.into_iter()
@@ -375,12 +375,12 @@ where
 		self,
 		engine: &Engine,
 		linker: &Linker<Ctx>
-	) -> Result<PluginInstanceSync<Ctx>, wasmtime::Error> {
+	) -> Result<sync::PluginInstance<Ctx>, wasmtime::Error> {
 		let mut store = Store::new( engine, self.context );
 		if let Some( fuel ) = self.initial_fuel { store.set_fuel( fuel )?; }
 		if let Some( limiter ) = self.memory_limiter { store.limiter( limiter ); }
 		let instance = linker.instantiate( &mut store, &self.component )?;
-		Ok( PluginInstanceSync::new_sync(
+		Ok( sync::PluginInstance::new_sync(
 			store,
 			instance,
 			self.interface_remaps,
@@ -425,7 +425,7 @@ where
 		engine: &Engine,
 		linker: &Linker<Ctx>,
 		executor: Executor,
-	) -> Result<PluginInstanceAsync<Ctx>, wasmtime::Error>
+	) -> Result<concurrent::PluginInstance<Ctx>, wasmtime::Error>
 	where
 		Executor: Spawn + Send + Sync + 'static,
 	{
@@ -433,7 +433,7 @@ where
 		if let Some( fuel ) = self.initial_fuel { store.set_fuel( fuel )?; }
 		if let Some( limiter ) = self.memory_limiter { store.limiter( limiter ); }
 		let instance = linker.instantiate_async( &mut store, &self.component ).await?;
-		Ok( PluginInstanceAsync::new(
+		Ok( concurrent::PluginInstance::new(
 			store,
 			instance,
 			self.interface_remaps,
@@ -467,24 +467,6 @@ where
 		self
 	}
 
-	/// Sets the per-call fuel limiter.
-	pub fn with_fuel_limiter(
-		mut self,
-		limiter: impl FnMut( &mut Store<Ctx>, &str, &str, &Function ) -> u64 + Send + 'static,
-	) -> Self {
-		self.0 = self.0.with_fuel_limiter( limiter );
-		self
-	}
-
-	/// Sets the per-call epoch deadline limiter.
-	pub fn with_epoch_limiter(
-		mut self,
-		limiter: impl FnMut( &mut Store<Ctx>, &str, &str, &Function ) -> u64 + Send + 'static,
-	) -> Self {
-		self.0 = self.0.with_epoch_limiter( limiter );
-		self
-	}
-
 	/// Installs a Wasmtime memory/table limiter from the context.
 	pub fn with_memory_limiter(
 		mut self,
@@ -501,10 +483,32 @@ where
 	}
 }
 
-impl<Ctx> RuntimePlugin<Ctx, PluginInstanceSync<Ctx>>
+impl<Ctx> RuntimePlugin<Ctx, sync::PluginInstance<Ctx>>
 where
 	Ctx: PluginContext + 'static,
 {
+	/// Sets the per-call fuel limiter.
+	pub fn with_fuel_limiter(
+		mut self,
+		mut limiter: impl FnMut( &mut Store<Ctx>, &str, &str, &crate::sync::Function ) -> u64 + Send + 'static,
+	) -> Self {
+		self.0 = self.0.with_fuel_limiter( move | store, interface, name, function | {
+			limiter( store, interface, name, &crate::sync::Function::from_metadata( function ))
+		});
+		self
+	}
+
+	/// Sets the per-call epoch deadline limiter.
+	pub fn with_epoch_limiter(
+		mut self,
+		mut limiter: impl FnMut( &mut Store<Ctx>, &str, &str, &crate::sync::Function ) -> u64 + Send + 'static,
+	) -> Self {
+		self.0 = self.0.with_epoch_limiter( move | store, interface, name, function | {
+			limiter( store, interface, name, &crate::sync::Function::from_metadata( function ))
+		});
+		self
+	}
+
 	/// Links socket bindings and instantiates the plugin.
 	///
 	/// # Errors
@@ -515,7 +519,7 @@ where
 		engine: &Engine,
 		linker: Linker<Ctx>,
 		sockets: Sockets,
-	) -> Result<PluginInstanceSync<Ctx>, wasmtime::Error>
+	) -> Result<sync::PluginInstance<Ctx>, wasmtime::Error>
 	where
 		Id: Eq + std::hash::Hash + Clone + std::fmt::Debug + Send + Sync + Into<Val> + 'static,
 		Sockets: IntoIterator,
@@ -534,16 +538,38 @@ where
 		self,
 		engine: &Engine,
 		linker: &Linker<Ctx>,
-	) -> Result<PluginInstanceSync<Ctx>, wasmtime::Error> {
+	) -> Result<sync::PluginInstance<Ctx>, wasmtime::Error> {
 		self.0.ensure_synchronous( engine )?;
 		self.0.instantiate( engine, linker )
 	}
 }
 
-impl<Ctx> RuntimePlugin<Ctx, PluginInstanceAsync<Ctx>>
+impl<Ctx> RuntimePlugin<Ctx, concurrent::PluginInstance<Ctx>>
 where
 	Ctx: PluginContext + 'static,
 {
+	/// Sets the per-call fuel limiter.
+	pub fn with_fuel_limiter(
+		mut self,
+		mut limiter: impl FnMut( &mut Store<Ctx>, &str, &str, &crate::concurrent::Function ) -> u64 + Send + 'static,
+	) -> Self {
+		self.0 = self.0.with_fuel_limiter( move | store, interface, name, function | {
+			limiter( store, interface, name, &crate::concurrent::Function::from_metadata( function ))
+		});
+		self
+	}
+
+	/// Sets the per-call epoch deadline limiter.
+	pub fn with_epoch_limiter(
+		mut self,
+		mut limiter: impl FnMut( &mut Store<Ctx>, &str, &str, &crate::concurrent::Function ) -> u64 + Send + 'static,
+	) -> Self {
+		self.0 = self.0.with_epoch_limiter( move | store, interface, name, function | {
+			limiter( store, interface, name, &crate::concurrent::Function::from_metadata( function ))
+		});
+		self
+	}
+
 	/// Links socket bindings and instantiates the plugin.
 	///
 	/// # Errors
@@ -555,11 +581,11 @@ where
 		linker: Linker<Ctx>,
 		sockets: Sockets,
 		executor: Executor,
-	) -> Result<PluginInstanceAsync<Ctx>, wasmtime::Error>
+	) -> Result<concurrent::PluginInstance<Ctx>, wasmtime::Error>
 	where
 		Id: Eq + std::hash::Hash + Clone + std::fmt::Debug + Send + Sync + Into<Val> + 'static,
 		Sockets: IntoIterator,
-		Sockets::Item: Into<BindingAny<Id, Ctx, PluginInstanceAsync<Ctx>>>,
+		Sockets::Item: Into<BindingAny<Id, Ctx, concurrent::PluginInstance<Ctx>>>,
 		Executor: Spawn + Send + Sync + 'static,
 	{
 		self.0.link_async( engine, linker, sockets, executor ).await
@@ -575,7 +601,7 @@ where
 		engine: &Engine,
 		linker: &Linker<Ctx>,
 		executor: Executor,
-	) -> Result<PluginInstanceAsync<Ctx>, wasmtime::Error>
+	) -> Result<concurrent::PluginInstance<Ctx>, wasmtime::Error>
 	where
 		Executor: Spawn + Send + Sync + 'static,
 	{

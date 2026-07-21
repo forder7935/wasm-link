@@ -368,8 +368,44 @@
 //! # }
 //! ```
 
-pub use crate::interface::{ Function, Interface };
-pub use crate::plugin_instance::PluginInstanceSync as PluginInstance;
+use crate::interface::FunctionMetadata;
+
+pub use crate::interface::Interface;
+
+/// Metadata for a synchronous WIT function.
+#[derive( Debug, Clone )]
+pub struct Function {
+	kind: crate::FunctionKind,
+	return_kind: crate::ReturnKind,
+}
+
+impl Function {
+	/// Creates function metadata.
+	pub fn new( kind: crate::FunctionKind, return_kind: crate::ReturnKind ) -> Self {
+		Self { kind, return_kind }
+	}
+
+	/// Returns whether the function is freestanding or a resource method.
+	pub fn kind( &self ) -> crate::FunctionKind { self.kind }
+
+	/// Returns how dispatch handles the function's return value.
+	pub fn return_kind( &self ) -> crate::ReturnKind { self.return_kind }
+
+	/// Returns whether the WIT function has the `async` effect.
+	pub fn is_async( &self ) -> bool { false }
+
+	pub(crate) fn from_metadata( metadata: &FunctionMetadata ) -> Self {
+		Self::new( metadata.kind(), metadata.return_kind() )
+	}
+}
+
+impl From<Function> for FunctionMetadata {
+	fn from( function: Function ) -> Self {
+		Self::new( function.kind, function.return_kind )
+	}
+}
+
+pub use crate::plugin_instance::sync::PluginInstance;
 
 /// A binding in the synchronous runtime.
 pub type Binding<Id, Ctx, Plugins = crate::cardinality::ExactlyOne<Id, PluginInstance<Ctx>>> =

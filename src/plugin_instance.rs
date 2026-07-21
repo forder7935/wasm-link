@@ -7,7 +7,7 @@ use thiserror::Error ;
 use wasmtime::component::{ Instance, Val };
 use wasmtime::Store ;
 
-use crate::interface::{ Function, ReturnKind };
+use crate::interface::{ FunctionMetadata as Function, ReturnKind };
 use crate::plugin::PluginContext;
 use crate::Remap;
 use crate::resource_wrapper::{ ResourceCreationError, ResourceReceiveError };
@@ -15,23 +15,35 @@ use crate::resource_wrapper::{ ResourceCreationError, ResourceReceiveError };
 type CallLimiter<Ctx> = Box<dyn FnMut( &mut Store<Ctx>, &str, &str, &Function ) -> u64 + Send>;
 
 
-/// A synchronously instantiated plugin, ready for synchronous dispatch.
-///
-/// Created by calling [`crate::sync::Plugin::instantiate`],
-/// or [`crate::sync::Plugin::link`].
-pub struct PluginInstanceSync<Ctx: 'static> {
-	state: PluginState<Ctx>,
+pub mod sync {
+	use super::PluginState;
+
+	/// A synchronously instantiated plugin, ready for synchronous dispatch.
+	///
+	/// Created by calling [`crate::sync::Plugin::instantiate`],
+	/// or [`crate::sync::Plugin::link`].
+	pub struct PluginInstance<Ctx: 'static> {
+		pub(super) state: PluginState<Ctx>,
+	}
 }
 
-/// An asynchronously instantiated plugin, ready for asynchronous dispatch.
-///
-/// Created by calling [`crate::concurrent::Plugin::instantiate`]
-/// or [`crate::concurrent::Plugin::link`]. Calls are submitted to the
-/// executor supplied during instantiation. The plugin's Wasmtime [`Store`] remains
-/// independent and is serialized by an internal lock.
-pub struct PluginInstanceAsync<Ctx: 'static> {
-	state: Arc<Mutex<PluginState<Ctx>>>,
-	executor: Arc<dyn Spawn + Send + Sync>,
+pub mod concurrent {
+	use std::sync::Arc;
+	use futures::lock::Mutex;
+	use futures::task::Spawn;
+
+	use super::PluginState;
+
+	/// An asynchronously instantiated plugin, ready for asynchronous dispatch.
+	///
+	/// Created by calling [`crate::concurrent::Plugin::instantiate`]
+	/// or [`crate::concurrent::Plugin::link`]. Calls are submitted to the
+	/// executor supplied during instantiation. The plugin's Wasmtime [`wasmtime::Store`] remains
+	/// independent and is serialized by an internal lock.
+	pub struct PluginInstance<Ctx: 'static> {
+		pub(super) state: Arc<Mutex<PluginState<Ctx>>>,
+		pub(super) executor: Arc<dyn Spawn + Send + Sync>,
+	}
 }
 
 struct PluginState<Ctx: 'static> {
@@ -42,9 +54,9 @@ struct PluginState<Ctx: 'static> {
 	epoch_limiter: Option<CallLimiter<Ctx>>,
 }
 
-impl<Ctx: std::fmt::Debug + 'static> std::fmt::Debug for PluginInstanceSync<Ctx> {
+impl<Ctx: std::fmt::Debug + 'static> std::fmt::Debug for sync::PluginInstance<Ctx> {
 	fn fmt( &self, f: &mut std::fmt::Formatter<'_> ) -> std::result::Result<(), std::fmt::Error> {
-		f.debug_struct( "PluginInstanceSync" )
+		f.debug_struct( "PluginInstance" )
 			.field( "data", &self.state.store.data() )
 			.field( "store", &self.state.store )
 			.field( "interface_remaps", &self.state.interface_remaps )
@@ -54,9 +66,9 @@ impl<Ctx: std::fmt::Debug + 'static> std::fmt::Debug for PluginInstanceSync<Ctx>
 	}
 }
 
-impl<Ctx: 'static> std::fmt::Debug for PluginInstanceAsync<Ctx> {
+impl<Ctx: 'static> std::fmt::Debug for concurrent::PluginInstance<Ctx> {
 	fn fmt( &self, f: &mut std::fmt::Formatter<'_> ) -> std::result::Result<(), std::fmt::Error> {
-		f.debug_struct( "PluginInstanceAsync" )
+		f.debug_struct( "PluginInstance" )
 			.field( "state", &"<serialized store>" )
 			.field( "executor", &"<executor>" )
 			.finish_non_exhaustive()
@@ -107,7 +119,7 @@ impl From<DispatchError> for Val {
 	}}
 }
 
-impl<Ctx: PluginContext + 'static> PluginInstanceSync<Ctx> {
+impl<Ctx: PluginContext + 'static> sync::PluginInstance<Ctx> {
 	pub(crate) fn new_sync(
 		store: Store<Ctx>,
 		instance: Instance,
@@ -136,7 +148,7 @@ impl<Ctx: PluginContext + 'static> PluginInstanceSync<Ctx> {
 	}
 }
 
-impl<Ctx: PluginContext + 'static> PluginInstanceAsync<Ctx> {
+impl<Ctx: PluginContext + 'static> concurrent::PluginInstance<Ctx> {
 	pub(crate) fn new(
 		store: Store<Ctx>,
 		instance: Instance,

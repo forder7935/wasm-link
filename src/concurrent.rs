@@ -380,8 +380,57 @@
 //! # }
 //! ```
 
-pub use crate::interface::{ Function, Interface };
-pub use crate::plugin_instance::PluginInstanceAsync as PluginInstance;
+use crate::interface::FunctionMetadata;
+
+pub use crate::interface::Interface;
+
+/// Metadata for a WIT function in the concurrent runtime.
+#[derive( Debug, Clone )]
+pub struct Function {
+	kind: crate::FunctionKind,
+	return_kind: crate::ReturnKind,
+	is_async: bool,
+}
+
+impl Function {
+	/// Creates metadata for a synchronous WIT function.
+	pub fn new( kind: crate::FunctionKind, return_kind: crate::ReturnKind ) -> Self {
+		Self { kind, return_kind, is_async: false }
+	}
+
+	/// Creates metadata for a WIT function declared with the `async` effect.
+	pub fn new_async( kind: crate::FunctionKind, return_kind: crate::ReturnKind ) -> Self {
+		Self { kind, return_kind, is_async: true }
+	}
+
+	/// Returns whether the function is freestanding or a resource method.
+	pub fn kind( &self ) -> crate::FunctionKind { self.kind }
+
+	/// Returns how dispatch handles the function's return value.
+	pub fn return_kind( &self ) -> crate::ReturnKind { self.return_kind }
+
+	/// Returns whether the WIT function has the `async` effect.
+	pub fn is_async( &self ) -> bool { self.is_async }
+
+	pub(crate) fn from_metadata( metadata: &FunctionMetadata ) -> Self {
+		Self {
+			kind: metadata.kind(),
+			return_kind: metadata.return_kind(),
+			is_async: metadata.is_async(),
+		}
+	}
+}
+
+impl From<Function> for FunctionMetadata {
+	fn from( function: Function ) -> Self {
+		match function.is_async {
+			true => Self::new_async( function.kind, function.return_kind ),
+			false => Self::new( function.kind, function.return_kind ),
+		}
+	}
+}
+
+pub use crate::plugin_instance::concurrent::PluginInstance;
 
 /// A binding in the concurrent runtime.
 pub type Binding<Id, Ctx, Plugins = crate::cardinality::ExactlyOne<Id, PluginInstance<Ctx>>> =
