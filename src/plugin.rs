@@ -445,6 +445,150 @@ where
 
 }
 
+/// A plugin declaration whose runtime is selected by its instance type.
+#[must_use = "call .instantiate() or .link() to create a plugin instance"]
+pub struct RuntimePlugin<Ctx: 'static, Instance>(
+	Plugin<Ctx>,
+	std::marker::PhantomData<fn() -> Instance>,
+);
+
+impl<Ctx, Instance> RuntimePlugin<Ctx, Instance>
+where
+	Ctx: PluginContext + 'static,
+{
+	/// Creates a plugin declaration.
+	pub fn new( component: Component, context: Ctx ) -> Self {
+		Self( Plugin::new( component, context ), std::marker::PhantomData )
+	}
+
+	/// Sets the fuel available during instantiation.
+	pub fn with_initial_fuel( mut self, fuel: u64 ) -> Self {
+		self.0 = self.0.with_initial_fuel( fuel );
+		self
+	}
+
+	/// Sets the per-call fuel limiter.
+	pub fn with_fuel_limiter(
+		mut self,
+		limiter: impl FnMut( &mut Store<Ctx>, &str, &str, &Function ) -> u64 + Send + 'static,
+	) -> Self {
+		self.0 = self.0.with_fuel_limiter( limiter );
+		self
+	}
+
+	/// Sets the per-call epoch deadline limiter.
+	pub fn with_epoch_limiter(
+		mut self,
+		limiter: impl FnMut( &mut Store<Ctx>, &str, &str, &Function ) -> u64 + Send + 'static,
+	) -> Self {
+		self.0 = self.0.with_epoch_limiter( limiter );
+		self
+	}
+
+	/// Installs a Wasmtime memory/table limiter from the context.
+	pub fn with_memory_limiter(
+		mut self,
+		limiter: impl (FnMut( &mut Ctx ) -> &mut dyn wasmtime::ResourceLimiter) + Send + Sync + 'static,
+	) -> Self {
+		self.0 = self.0.with_memory_limiter( limiter );
+		self
+	}
+
+	/// Remaps requested interfaces to component exports.
+	pub fn remap_interfaces( mut self, remaps: HashMap<String, Remap> ) -> Self {
+		self.0 = self.0.remap_interfaces( remaps );
+		self
+	}
+}
+
+impl<Ctx> RuntimePlugin<Ctx, PluginInstanceSync<Ctx>>
+where
+	Ctx: PluginContext + 'static,
+{
+	/// Links socket bindings and instantiates the plugin.
+	///
+	/// # Errors
+	///
+	/// Returns an error when linking, validation, or instantiation fails.
+	pub fn link<Id, Sockets>(
+		self,
+		engine: &Engine,
+		linker: Linker<Ctx>,
+		sockets: Sockets,
+	) -> Result<PluginInstanceSync<Ctx>, wasmtime::Error>
+	where
+		Id: Eq + std::hash::Hash + Clone + std::fmt::Debug + Send + Sync + Into<Val> + 'static,
+		Sockets: IntoIterator,
+		Sockets::Item: Into<BindingAny<Id, Ctx>>,
+	{
+		self.0.ensure_synchronous( engine )?;
+		self.0.link( engine, linker, sockets )
+	}
+
+	/// Instantiates a plugin with no socket bindings.
+	///
+	/// # Errors
+	///
+	/// Returns an error when synchronous instantiation fails.
+	pub fn instantiate(
+		self,
+		engine: &Engine,
+		linker: &Linker<Ctx>,
+	) -> Result<PluginInstanceSync<Ctx>, wasmtime::Error> {
+		self.0.ensure_synchronous( engine )?;
+		self.0.instantiate( engine, linker )
+	}
+}
+
+impl<Ctx> RuntimePlugin<Ctx, PluginInstanceAsync<Ctx>>
+where
+	Ctx: PluginContext + 'static,
+{
+	/// Links socket bindings and instantiates the plugin.
+	///
+	/// # Errors
+	///
+	/// Returns an error when linking, validation, or instantiation fails.
+	pub async fn link<Id, Sockets, Executor>(
+		self,
+		engine: &Engine,
+		linker: Linker<Ctx>,
+		sockets: Sockets,
+		executor: Executor,
+	) -> Result<PluginInstanceAsync<Ctx>, wasmtime::Error>
+	where
+		Id: Eq + std::hash::Hash + Clone + std::fmt::Debug + Send + Sync + Into<Val> + 'static,
+		Sockets: IntoIterator,
+		Sockets::Item: Into<BindingAny<Id, Ctx, PluginInstanceAsync<Ctx>>>,
+		Executor: Spawn + Send + Sync + 'static,
+	{
+		self.0.link_async( engine, linker, sockets, executor ).await
+	}
+
+	/// Instantiates a plugin with no socket bindings.
+	///
+	/// # Errors
+	///
+	/// Returns an error when asynchronous instantiation fails.
+	pub async fn instantiate<Executor>(
+		self,
+		engine: &Engine,
+		linker: &Linker<Ctx>,
+		executor: Executor,
+	) -> Result<PluginInstanceAsync<Ctx>, wasmtime::Error>
+	where
+		Executor: Spawn + Send + Sync + 'static,
+	{
+		self.0.instantiate_async( engine, linker, executor ).await
+	}
+}
+
+impl<Ctx: std::fmt::Debug + 'static, Instance> std::fmt::Debug for RuntimePlugin<Ctx, Instance> {
+	fn fmt( &self, formatter: &mut std::fmt::Formatter<'_> ) -> std::fmt::Result {
+		self.0.fmt( formatter )
+	}
+}
+
 fn component_contains_async( engine: &Engine, component: &ComponentType ) -> bool {
 	component.imports( engine ).any(|( _, item )| item_contains_async( engine, item.ty ))
 		|| component.exports( engine ).any(|( _, item )| item_contains_async( engine, item.ty ))

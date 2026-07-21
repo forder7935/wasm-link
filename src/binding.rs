@@ -156,6 +156,14 @@ where
 	pub(crate) fn plugins( &self ) -> &PluginSockets<PluginId, Plugins, Instance> {
 		&self.0.plugins
 	}
+
+	/// Erases this binding's cardinality.
+	pub fn into_any( self ) -> BindingAny<PluginId, Ctx, Instance>
+	where
+		BindingAny<PluginId, Ctx, Instance>: From<Self>,
+	{
+		self.into()
+	}
 }
 
 impl<PluginId, Ctx, Plugins> Binding<PluginId, Ctx, Plugins, PluginInstanceSync<Ctx>>
@@ -283,7 +291,7 @@ where
 	///
 	/// # Errors
 	/// Returns an error if the interface or function is not found in this binding.
-	pub async fn dispatch_async(
+	pub async fn dispatch(
 		&self,
 		interface_name: &str,
 		function_name: &str,

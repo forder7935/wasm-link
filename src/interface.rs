@@ -17,7 +17,7 @@ use crate::linker::{
 };
 use crate::resource_wrapper::ResourceWrapper ;
 
-/// A single WIT interface within a [`Binding`].
+/// A single WIT interface within a binding.
 ///
 /// Each interface declares functions and resources that implementers must export.
 /// Note that the interface name is not a part of the struct but rather a key in

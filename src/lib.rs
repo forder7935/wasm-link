@@ -1,11 +1,10 @@
-//! WebAssembly plugin runtime with separate [`sync`] and [`concurrent`] APIs.
+//! A WebAssembly plugin runtime for building modular applications.
 //!
-//! Use [`sync`] for entirely synchronous component graphs and [`concurrent`] when
-//! any component uses WIT-async functions or calls may suspend. Runtime-state types
-//! from the two modules are intentionally incompatible.
+//! The runtime has separate [`sync`] and [`concurrent`] APIs so entirely synchronous
+//! component graphs do not pay for asynchronous execution. Use [`concurrent`] when
+//! any component uses WIT-async functions or a call may suspend.
 
 mod binding ;
-mod runtime_binding ;
 pub mod concurrent ;
 mod interface ;
 mod plugin ;
@@ -30,3 +29,8 @@ pub use plugin::PluginContext ;
 pub use plugin_instance::DispatchError ;
 pub use remap::{ ItemResolutionTable, Remap };
 pub use resource_wrapper::{ ResourceCreationError, ResourceReceiveError };
+
+#[doc(hidden)]
+pub use binding::{ Binding as BindingBase, BindingAny as BindingAnyBase };
+#[doc(hidden)]
+pub use plugin::RuntimePlugin as PluginBase;

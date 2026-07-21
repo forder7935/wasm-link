@@ -10,20 +10,12 @@ fn return_kinds_describe_their_resource_handling_contract() {
 }
 
 #[test]
-fn runtime_function_metadata_has_matching_accessors() {
-	let sync = crate::sync::Function::new(
+fn function_metadata_has_matching_accessors() {
+	let function = crate::sync::Function::new(
 		FunctionKind::Method,
 		ReturnKind::MayContainResources,
 	);
-	assert_eq!( sync.kind(), FunctionKind::Method );
-	assert_eq!( sync.return_kind(), ReturnKind::MayContainResources );
-	assert!( !sync.is_async() );
-
-	let concurrent = crate::concurrent::Function::new(
-		FunctionKind::Freestanding,
-		ReturnKind::Void,
-	);
-	assert_eq!( concurrent.kind(), FunctionKind::Freestanding );
-	assert_eq!( concurrent.return_kind(), ReturnKind::Void );
-	assert!( !concurrent.is_async() );
+	assert_eq!( function.kind(), FunctionKind::Method );
+	assert_eq!( function.return_kind(), ReturnKind::MayContainResources );
+	assert!( !function.is_async() );
 }
