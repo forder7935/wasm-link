@@ -31,6 +31,7 @@ NOTE: Cross-plugin support for `future`, `stream`, `error-context`, and threads 
 - [Contents](#contents)
 - [Project Philosophy](#project-philosophy)
 - [Quick Start](#quick-start)
+- [Runtime Capabilities](#runtime-capabilities)
 - [Plugin Error ABI](#plugin-error-abi)
 - [Goals](#goals)
 - [License](#license)
@@ -127,6 +128,29 @@ match result {
 	ExactlyOne( _id, Err( err )) => panic!( "dispatch error: {}", err ),
 }
 ```
+
+## Runtime Capabilities
+
+`Plugin::instantiate` and `Plugin::link` produce `PluginInstanceSync`; bindings
+containing those instances expose synchronous `dispatch`. `Plugin::instantiate_async`
+and `Plugin::link_async` produce `PluginInstanceAsync`; their bindings expose an
+async `dispatch` with the same name.
+
+`Plugin::link` accepts only synchronous sockets. `Plugin::link_async` accepts both
+synchronous and asynchronous sockets without converting one instance type into the
+other. A homogeneous iterator is converted automatically. For a heterogeneous
+collection, erase each entry with `SocketBindingAny`:
+
+```rust,ignore
+let sockets: Vec<SocketBindingAny<String, Context>> = vec![
+	sync_binding.into(),
+	async_binding.into(),
+];
+let root = plugin.link_async( &engine, linker, sockets, executor ).await?;
+```
+
+This keeps mismatched async dependencies out of synchronous graphs at compile time,
+while allowing synchronous leaf plugins to remain synchronous inside an async graph.
 
 ## Plugin Error ABI
 

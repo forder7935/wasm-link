@@ -47,14 +47,14 @@ fn links_and_dispatches_wit_async_across_plugin_stores_on_one_worker() {
 			ExactlyOne( "_".to_string(), startup_instance ),
 		);
 
-		match root_binding.dispatch_async( "root", "get-primitive", &[] ).await {
+		match root_binding.dispatch( "root", "get-primitive", &[] ).await {
 			Ok( ExactlyOne( _, Ok( Val::U32( 42 )))) => {}
 			value => panic!( "Expected Ok( ExactlyOne( Ok( U32( 42 )))), found: {:#?}", value ),
 		}
 
 		let ( first, second ) = futures::join!(
-			root_binding.dispatch_async( "root", "get-primitive", &[] ),
-			root_binding.dispatch_async( "root", "get-primitive", &[] ),
+			root_binding.dispatch( "root", "get-primitive", &[] ),
+			root_binding.dispatch( "root", "get-primitive", &[] ),
 		);
 		for value in [ first, second ] {
 			match value {
@@ -82,7 +82,7 @@ fn reports_when_the_supplied_executor_rejects_dispatch() {
 			ExactlyOne( "_".to_string(), child_instance ),
 		);
 
-		match binding.dispatch_async( "root", "get-value", &[] ).await {
+		match binding.dispatch( "root", "get-value", &[] ).await {
 			Ok( ExactlyOne( _, Err( wasm_link::DispatchError::ExecutorUnavailable ))) => {}
 			value => panic!( "Expected ExecutorUnavailable, found: {:#?}", value ),
 		}
@@ -117,7 +117,7 @@ fn propagates_executor_rejection_across_a_plugin_link() {
 			ExactlyOne( "_".to_string(), startup ),
 		);
 
-		match root.dispatch_async( "root", "get-primitive", &[] ).await {
+		match root.dispatch( "root", "get-primitive", &[] ).await {
 			Ok( ExactlyOne( _, Ok( Val::U32( 0 )))) => {}
 			value => panic!( "Expected the consumer's error fallback U32(0), found: {value:#?}" ),
 		}

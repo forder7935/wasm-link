@@ -10,7 +10,7 @@ use wasmtime::{ Engine, Store };
 use wasmtime::component::{ Component, ResourceTable, Linker, Val };
 use futures::task::Spawn ;
 
-use crate::BindingAny ;
+use crate::{ BindingAny, SocketBindingAny };
 use crate::plugin_instance::{ Caller, PluginInstanceAsync, PluginInstanceSync };
 use crate::Function ;
 use crate::Remap ;
@@ -302,8 +302,10 @@ where
 	/// Asynchronously links this plugin with its socket bindings and instantiates it.
 	///
 	/// Use this variant when any socket may suspend or uses Component Model async types.
-	/// Every plugin in an asynchronously linked graph should be created with
-	/// [`instantiate_async`](Self::instantiate_async) or `link_async`.
+	/// Sockets may contain either [`PluginInstanceSync`] or [`PluginInstanceAsync`];
+	/// synchronous destinations are scheduled on this graph's executor without changing
+	/// their instance type. Explicitly heterogeneous collections use
+	/// [`SocketBindingAny`].
 	/// Calls to the returned instance are submitted to `executor`, allowing a
 	/// thread pool to drive many independent plugin stores without reserving a
 	/// worker for each plugin.
@@ -311,7 +313,7 @@ where
 	/// # Example
 	///
 	/// ```
-	/// # use wasm_link::{ BindingAny, Component, Engine, Linker, Plugin, PluginContext, ResourceTable };
+	/// # use wasm_link::{ Component, Engine, Linker, Plugin, PluginContext, ResourceTable, SocketBindingAny };
 	/// # struct Context { table: ResourceTable }
 	/// # impl PluginContext for Context { fn resource_table( &mut self ) -> &mut ResourceTable { &mut self.table } }
 	/// # fn main() -> Result<(), Box<dyn std::error::Error>> { futures::executor::block_on( async {
@@ -324,7 +326,7 @@ where
 	/// ).link_async(
 	/// 	&engine,
 	/// 	linker,
-	/// 	Vec::<BindingAny<String, Context, wasm_link::PluginInstanceAsync<Context>>>::new(),
+	/// 	Vec::<SocketBindingAny<String, Context>>::new(),
 	/// 	executor,
 	/// ).await?;
 	/// # let _ = instance;
@@ -343,14 +345,15 @@ where
 	where
 		PluginId: Eq + std::hash::Hash + Clone + std::fmt::Debug + Send + Sync + Into<Val> + 'static,
 		Sockets: IntoIterator,
-		Sockets::Item: Into<BindingAny<PluginId, Ctx, PluginInstanceAsync<Ctx>>>,
+		Sockets::Item: Into<SocketBindingAny<PluginId, Ctx>>,
 		Executor: Spawn + Send + Sync + 'static,
 	{
-		let caller = Caller::new();
+		let executor: std::sync::Arc<dyn Spawn + Send + Sync> = std::sync::Arc::new( executor );
+		let caller = Caller::with_executor( std::sync::Arc::clone( &executor ));
 		sockets.into_iter()
 			.map( Into::into )
-			.try_for_each(| binding | binding.add_to_linker_async( &mut linker, &caller ))?;
-		Self::instantiate_async( self, engine, &linker, executor ).await
+			.try_for_each(| binding | binding.add_to_linker( &mut linker, &caller ))?;
+		self.instantiate_async_with_executor( engine, &linker, executor ).await
 	}
 
 	/// A convenience alias for [`Plugin::link`] with 0 sockets
@@ -414,6 +417,15 @@ where
 	where
 		Executor: Spawn + Send + Sync + 'static,
 	{
+		self.instantiate_async_with_executor( engine, linker, std::sync::Arc::new( executor )).await
+	}
+
+	async fn instantiate_async_with_executor(
+		self,
+		engine: &Engine,
+		linker: &Linker<Ctx>,
+		executor: std::sync::Arc<dyn Spawn + Send + Sync>,
+	) -> Result<PluginInstanceAsync<Ctx>, wasmtime::Error> {
 		let mut store = Store::new( engine, self.context );
 		if let Some( fuel ) = self.initial_fuel { store.set_fuel( fuel )?; }
 		if let Some( limiter ) = self.memory_limiter { store.limiter( limiter ); }

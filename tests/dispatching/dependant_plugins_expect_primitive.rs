@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::{ Arc, Barrier };
-use wasm_link::{ Binding, Engine, Linker, Val };
+use wasm_link::{ Binding, Engine, Linker, SocketBindingAny, Val };
 use wasm_link::cardinality::ExactlyOne ;
 
 fixtures! {
@@ -94,15 +94,16 @@ fn dispatch_async_test_dependant_plugins_expect_primitive() {
 	futures::executor::block_on( async {
 		let engine = Engine::default();
 		let linker = Linker::new( &engine );
-		let executor = futures::executor::ThreadPool::new()
+		let executor = futures::executor::ThreadPool::builder()
+			.pool_size( 1 )
+			.create()
 			.expect( "Failed to create async executor" );
 		let plugins = fixtures::plugins( &engine );
 		let bindings = fixtures::bindings();
 
 		let child_instance = plugins.child.plugin
-			.instantiate_async( &engine, &linker, executor.clone() )
-			.await
-			.expect( "Failed to instantiate child plugin asynchronously" );
+			.instantiate( &engine, &linker )
+			.expect( "Failed to instantiate synchronous child plugin" );
 		let dependency_binding = Binding::new(
 			bindings.dependency.package,
 			HashMap::from([( bindings.dependency.name, bindings.dependency.spec )]),
@@ -119,10 +120,58 @@ fn dispatch_async_test_dependant_plugins_expect_primitive() {
 			ExactlyOne( "_".to_string(), startup_instance ),
 		);
 
-		match root_binding.dispatch_async( "root", "get-primitive", &[] ).await {
+		match root_binding.dispatch( "root", "get-primitive", &[] ).await {
 			Ok( ExactlyOne( _, Ok( Val::U32( 42 )))) => {}
 			value => panic!( "Expected Ok( ExactlyOne( Ok( U32( 42 )))), found: {:#?}", value ),
 		}
 	});
 
+}
+
+#[test]
+fn async_link_accepts_heterogeneous_sync_and_async_sockets() {
+	futures::executor::block_on( async {
+		let engine = Engine::default();
+		let linker = Linker::new( &engine );
+		let executor = futures::executor::ThreadPool::new()
+			.expect( "Failed to create async executor" );
+		let sync_plugins = fixtures::plugins( &engine );
+		let async_plugins = fixtures::plugins( &engine );
+		let root_plugins = fixtures::plugins( &engine );
+		let bindings = fixtures::bindings();
+
+		let sync_child = sync_plugins.child.plugin
+			.instantiate( &engine, &linker )
+			.expect( "Failed to instantiate synchronous child plugin" );
+		let async_child = async_plugins.child.plugin
+			.instantiate_async( &engine, &linker, executor.clone() )
+			.await
+			.expect( "Failed to instantiate asynchronous child plugin" );
+		let sync_socket = Binding::new(
+			bindings.dependency.package,
+			HashMap::from([( bindings.dependency.name, bindings.dependency.spec )]),
+			ExactlyOne( "sync".to_string(), sync_child ),
+		);
+		let async_socket = Binding::new(
+			bindings.root.package.clone(),
+			HashMap::from([( bindings.root.name.clone(), bindings.root.spec.clone() )]),
+			ExactlyOne( "async".to_string(), async_child ),
+		);
+		let sockets: Vec<SocketBindingAny<String, _>> = vec![ sync_socket.into(), async_socket.into() ];
+
+		let root = root_plugins.startup.plugin
+			.link_async( &engine, linker, sockets, executor )
+			.await
+			.expect( "Failed to link with heterogeneous sockets" );
+		let root = Binding::new(
+			bindings.root.package,
+			HashMap::from([( bindings.root.name, bindings.root.spec )]),
+			ExactlyOne( "root".to_string(), root ),
+		);
+
+		assert!( matches!(
+			root.dispatch( "root", "get-primitive", &[] ).await,
+			Ok( ExactlyOne( _, Ok( Val::U32( 42 ))))
+		));
+	});
 }

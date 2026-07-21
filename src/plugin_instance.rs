@@ -24,6 +24,7 @@ static NEXT_CALLER_ID: AtomicU64 = AtomicU64::new( 1 );
 pub(crate) struct Caller {
 	id: u64,
 	budget: Arc<std::sync::Mutex<Budget>>,
+	executor: Option<Arc<dyn Spawn + Send + Sync>>,
 }
 
 #[derive( Default )]
@@ -37,8 +38,25 @@ impl Caller {
 		Self {
 			id: NEXT_CALLER_ID.fetch_add( 1, Ordering::Relaxed ),
 			budget: Arc::new( std::sync::Mutex::new( Budget::default() )),
+			executor: None,
 		}
 	}
+
+	pub(crate) fn with_executor( executor: Arc<dyn Spawn + Send + Sync> ) -> Self {
+		Self { executor: Some( executor ), ..Self::new() }
+	}
+}
+
+pub(crate) trait AsyncDispatchInstance<Ctx: PluginContext + 'static>: Clone + Send + Sync + 'static {
+	fn dispatch_for_async<'a>(
+		&'a self,
+		caller: &'a Caller,
+		package_name: &'a str,
+		interface_name: &'a str,
+		function_name: &'a str,
+		function: &'a Function,
+		data: &'a [Val],
+	) -> BoxFuture<'a, Result<Val, DispatchError>>;
 }
 
 
@@ -242,6 +260,43 @@ impl<Ctx: PluginContext + 'static> PluginInstanceSync<Ctx> {
 	}
 }
 
+impl<Ctx: PluginContext + 'static> AsyncDispatchInstance<Ctx> for PluginInstanceSync<Ctx> {
+	fn dispatch_for_async<'a>(
+		&'a self,
+		caller: &'a Caller,
+		package_name: &'a str,
+		interface_name: &'a str,
+		function_name: &'a str,
+		function: &'a Function,
+		data: &'a [Val],
+	) -> BoxFuture<'a, Result<Val, DispatchError>> {
+		let instance = self.clone();
+		let package_name = package_name.to_string();
+		let interface_name = interface_name.to_string();
+		let function_name = function_name.to_string();
+		let function = function.clone();
+		let data = data.to_vec();
+		let executor = caller.executor.clone();
+		Box::pin( async move {
+			let executor = executor.ok_or( DispatchError::ExecutorUnavailable )?;
+			let ( response, result ) = futures::channel::oneshot::channel();
+			let task: BoxFuture<'static, ()> = Box::pin( async move {
+				let result = instance.dispatch_from(
+					&package_name,
+					&interface_name,
+					&function_name,
+					&function,
+					&data,
+				);
+				let _ = response.send( result );
+			});
+			executor.spawn_obj( FutureObj::new( task ))
+				.map_err(| _ | DispatchError::ExecutorUnavailable )?;
+			result.await.map_err(| _ | DispatchError::ExecutorUnavailable )?
+		})
+	}
+}
+
 impl<Ctx: 'static> SyncDispatcher<Ctx> {
 	fn enter( &self ) -> SyncPermit<'_, Ctx> {
 		let mut queue = lock_unpoisoned( &self.admission );
@@ -279,7 +334,7 @@ impl<Ctx: PluginContext + 'static> PluginInstanceAsync<Ctx> {
 		interface_remaps: HashMap<String, Remap>,
 		fuel_limiter: Option<CallLimiter<Ctx>>,
 		epoch_limiter: Option<CallLimiter<Ctx>>,
-		executor: impl Spawn + Send + Sync + 'static,
+		executor: Arc<dyn Spawn + Send + Sync>,
 	) -> Self {
 		let dispatcher = Arc::new( Dispatcher {
 			state: Arc::new( Mutex::new( PluginState {
@@ -289,7 +344,7 @@ impl<Ctx: PluginContext + 'static> PluginInstanceAsync<Ctx> {
 				fuel_limiter,
 				epoch_limiter,
 			})),
-			executor: Arc::new( executor ),
+			executor,
 			queue: std::sync::Mutex::new( DispatchQueue::default() ),
 		});
 		Self { dispatcher }
@@ -309,6 +364,27 @@ impl<Ctx: PluginContext + 'static> PluginInstanceAsync<Ctx> {
 			caller, package_name, interface_name, function_name, function, data,
 		)?;
 		result.await.map_err(| _ | DispatchError::ExecutorUnavailable )?
+	}
+}
+
+impl<Ctx: PluginContext + 'static> AsyncDispatchInstance<Ctx> for PluginInstanceAsync<Ctx> {
+	fn dispatch_for_async<'a>(
+		&'a self,
+		caller: &'a Caller,
+		package_name: &'a str,
+		interface_name: &'a str,
+		function_name: &'a str,
+		function: &'a Function,
+		data: &'a [Val],
+	) -> BoxFuture<'a, Result<Val, DispatchError>> {
+		Box::pin( self.dispatch_async_from(
+			caller,
+			package_name,
+			interface_name,
+			function_name,
+			function,
+			data,
+		))
 	}
 }
 
@@ -452,17 +528,6 @@ impl Drop for Reservation {
 
 fn lock_unpoisoned<T>( mutex: &std::sync::Mutex<T> ) -> std::sync::MutexGuard<'_, T> {
 	mutex.lock().unwrap_or_else( std::sync::PoisonError::into_inner )
-}
-
-pub(crate) fn clone_after_wait<T: Clone>( mutex: &Mutex<T> ) -> T {
-	clone_after_wait_with( mutex, std::thread::yield_now )
-}
-
-fn clone_after_wait_with<T: Clone>( mutex: &Mutex<T>, mut wait: impl FnMut() ) -> T {
-	loop {
-		if let Some( value ) = mutex.try_lock() { return value.clone(); }
-		wait();
-	}
 }
 
 fn retained_bytes( values: &[Val] ) -> Option<usize> {
