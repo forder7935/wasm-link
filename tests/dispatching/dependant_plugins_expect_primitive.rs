@@ -1,21 +1,59 @@
 use std::collections::HashMap;
-use std::sync::{ Arc, Barrier };
+use std::sync::{ Arc, Condvar, Mutex };
 use wasm_link::{ Binding, Engine, Linker, SocketBindingAny, Val };
 use wasm_link::cardinality::ExactlyOne ;
 
 fixtures! {
 	bindings = { root: "root", dependency: "dependency" };
-	plugins  = { startup: "startup", child: "child" };
+	plugins  = { startup: "startup", child: "child", gated_child: "gated-child" };
+}
+
+#[derive( Default )]
+struct CallGate {
+	entered: ( Mutex<bool>, Condvar ),
+	released: ( Mutex<bool>, Condvar ),
+}
+
+impl CallGate {
+	fn wait( &self ) {
+		let mut entered = self.entered.0.lock().expect( "entry gate lock poisoned" );
+		*entered = true;
+		self.entered.1.notify_one();
+		drop( entered );
+		let released = self.released.0.lock().expect( "release gate lock poisoned" );
+		drop( self.released.1.wait_while( released, | released | !*released )
+			.expect( "release gate lock poisoned" ));
+	}
+
+	fn wait_until_entered( &self ) {
+		let entered = self.entered.0.lock().expect( "entry gate lock poisoned" );
+		drop( self.entered.1.wait_while( entered, | entered | !*entered )
+			.expect( "entry gate lock poisoned" ));
+	}
+
+	fn release( &self ) {
+		*self.released.0.lock().expect( "release gate lock poisoned" ) = true;
+		self.released.1.notify_all();
+	}
 }
 
 #[test]
 fn concurrent_sync_plugins_wait_for_their_shared_dependency() {
 	let engine = Engine::default();
-	let linker = Linker::new( &engine );
+	let mut linker = Linker::new( &engine );
+	let gate = Arc::new( CallGate::default() );
+	let gate_for_import = Arc::clone( &gate );
+	linker.root().instance( "test:gate/gate" )
+		.expect( "Failed to define gate interface" )
+		.func_new( "wait", move | _ctx, _ty, _args, _results | {
+			gate_for_import.wait();
+			Ok(())
+		})
+		.expect( "Failed to define gate function" );
 	let plugins_a = fixtures::plugins( &engine );
 	let plugins_b = fixtures::plugins( &engine );
 	let bindings = fixtures::bindings();
-	let child = plugins_a.child.plugin
+	let child = plugins_a.gated_child.plugin
 		.instantiate( &engine, &linker )
 		.expect( "Failed to instantiate shared child plugin" );
 	let dependency = Binding::new(
@@ -39,17 +77,19 @@ fn concurrent_sync_plugins_wait_for_their_shared_dependency() {
 		HashMap::from([( bindings.root.name, bindings.root.spec )]),
 		ExactlyOne( "startup-b".to_string(), startup_b ),
 	));
-	let start = Arc::new( Barrier::new( 3 ));
-	let calls = [ root_a, root_b ].map(| root | {
-		let start = Arc::clone( &start );
-		std::thread::spawn( move || {
-			start.wait();
-			root.dispatch( "root", "get-primitive", &[] )
-		})
+	let first = std::thread::spawn( move || {
+		root_a.dispatch( "root", "get-primitive", &[] )
 	});
-	start.wait();
+	gate.wait_until_entered();
+	let ( second_started, observe_second ) = std::sync::mpsc::sync_channel( 0 );
+	let second = std::thread::spawn( move || {
+		second_started.send(()).expect( "Failed to signal second dispatch" );
+		root_b.dispatch( "root", "get-primitive", &[] )
+	});
+	observe_second.recv().expect( "Failed to observe second dispatch" );
+	gate.release();
 
-	calls.into_iter().for_each(| call | match call.join().expect( "dispatch thread panicked" ) {
+	[ first, second ].into_iter().for_each(| call | match call.join().expect( "dispatch thread panicked" ) {
 		Ok( ExactlyOne( _, Ok( Val::U32( 42 )))) => {}
 		value => panic!( "shared dependency call failed: {value:#?}" ),
 	});

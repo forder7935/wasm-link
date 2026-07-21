@@ -112,7 +112,7 @@ struct Dispatcher<Ctx: 'static> {
 }
 
 struct DrainGuard<Ctx: PluginContext + 'static> {
-	dispatcher: Arc<Dispatcher<Ctx>>,
+	dispatcher: Option<Arc<Dispatcher<Ctx>>>,
 }
 
 #[derive( Default )]
@@ -434,10 +434,10 @@ impl<Ctx: PluginContext + 'static> Dispatcher<Ctx> {
 
 		if start_drain {
 			let dispatcher = self.clone();
-			let guard = DrainGuard { dispatcher: dispatcher.clone() };
+			let mut guard = DrainGuard { dispatcher: Some( dispatcher.clone() ) };
 			let task: BoxFuture<'static, ()> = Box::pin( async move {
-				let _guard = guard;
 				dispatcher.drain().await;
+				guard.disarm();
 			});
 			if self.executor.spawn_obj( FutureObj::new( task )).is_err() {
 				self.reject_all();
@@ -505,7 +505,13 @@ impl<Ctx: PluginContext + 'static> Dispatcher<Ctx> {
 }
 
 impl<Ctx: PluginContext + 'static> Drop for DrainGuard<Ctx> {
-	fn drop( &mut self ) { self.dispatcher.reject_all(); }
+	fn drop( &mut self ) {
+		if let Some( dispatcher ) = self.dispatcher.take() { dispatcher.reject_all(); }
+	}
+}
+
+impl<Ctx: PluginContext + 'static> DrainGuard<Ctx> {
+	fn disarm( &mut self ) { self.dispatcher = None; }
 }
 
 impl<Ctx: PluginContext + 'static> DestinationBudget for Dispatcher<Ctx> {
