@@ -155,7 +155,7 @@ impl Interface {
 					let function = function.clone();
 					Box::pin( async move {
 						let driver = DispatchDriver::current()
-							.ok_or_else(|| wasmtime::Error::msg( "async dispatch driver is not active" ))?;
+							.ok_or( wasmtime::Error::msg( "async dispatch driver is not active" ))?;
 						results[0] = $dispatch(
 							&binding, &driver, ctx, &package_name,
 							&interface_name, &function_name, &function, args,
@@ -174,7 +174,7 @@ impl Interface {
 					let function = function.clone();
 					Box::new( async move {
 						let driver = DispatchDriver::current()
-							.ok_or_else(|| wasmtime::Error::msg( "async dispatch driver is not active" ))?;
+							.ok_or( wasmtime::Error::msg( "async dispatch driver is not active" ))?;
 						results[0] = $dispatch(
 							&binding, &driver, ctx, &package_name,
 							&interface_name, &function_name, &function, args,

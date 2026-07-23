@@ -379,9 +379,7 @@ where
 			.ok_or_else(|| crate::DispatchError::InvalidFunction( function_name.to_string() ))?;
 		let package_name = self.0.package_name.as_str();
 
-		let active_driver = DispatchDriver::current();
-		let is_root_dispatch = active_driver.is_none();
-		let driver = active_driver.unwrap_or_else( DispatchDriver::new );
+		let driver = DispatchDriver::current().unwrap_or_else( DispatchDriver::new );
 		let dispatch = self.0.plugins.map_async(| _, plugin | {
 			let driver = Arc::clone( &driver );
 			async move {
@@ -395,10 +393,7 @@ where
 				).await
 			}
 		});
-		Ok( match is_root_dispatch {
-			true => driver.run( dispatch ).await,
-			false => dispatch.await,
-		})
+		Ok( driver.run( dispatch ).await )
 	}
 
 }

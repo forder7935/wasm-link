@@ -4,7 +4,12 @@ use wasm_link::cardinality::ExactlyOne ;
 
 fixtures! {
 	bindings = { root: "root", dependency: "dependency" };
-	plugins  = { startup: "startup", child: "child", sync_child: "sync-child" };
+	plugins  = {
+		startup: "startup",
+		child: "child",
+		sync_child: "sync-child",
+		trapping_child: "trapping-child",
+	};
 }
 
 #[test]
@@ -50,6 +55,40 @@ fn links_and_dispatches_wit_async_across_plugin_stores() {
 				value => panic!( "Expected async dispatch to return U32(42), found: {:#?}", value ),
 			}
 		}
+	});
+}
+
+#[test]
+fn native_async_dependency_errors_are_returned_to_the_caller() {
+	futures::executor::block_on( async {
+		let engine = Engine::default();
+		let linker = Linker::new( &engine );
+		let plugins = fixtures::plugins( &engine );
+		let bindings = fixtures::bindings();
+
+		let child = plugins.trapping_child.plugin
+			.instantiate_async( &engine, &linker )
+			.await
+			.expect( "Failed to instantiate trapping child plugin asynchronously" );
+		let dependency = Binding::new(
+			bindings.dependency.package,
+			HashMap::from([( bindings.dependency.name, bindings.dependency.spec )]),
+			ExactlyOne( "_".to_string(), child ),
+		);
+		let startup = plugins.startup.plugin
+			.link_async( &engine, linker, vec![ dependency ])
+			.await
+			.expect( "Failed to link startup plugin asynchronously" );
+		let root = Binding::new(
+			bindings.root.package,
+			HashMap::from([( bindings.root.name, bindings.root.spec )]),
+			ExactlyOne( "_".to_string(), startup ),
+		);
+
+		assert!( matches!(
+			root.dispatch( "root", "get-primitive", &[] ).await,
+			Ok( ExactlyOne( _, Ok( Val::U32( 0 ))))
+		));
 	});
 }
 
