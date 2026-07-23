@@ -1,12 +1,7 @@
 use wasmtime::{ Config, Engine, Store };
 use wasmtime::component::{ Component, FutureReader, Linker, ResourceTable, StreamReader, Val };
 
-use super::{
-	AsyncQueue, Budget, PluginInstanceAsync, PluginInstanceSync, RoundRobinQueue,
-	MAX_CALLER_BYTES, MAX_CALLER_CALLS,
-	MAX_DESTINATION_BYTES, MAX_DESTINATION_CALLS, ensure_supported_value,
-	has_capacity, retained_bytes,
-};
+use super::{ PluginInstanceAsync, PluginInstanceSync, ensure_supported_value };
 use crate::{ DispatchError, PluginContext };
 
 struct Context { table: ResourceTable }
@@ -19,26 +14,7 @@ impl PluginContext for Context {
 fn plugin_instances_are_send_and_sync() {
 	fn assert_send_sync<T: Send + Sync>() {}
 	assert_send_sync::<PluginInstanceSync<Context>>();
-	assert_send_sync::<PluginInstanceAsync<Context, futures::executor::ThreadPool>>();
-}
-
-#[test]
-fn queues_calls_round_robin_by_caller() {
-	let mut queue = RoundRobinQueue::default();
-	queue.push( 1, "a1" );
-	queue.push( 1, "a2" );
-	queue.push( 1, "a3" );
-
-	assert_eq!( queue.pop(), Some(( 1, "a1" )));
-	queue.push( 2, "b1" );
-	queue.finish( 1 );
-	assert_eq!( queue.pop(), Some(( 2, "b1" )));
-	queue.finish( 2 );
-	assert_eq!( queue.pop(), Some(( 1, "a2" )));
-	queue.finish( 1 );
-	assert_eq!( queue.pop(), Some(( 1, "a3" )));
-	queue.finish( 1 );
-	assert_eq!( queue.pop(), None );
+	assert_send_sync::<PluginInstanceAsync<Context>>();
 }
 
 #[test]
@@ -101,44 +77,4 @@ fn rejects_error_context_values() -> Result<(), Box<dyn std::error::Error>> {
 		));
 		Ok(())
 	})
-}
-
-#[test]
-fn measures_nested_retained_argument_bytes() {
-	let values = vec![
-		Val::String( "string".to_string() ),
-		Val::Enum( "enum".to_string() ),
-		Val::List( vec![ Val::U8( 1 ) ]),
-		Val::Tuple( vec![ Val::U16( 2 ) ]),
-		Val::Map( vec![( Val::String( "key".to_string() ), Val::U32( 3 ))]),
-		Val::Record( vec![( "field".to_string(), Val::U64( 4 ))]),
-		Val::Variant( "case".to_string(), Some( Box::new( Val::Bool( true )))),
-		Val::Option( Some( Box::new( Val::Char( 'x' )))),
-		Val::Result( Ok( Some( Box::new( Val::S32( -1 ))))),
-		Val::Flags( vec![ "one".to_string(), "two".to_string() ]),
-	];
-	assert!( retained_bytes( &values ).is_some_and(| bytes | bytes > std::mem::size_of_val( values.as_slice() )));
-}
-
-#[test]
-fn enforces_caller_and_destination_count_and_byte_limits() {
-	assert!( has_capacity( &Budget::default(), &AsyncQueue::default(), MAX_CALLER_BYTES ));
-	assert!( !has_capacity(
-		&Budget { calls: MAX_CALLER_CALLS, bytes: 0 }, &AsyncQueue::default(), 0,
-	));
-	assert!( !has_capacity(
-		&Budget { calls: 0, bytes: 1 }, &AsyncQueue::default(), MAX_CALLER_BYTES,
-	));
-	assert!( !has_capacity(
-		&Budget::default(), &AsyncQueue { calls: MAX_DESTINATION_CALLS, ..AsyncQueue::default() }, 0,
-	));
-	assert!( !has_capacity(
-		&Budget::default(),
-		&AsyncQueue { bytes: MAX_DESTINATION_BYTES, ..AsyncQueue::default() },
-		1,
-	));
-	assert!( !has_capacity( &Budget { calls: 0, bytes: usize::MAX }, &AsyncQueue::default(), 1 ));
-	assert!( !has_capacity(
-		&Budget::default(), &AsyncQueue { bytes: usize::MAX, ..AsyncQueue::default() }, 1,
-	));
 }

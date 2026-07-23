@@ -1,4 +1,4 @@
-package test:caller-aware-queue;
+package test:dispatch-serialization;
 
 interface root {
 	run: async func(value: u32) -> tuple<u32, u32>;

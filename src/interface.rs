@@ -14,7 +14,7 @@ use crate::linker::{
 	dispatch_method_async_blocking,
 };
 use crate::resource_wrapper::ResourceWrapper ;
-use crate::plugin_instance::{ AsyncDispatchInstance, Caller };
+use crate::plugin_instance::{ AsyncDispatchInstance, DispatchDriver };
 
 /// A single WIT interface within a [`Binding`].
 ///
@@ -71,7 +71,6 @@ impl Interface {
 		interface_ident: &str,
 		interface_name: &str,
 		binding: &Binding<PluginId, Ctx, Plugins, PluginInstanceSync<Ctx>>,
-		caller: &Caller,
 	) -> Result<(), wasmtime::Error>
 	where
 		PluginId: std::hash::Hash + Eq + Clone + Send + Sync + Into<Val> + 'static,
@@ -91,12 +90,11 @@ impl Interface {
 			let binding_clone = binding.clone();
 			let name_clone = name.clone();
 			let metadata_clone = metadata.clone();
-			let caller = caller.clone();
 
 			macro_rules! link {( $dispatch: expr ) => {
 				linker_instance.func_new( name, move | ctx, _ty, args, results | Ok(
 					results[0] = $dispatch(
-						&binding_clone, &caller, ctx, &package_name_clone,
+						&binding_clone, ctx, &package_name_clone,
 						&interface_name_clone, &name_clone, &metadata_clone, args,
 					)
 				))
@@ -119,21 +117,18 @@ impl Interface {
 
 	#[inline]
 	#[allow( clippy::too_many_arguments )]
-	pub(crate) fn add_to_linker_async<PluginId, Ctx, Plugins, Instance, Executor>(
+	pub(crate) fn add_to_linker_async<PluginId, Ctx, Plugins, Instance>(
 		&self,
 		linker: &mut Linker<Ctx>,
 		package_name: &str,
 		interface_ident: &str,
 		interface_name: &str,
 		binding: &Binding<PluginId, Ctx, Plugins, Instance>,
-		caller: &Caller,
-		executor: &Arc<Executor>,
 	) -> Result<(), wasmtime::Error>
 	where
 		PluginId: std::hash::Hash + Eq + Clone + Send + Sync + Into<Val> + 'static,
 		Ctx: PluginContext,
-		Executor: futures::task::Spawn + Send + Sync + 'static,
-		Instance: AsyncDispatchInstance<Ctx, Executor>,
+		Instance: AsyncDispatchInstance<Ctx>,
 		Plugins: Cardinality<PluginId, Instance> + 'static,
 		<Plugins as Cardinality<PluginId, Instance>>::Rebind<Arc<Instance>>: Send + Sync,
 		<Plugins as Cardinality<PluginId, Instance>>::Rebind<Arc<Instance>>: Cardinality<PluginId, Arc<Instance>>,
@@ -150,8 +145,6 @@ impl Interface {
 			let binding = binding.clone();
 			let function_name = name.clone();
 			let function = metadata.clone();
-			let caller = caller.clone();
-			let executor = Arc::clone( executor );
 
 			macro_rules! link_concurrent {( $dispatch: expr ) => {
 				linker_instance.func_new_concurrent( name, move | ctx, _ty, args, results | {
@@ -160,11 +153,11 @@ impl Interface {
 					let binding = binding.clone();
 					let function_name = function_name.clone();
 					let function = function.clone();
-					let caller = caller.clone();
-					let executor = Arc::clone( &executor );
 					Box::pin( async move {
+						let driver = DispatchDriver::current()
+							.ok_or_else(|| wasmtime::Error::msg( "async dispatch driver is not active" ))?;
 						results[0] = $dispatch(
-							&binding, &caller, &executor, ctx, &package_name,
+							&binding, &driver, ctx, &package_name,
 							&interface_name, &function_name, &function, args,
 						).await;
 						Ok(())
@@ -179,11 +172,11 @@ impl Interface {
 					let binding = binding.clone();
 					let function_name = function_name.clone();
 					let function = function.clone();
-					let caller = caller.clone();
-					let executor = Arc::clone( &executor );
 					Box::new( async move {
+						let driver = DispatchDriver::current()
+							.ok_or_else(|| wasmtime::Error::msg( "async dispatch driver is not active" ))?;
 						results[0] = $dispatch(
-							&binding, &caller, &executor, ctx, &package_name,
+							&binding, &driver, ctx, &package_name,
 							&interface_name, &function_name, &function, args,
 						).await;
 						Ok(())

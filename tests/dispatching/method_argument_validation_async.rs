@@ -13,11 +13,10 @@ fn native_async_method_metadata_rejects_calls_without_resource_argument() -> Res
 	futures::executor::block_on( async {
 		let engine = Engine::default();
 		let linker = Linker::new( &engine );
-		let executor = futures::executor::ThreadPool::new()?;
 		let plugins = fixtures::plugins( &engine );
 		let bindings = fixtures::bindings();
 		let child = plugins.child.plugin
-			.instantiate_async( &engine, &linker, executor.clone() ).await?;
+			.instantiate_async( &engine, &linker ).await?;
 		let dependency = Binding::new(
 			bindings.dependency.package,
 			HashMap::from([(
@@ -36,7 +35,6 @@ fn native_async_method_metadata_rejects_calls_without_resource_argument() -> Res
 			&engine,
 			linker,
 			vec![ dependency ],
-			executor,
 		).await?;
 		let root = Binding::new(
 			bindings.root.package,

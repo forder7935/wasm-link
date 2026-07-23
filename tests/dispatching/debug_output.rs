@@ -45,18 +45,16 @@ fn async_debug_output_exposes_configuration_without_component_internals() -> Res
 	futures::executor::block_on( async {
 		let engine = Engine::default();
 		let linker = Linker::new( &engine );
-		let executor = futures::executor::ThreadPool::new()?;
 		let plugins = fixtures::plugins( &engine );
 		let bindings = fixtures::bindings();
-		let plugin_instance = plugins.plugin.plugin.instantiate_async( &engine, &linker, executor ).await?;
+		let plugin_instance = plugins.plugin.plugin.instantiate_async( &engine, &linker ).await?;
 		let instance_debug = format!( "{plugin_instance:?}" );
 		assert!( instance_debug.contains( "state: \"<serialized store>\"" ));
-		assert!( instance_debug.contains( "executor: \"<executor>\"" ));
 		let binding: Binding<
 			String,
 			TestContext,
-			ExactlyOne<String, PluginInstanceAsync<TestContext, futures::executor::ThreadPool>>,
-			PluginInstanceAsync<TestContext, futures::executor::ThreadPool>,
+			ExactlyOne<String, PluginInstanceAsync<TestContext>>,
+			PluginInstanceAsync<TestContext>,
 		> = Binding::new(
 			bindings.root.package,
 			HashMap::from([( bindings.root.name, bindings.root.spec )]),

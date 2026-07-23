@@ -5,8 +5,6 @@ use wasm_link::cardinality::{ Any, AtLeastOne, AtMostOne, ExactlyOne };
 
 use crate::fixture_linking::TestContext ;
 
-type Executor = futures::executor::ThreadPool ;
-
 fixtures! {
 	bindings = { root: "root" };
 	plugins  = { plugin: "plugin" };
@@ -16,7 +14,6 @@ fixtures! {
 fn links_each_type_erased_binding_cardinality() -> Result<(), Box<dyn std::error::Error>> {
 	futures::executor::block_on( async {
 	let engine = Engine::default();
-	let executor = futures::executor::ThreadPool::new()?;
 
 	let bindings = fixtures::bindings();
 	let instance = fixtures::plugins( &engine ).plugin.plugin
@@ -27,12 +24,12 @@ fn links_each_type_erased_binding_cardinality() -> Result<(), Box<dyn std::error
 		ExactlyOne( "plugin".to_string(), instance ),
 	);
 	let socket = binding.into_any();
-	let socket_any: SocketBindingAny<String, TestContext, Executor> = socket.clone().into();
+	let socket_any: SocketBindingAny<String, TestContext> = socket.clone().into();
 	let _socket_clone = socket_any.clone();
 	let plugin = fixtures::plugins( &engine ).plugin.plugin;
 	let _ = plugin.link( &engine, Linker::new( &engine ), vec![ socket.clone() ])?;
 	let plugin = fixtures::plugins( &engine ).plugin.plugin;
-	let _ = plugin.link_async( &engine, Linker::new( &engine ), vec![ socket ], executor.clone() ).await?;
+	let _ = plugin.link_async( &engine, Linker::new( &engine ), vec![ socket ]).await?;
 
 	let bindings = fixtures::bindings();
 	let binding: Binding<String, TestContext, AtMostOne<String, PluginInstanceSync<TestContext>>> = Binding::new(
@@ -44,7 +41,7 @@ fn links_each_type_erased_binding_cardinality() -> Result<(), Box<dyn std::error
 	let plugin = fixtures::plugins( &engine ).plugin.plugin;
 	let _ = plugin.link( &engine, Linker::new( &engine ), vec![ socket.clone() ])?;
 	let plugin = fixtures::plugins( &engine ).plugin.plugin;
-	let _ = plugin.link_async( &engine, Linker::new( &engine ), vec![ socket ], executor.clone() ).await?;
+	let _ = plugin.link_async( &engine, Linker::new( &engine ), vec![ socket ]).await?;
 
 	let bindings = fixtures::bindings();
 	let instance = fixtures::plugins( &engine ).plugin.plugin
@@ -58,7 +55,7 @@ fn links_each_type_erased_binding_cardinality() -> Result<(), Box<dyn std::error
 	let plugin = fixtures::plugins( &engine ).plugin.plugin;
 	let _ = plugin.link( &engine, Linker::new( &engine ), vec![ socket.clone() ])?;
 	let plugin = fixtures::plugins( &engine ).plugin.plugin;
-	let _ = plugin.link_async( &engine, Linker::new( &engine ), vec![ socket ], executor.clone() ).await?;
+	let _ = plugin.link_async( &engine, Linker::new( &engine ), vec![ socket ]).await?;
 
 	let bindings = fixtures::bindings();
 	let binding: Binding<String, TestContext, Any<String, PluginInstanceSync<TestContext>>> = Binding::new(
@@ -70,7 +67,7 @@ fn links_each_type_erased_binding_cardinality() -> Result<(), Box<dyn std::error
 	let plugin = fixtures::plugins( &engine ).plugin.plugin;
 	let _ = plugin.link( &engine, Linker::new( &engine ), vec![ socket.clone() ])?;
 	let plugin = fixtures::plugins( &engine ).plugin.plugin;
-	let _ = plugin.link_async( &engine, Linker::new( &engine ), vec![ socket ], executor ).await?;
+	let _ = plugin.link_async( &engine, Linker::new( &engine ), vec![ socket ]).await?;
 	Ok(())
 	})
 }
@@ -79,38 +76,35 @@ fn links_each_type_erased_binding_cardinality() -> Result<(), Box<dyn std::error
 fn links_each_async_type_erased_binding_cardinality() -> Result<(), Box<dyn std::error::Error>> {
 	futures::executor::block_on( async {
 		let engine = Engine::default();
-		let executor = futures::executor::ThreadPool::new()?;
-
 		let bindings = fixtures::bindings();
 		let instance = fixtures::plugins( &engine ).plugin.plugin
-			.instantiate_async( &engine, &Linker::new( &engine ), executor.clone() ).await?;
+			.instantiate_async( &engine, &Linker::new( &engine )).await?;
 		let binding: Binding<
 			String,
 			TestContext,
-			ExactlyOne<String, PluginInstanceAsync<TestContext, Executor>>,
-			PluginInstanceAsync<TestContext, Executor>,
+			ExactlyOne<String, PluginInstanceAsync<TestContext>>,
+			PluginInstanceAsync<TestContext>,
 		> = Binding::new(
 			bindings.root.package,
 			HashMap::from([( bindings.root.name, bindings.root.spec )]),
 			ExactlyOne( "plugin".to_string(), instance ),
 		);
 		let socket = binding.into_any();
-		let socket_any: SocketBindingAny<String, TestContext, Executor> = socket.clone().into();
+		let socket_any: SocketBindingAny<String, TestContext> = socket.clone().into();
 		let _socket_clone = socket_any.clone();
 		let plugin = fixtures::plugins( &engine ).plugin.plugin;
 		let _ = plugin.link_async(
 			&engine,
 			Linker::new( &engine ),
 			vec![ socket ],
-			executor.clone(),
 		).await?;
 
 		let bindings = fixtures::bindings();
 		let binding: Binding<
 			String,
 			TestContext,
-			AtMostOne<String, PluginInstanceAsync<TestContext, Executor>>,
-			PluginInstanceAsync<TestContext, Executor>,
+			AtMostOne<String, PluginInstanceAsync<TestContext>>,
+			PluginInstanceAsync<TestContext>,
 		> = Binding::new(
 			bindings.root.package,
 			HashMap::from([( bindings.root.name, bindings.root.spec )]),
@@ -122,17 +116,16 @@ fn links_each_async_type_erased_binding_cardinality() -> Result<(), Box<dyn std:
 			&engine,
 			Linker::new( &engine ),
 			vec![ socket ],
-			executor.clone(),
 		).await?;
 
 		let bindings = fixtures::bindings();
 		let instance = fixtures::plugins( &engine ).plugin.plugin
-			.instantiate_async( &engine, &Linker::new( &engine ), executor.clone() ).await?;
+			.instantiate_async( &engine, &Linker::new( &engine )).await?;
 		let binding: Binding<
 			String,
 			TestContext,
-			AtLeastOne<String, PluginInstanceAsync<TestContext, Executor>>,
-			PluginInstanceAsync<TestContext, Executor>,
+			AtLeastOne<String, PluginInstanceAsync<TestContext>>,
+			PluginInstanceAsync<TestContext>,
 		> = Binding::new(
 			bindings.root.package,
 			HashMap::from([( bindings.root.name, bindings.root.spec )]),
@@ -144,15 +137,14 @@ fn links_each_async_type_erased_binding_cardinality() -> Result<(), Box<dyn std:
 			&engine,
 			Linker::new( &engine ),
 			vec![ socket ],
-			executor.clone(),
 		).await?;
 
 		let bindings = fixtures::bindings();
 		let binding: Binding<
 			String,
 			TestContext,
-			Any<String, PluginInstanceAsync<TestContext, Executor>>,
-			PluginInstanceAsync<TestContext, Executor>,
+			Any<String, PluginInstanceAsync<TestContext>>,
+			PluginInstanceAsync<TestContext>,
 		> = Binding::new(
 			bindings.root.package,
 			HashMap::from([( bindings.root.name, bindings.root.spec )]),
@@ -164,7 +156,6 @@ fn links_each_async_type_erased_binding_cardinality() -> Result<(), Box<dyn std:
 			&engine,
 			Linker::new( &engine ),
 			vec![ socket ],
-			executor,
 		).await?;
 
 		Ok(())

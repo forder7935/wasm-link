@@ -21,5 +21,5 @@
 		(canon lift (core func $i "run") (memory $i "memory"))
 	)
 	(instance $root (export "run" (func $run)))
-	(export "test:caller-aware-queue/root" (instance $root))
+	(export "test:dispatch-serialization/root" (instance $root))
 )

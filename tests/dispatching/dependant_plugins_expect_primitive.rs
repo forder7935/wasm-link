@@ -134,10 +134,6 @@ fn dispatch_async_test_dependant_plugins_expect_primitive() {
 	futures::executor::block_on( async {
 		let engine = Engine::default();
 		let linker = Linker::new( &engine );
-		let executor = futures::executor::ThreadPool::builder()
-			.pool_size( 1 )
-			.create()
-			.expect( "Failed to create async executor" );
 		let plugins = fixtures::plugins( &engine );
 		let bindings = fixtures::bindings();
 
@@ -151,7 +147,7 @@ fn dispatch_async_test_dependant_plugins_expect_primitive() {
 		);
 
 		let startup_instance = plugins.startup.plugin
-			.link_async( &engine, linker.clone(), vec![ dependency_binding ], executor )
+			.link_async( &engine, linker.clone(), vec![ dependency_binding ])
 			.await
 			.expect( "Failed to link startup plugin asynchronously" );
 		let root_binding = Binding::new(
@@ -173,8 +169,6 @@ fn async_link_accepts_heterogeneous_sync_and_async_sockets() {
 	futures::executor::block_on( async {
 		let engine = Engine::default();
 		let linker = Linker::new( &engine );
-		let executor = futures::executor::ThreadPool::new()
-			.expect( "Failed to create async executor" );
 		let sync_plugins = fixtures::plugins( &engine );
 		let async_plugins = fixtures::plugins( &engine );
 		let root_plugins = fixtures::plugins( &engine );
@@ -184,7 +178,7 @@ fn async_link_accepts_heterogeneous_sync_and_async_sockets() {
 			.instantiate( &engine, &linker )
 			.expect( "Failed to instantiate synchronous child plugin" );
 		let async_child = async_plugins.child.plugin
-			.instantiate_async( &engine, &linker, executor.clone() )
+			.instantiate_async( &engine, &linker )
 			.await
 			.expect( "Failed to instantiate asynchronous child plugin" );
 		let sync_socket = Binding::new(
@@ -197,11 +191,11 @@ fn async_link_accepts_heterogeneous_sync_and_async_sockets() {
 			HashMap::from([( bindings.root.name.clone(), bindings.root.spec.clone() )]),
 			ExactlyOne( "async".to_string(), async_child ),
 		);
-		let sockets: Vec<SocketBindingAny<String, _, futures::executor::ThreadPool>> =
+		let sockets: Vec<SocketBindingAny<String, _>> =
 			vec![ sync_socket.into(), async_socket.into() ];
 
 		let root = root_plugins.startup.plugin
-			.link_async( &engine, linker, sockets, executor )
+			.link_async( &engine, linker, sockets )
 			.await
 			.expect( "Failed to link with heterogeneous sockets" );
 		let root = Binding::new(

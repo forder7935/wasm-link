@@ -8,10 +8,9 @@
 use std::collections::{ HashMap, HashSet };
 use wasmtime::{ Engine, Store };
 use wasmtime::component::{ Component, ResourceTable, Linker, Val };
-use futures::task::Spawn ;
 
 use crate::{ BindingAny, SocketBindingAny };
-use crate::plugin_instance::{ Caller, PluginInstanceAsync, PluginInstanceSync };
+use crate::plugin_instance::{ PluginInstanceAsync, PluginInstanceSync };
 use crate::Function ;
 use crate::Remap ;
 
@@ -293,23 +292,17 @@ where
 		Sockets: IntoIterator,
 		Sockets::Item: Into<BindingAny<PluginId, Ctx>>,
 	{
-		let caller = Caller::new();
 		sockets.into_iter()
 			.map( Into::into )
-			.try_for_each(| binding | binding.add_to_linker( &mut linker, &caller ))?;
+			.try_for_each(| binding | binding.add_to_linker( &mut linker ))?;
 		Self::instantiate( self, engine, &linker )
 	}
 
 	/// Asynchronously links this plugin with its socket bindings and instantiates it.
 	///
 	/// Use this variant when any socket may suspend or uses Component Model async types.
-	/// Sockets may contain either [`PluginInstanceSync`] or [`PluginInstanceAsync`];
-	/// synchronous destinations are scheduled on this graph's executor without changing
-	/// their instance type. Explicitly heterogeneous collections use
-	/// [`SocketBindingAny`].
-	/// Calls to the returned instance are submitted to `executor`, allowing a
-	/// thread pool to drive many independent plugin stores without reserving a
-	/// worker for each plugin.
+	/// Sockets may contain either [`PluginInstanceSync`] or [`PluginInstanceAsync`].
+	/// Explicitly heterogeneous collections use [`SocketBindingAny`].
 	///
 	/// # Example
 	///
@@ -320,15 +313,13 @@ where
 	/// # fn main() -> Result<(), Box<dyn std::error::Error>> { futures::executor::block_on( async {
 	/// let engine = Engine::default();
 	/// let linker = Linker::new( &engine );
-	/// let executor = futures::executor::ThreadPool::new()?;
 	/// let instance = Plugin::new(
 	/// 	Component::new( &engine, "(component)" )?,
 	/// 	Context { table: ResourceTable::new() },
 	/// ).link_async(
 	/// 	&engine,
 	/// 	linker,
-	/// 	Vec::<SocketBindingAny<String, Context, _>>::new(),
-	/// 	executor,
+	/// 	Vec::<SocketBindingAny<String, Context>>::new(),
 	/// ).await?;
 	/// # let _ = instance;
 	/// # Ok(()) }) }
@@ -336,25 +327,21 @@ where
 	///
 	/// # Errors
 	/// Returns an error if linking or instantiation fails.
-	pub async fn link_async<PluginId, Sockets, Executor>(
+	pub async fn link_async<PluginId, Sockets>(
 		self,
 		engine: &Engine,
 		mut linker: Linker<Ctx>,
 		sockets: Sockets,
-		executor: Executor,
-	) -> Result<PluginInstanceAsync<Ctx, Executor>, wasmtime::Error>
+	) -> Result<PluginInstanceAsync<Ctx>, wasmtime::Error>
 	where
 		PluginId: Eq + std::hash::Hash + Clone + std::fmt::Debug + Send + Sync + Into<Val> + 'static,
 		Sockets: IntoIterator,
-		Sockets::Item: Into<SocketBindingAny<PluginId, Ctx, Executor>>,
-		Executor: Spawn + Send + Sync + 'static,
+		Sockets::Item: Into<SocketBindingAny<PluginId, Ctx>>,
 	{
-		let executor = std::sync::Arc::new( executor );
-		let caller = Caller::new();
 		sockets.into_iter()
 			.map( Into::into )
-			.try_for_each(| binding | binding.add_to_linker( &mut linker, &caller, &executor ))?;
-		self.instantiate_async_with_executor( engine, &linker, executor ).await
+			.try_for_each(| binding | binding.add_to_linker( &mut linker ))?;
+		self.instantiate_async( engine, &linker ).await
 	}
 
 	/// A convenience alias for [`Plugin::link`] with 0 sockets
@@ -385,9 +372,8 @@ where
 	///
 	/// This variant is required for WIT async functions, asynchronous host functions,
 	/// and plugins that will be used in a graph created with [`link_async`](Self::link_async).
-	/// Calls to the returned instance are submitted to `executor`. This keeps each
-	/// plugin's [`Store`](wasmtime::Store) isolated while allowing a thread pool to
-	/// drive many plugin stores without dedicating an idle thread to each one.
+	/// Calls to the returned instance are driven by the future returned from
+	/// [`Binding::dispatch`](crate::Binding::dispatch).
 	/// Wasmtime concurrency support, which is enabled by default, must not be disabled
 	/// on the `engine` used for asynchronous instances.
 	///
@@ -400,37 +386,21 @@ where
 	/// # fn main() -> Result<(), Box<dyn std::error::Error>> { futures::executor::block_on( async {
 	/// let engine = Engine::default();
 	/// let linker = Linker::new( &engine );
-	/// let executor = futures::executor::ThreadPool::new()?;
 	/// let instance = Plugin::new(
 	/// 	Component::new( &engine, "(component)" )?,
 	/// 	Context { table: ResourceTable::new() },
-	/// ).instantiate_async( &engine, &linker, executor ).await?;
+	/// ).instantiate_async( &engine, &linker ).await?;
 	/// # let _ = instance;
 	/// # Ok(()) }) }
 	/// ```
 	///
 	/// # Errors
 	/// Returns an error if instantiation fails.
-	pub async fn instantiate_async<Executor>(
+	pub async fn instantiate_async(
 		self,
 		engine: &Engine,
 		linker: &Linker<Ctx>,
-		executor: Executor,
-	) -> Result<PluginInstanceAsync<Ctx, Executor>, wasmtime::Error>
-	where
-		Executor: Spawn + Send + Sync + 'static,
-	{
-		self.instantiate_async_with_executor( engine, linker, std::sync::Arc::new( executor )).await
-	}
-
-	async fn instantiate_async_with_executor<Executor>(
-		self,
-		engine: &Engine,
-		linker: &Linker<Ctx>,
-		executor: std::sync::Arc<Executor>,
-	) -> Result<PluginInstanceAsync<Ctx, Executor>, wasmtime::Error>
-	where
-		Executor: Spawn + Send + Sync + 'static,
+	) -> Result<PluginInstanceAsync<Ctx>, wasmtime::Error>
 	{
 		let mut store = Store::new( engine, self.context );
 		if let Some( fuel ) = self.initial_fuel { store.set_fuel( fuel )?; }
@@ -443,7 +413,6 @@ where
 			self.interface_remaps,
 			self.fuel_limiter,
 			self.epoch_limiter,
-			executor,
 			async_exports,
 		))
 	}
