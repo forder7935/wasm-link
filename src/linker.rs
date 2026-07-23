@@ -5,7 +5,7 @@ use wasmtime::component::{ Accessor, Val };
 
 use crate::{ Binding, Function, FunctionKind, ReturnKind, PluginContext, DispatchError };
 use crate::cardinality::Cardinality ;
-use crate::plugin_instance::{ PluginInstanceAsync, PluginInstanceSync };
+use crate::plugin_instance::{ AsyncDispatchInstance, DispatchDriver, PluginInstanceSync };
 use super::resource_wrapper::ResourceWrapper ;
 
 
@@ -18,6 +18,7 @@ struct DispatchTarget<'a> {
 }
 
 /// Dispatches a non-method function call to all plugins
+#[allow( clippy::too_many_arguments )]
 pub(crate) fn dispatch_all<PluginId, Ctx, Plugins>(
 	binding: &Binding<PluginId, Ctx, Plugins, PluginInstanceSync<Ctx>>,
 	mut ctx: StoreContextMut<Ctx>,
@@ -31,9 +32,9 @@ where
 	PluginId: Clone + std::hash::Hash + Eq + Send + Sync + Into<Val> + 'static,
 	Ctx: PluginContext,
 	Plugins: Cardinality<PluginId, PluginInstanceSync<Ctx>>,
-	<Plugins as Cardinality<PluginId, PluginInstanceSync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceSync<Ctx>>>>: Send + Sync,
-	<Plugins as Cardinality<PluginId, PluginInstanceSync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceSync<Ctx>>>>: Cardinality<PluginId, Arc<Mutex<PluginInstanceSync<Ctx>>>>,
-	<<Plugins as Cardinality<PluginId, PluginInstanceSync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceSync<Ctx>>>> as Cardinality<PluginId, Arc<Mutex<PluginInstanceSync<Ctx>>>>>::Rebind<Val>: Into<Val>,
+	<Plugins as Cardinality<PluginId, PluginInstanceSync<Ctx>>>::Rebind<Arc<PluginInstanceSync<Ctx>>>: Send + Sync,
+	<Plugins as Cardinality<PluginId, PluginInstanceSync<Ctx>>>::Rebind<Arc<PluginInstanceSync<Ctx>>>: Cardinality<PluginId, Arc<PluginInstanceSync<Ctx>>>,
+	<<Plugins as Cardinality<PluginId, PluginInstanceSync<Ctx>>>::Rebind<Arc<PluginInstanceSync<Ctx>>> as Cardinality<PluginId, Arc<PluginInstanceSync<Ctx>>>>::Rebind<Val>: Into<Val>,
 {
 	debug_assert_eq!( function.kind(), FunctionKind::Freestanding );
 	let target = DispatchTarget {
@@ -57,6 +58,7 @@ where
 }
 
 /// Dispatches a method function call, routing to the correct plugin.
+#[allow( clippy::too_many_arguments )]
 pub(crate) fn dispatch_method<PluginId, Ctx, Plugins>(
 	binding: &Binding<PluginId, Ctx, Plugins, PluginInstanceSync<Ctx>>,
 	ctx: StoreContextMut<Ctx>,
@@ -70,8 +72,8 @@ where
 	PluginId: Clone + std::hash::Hash + Eq + Send + Sync + 'static,
 	Ctx: PluginContext,
 	Plugins: Cardinality<PluginId, PluginInstanceSync<Ctx>>,
-	<Plugins as Cardinality<PluginId, PluginInstanceSync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceSync<Ctx>>>>: Send + Sync,
-	<Plugins as Cardinality<PluginId, PluginInstanceSync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceSync<Ctx>>>>: Cardinality<PluginId, Arc<Mutex<PluginInstanceSync<Ctx>>>>,
+	<Plugins as Cardinality<PluginId, PluginInstanceSync<Ctx>>>::Rebind<Arc<PluginInstanceSync<Ctx>>>: Send + Sync,
+	<Plugins as Cardinality<PluginId, PluginInstanceSync<Ctx>>>::Rebind<Arc<PluginInstanceSync<Ctx>>>: Cardinality<PluginId, Arc<PluginInstanceSync<Ctx>>>,
 {
 	debug_assert_eq!( function.kind(), FunctionKind::Method );
 	Val::Result( match route_method(
@@ -92,7 +94,7 @@ where
 fn dispatch_of<PluginId, Ctx>(
 	ctx: &mut StoreContextMut<Ctx>,
 	plugin_id: PluginId,
-	plugin: &Arc<Mutex<PluginInstanceSync<Ctx>>>,
+	plugin: &Arc<PluginInstanceSync<Ctx>>,
 	target: &DispatchTarget<'_>,
 	data: &[Val],
 ) -> Result<Val, DispatchError>
@@ -101,8 +103,10 @@ where
 	Ctx: PluginContext,
 {
 
-	let mut lock = plugin.try_lock().ok_or( DispatchError::LockRejected )?;
-	let result = lock.dispatch( target.package_name, target.interface_name, target.function_name, target.function, data )?;
+	let result = plugin.dispatch_from(
+		target.package_name, target.interface_name,
+		target.function_name, target.function, data,
+	)?;
 
 	Ok( match target.function.return_kind() {
 		ReturnKind::Void | ReturnKind::AssumeNoResources => result,
@@ -111,6 +115,7 @@ where
 }
 
 #[inline]
+#[allow( clippy::too_many_arguments )]
 fn route_method<PluginId, Ctx, Plugins>(
 	binding: &Binding<PluginId, Ctx, Plugins, PluginInstanceSync<Ctx>>,
 	mut ctx: StoreContextMut<Ctx>,
@@ -124,8 +129,8 @@ where
 	PluginId: Clone + std::hash::Hash + Eq + Send + Sync + 'static,
 	Ctx: PluginContext,
 	Plugins: Cardinality<PluginId, PluginInstanceSync<Ctx>>,
-	<Plugins as Cardinality<PluginId, PluginInstanceSync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceSync<Ctx>>>>: Send + Sync,
-	<Plugins as Cardinality<PluginId, PluginInstanceSync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceSync<Ctx>>>>: Cardinality<PluginId, Arc<Mutex<PluginInstanceSync<Ctx>>>>,
+	<Plugins as Cardinality<PluginId, PluginInstanceSync<Ctx>>>::Rebind<Arc<PluginInstanceSync<Ctx>>>: Send + Sync,
+	<Plugins as Cardinality<PluginId, PluginInstanceSync<Ctx>>>::Rebind<Arc<PluginInstanceSync<Ctx>>>: Cardinality<PluginId, Arc<PluginInstanceSync<Ctx>>>,
 {
 
 	let handle = match data.first() {
@@ -157,8 +162,10 @@ where
 }
 
 /// Asynchronously dispatches a non-method function call to all plugins.
-pub(crate) async fn dispatch_all_async<PluginId, Ctx, Plugins>(
-	binding: &Binding<PluginId, Ctx, Plugins, PluginInstanceAsync<Ctx>>,
+#[allow( clippy::too_many_arguments )]
+pub(crate) async fn dispatch_all_async<PluginId, Ctx, Plugins, Instance>(
+	binding: &Binding<PluginId, Ctx, Plugins, Instance>,
+	driver: &Arc<DispatchDriver>,
 	ctx: &Accessor<Ctx>,
 	package_name: &str,
 	interface_name: &str,
@@ -169,10 +176,11 @@ pub(crate) async fn dispatch_all_async<PluginId, Ctx, Plugins>(
 where
 	PluginId: Clone + std::hash::Hash + Eq + Send + Sync + Into<Val> + 'static,
 	Ctx: PluginContext,
-	Plugins: Cardinality<PluginId, PluginInstanceAsync<Ctx>>,
-	<Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceAsync<Ctx>>>>: Send + Sync,
-	<Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceAsync<Ctx>>>>: Cardinality<PluginId, Arc<Mutex<PluginInstanceAsync<Ctx>>>>,
-	<<Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceAsync<Ctx>>>> as Cardinality<PluginId, Arc<Mutex<PluginInstanceAsync<Ctx>>>>>::Rebind<Val>: Into<Val> + Send,
+	Instance: AsyncDispatchInstance<Ctx>,
+	Plugins: Cardinality<PluginId, Instance>,
+	<Plugins as Cardinality<PluginId, Instance>>::Rebind<Arc<Instance>>: Send + Sync,
+	<Plugins as Cardinality<PluginId, Instance>>::Rebind<Arc<Instance>>: Cardinality<PluginId, Arc<Instance>>,
+	<<Plugins as Cardinality<PluginId, Instance>>::Rebind<Arc<Instance>> as Cardinality<PluginId, Arc<Instance>>>::Rebind<Val>: Into<Val> + Send,
 {
 	debug_assert_eq!( function.kind(), FunctionKind::Freestanding );
 	let target = DispatchTarget {
@@ -182,7 +190,9 @@ where
 		function,
 	};
 	binding.plugins().map_async(| plugin_id, plugin | async {
-		Val::Result( match dispatch_of_async( ctx, plugin_id, plugin, &target, data ).await {
+		Val::Result( match dispatch_of_async(
+			driver, ctx, plugin_id, plugin, &target, data,
+		).await {
 			Ok( val ) => Ok( Some( Box::new( val ))),
 			Err( err ) => Err( Some( Box::new( err.into() ))),
 		})
@@ -190,8 +200,10 @@ where
 }
 
 /// Asynchronously dispatches a method call to the plugin owning its resource.
-pub(crate) async fn dispatch_method_async<PluginId, Ctx, Plugins>(
-	binding: &Binding<PluginId, Ctx, Plugins, PluginInstanceAsync<Ctx>>,
+#[allow( clippy::too_many_arguments )]
+pub(crate) async fn dispatch_method_async<PluginId, Ctx, Plugins, Instance>(
+	binding: &Binding<PluginId, Ctx, Plugins, Instance>,
+	driver: &Arc<DispatchDriver>,
 	ctx: &Accessor<Ctx>,
 	package_name: &str,
 	interface_name: &str,
@@ -202,13 +214,15 @@ pub(crate) async fn dispatch_method_async<PluginId, Ctx, Plugins>(
 where
 	PluginId: Clone + std::hash::Hash + Eq + Send + Sync + 'static,
 	Ctx: PluginContext,
-	Plugins: Cardinality<PluginId, PluginInstanceAsync<Ctx>>,
-	<Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceAsync<Ctx>>>>: Send + Sync,
-	<Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceAsync<Ctx>>>>: Cardinality<PluginId, Arc<Mutex<PluginInstanceAsync<Ctx>>>>,
+	Instance: AsyncDispatchInstance<Ctx>,
+	Plugins: Cardinality<PluginId, Instance>,
+	<Plugins as Cardinality<PluginId, Instance>>::Rebind<Arc<Instance>>: Send + Sync,
+	<Plugins as Cardinality<PluginId, Instance>>::Rebind<Arc<Instance>>: Cardinality<PluginId, Arc<Instance>>,
 {
 	debug_assert_eq!( function.kind(), FunctionKind::Method );
 	Val::Result( match route_method_async(
 		binding,
+		driver,
 		ctx,
 		package_name,
 		interface_name,
@@ -222,8 +236,10 @@ where
 }
 
 /// Asynchronously implements a synchronous WIT import without blocking its host thread.
-pub(crate) async fn dispatch_all_async_blocking<PluginId, Ctx, Plugins>(
-	binding: &Binding<PluginId, Ctx, Plugins, PluginInstanceAsync<Ctx>>,
+#[allow( clippy::too_many_arguments )]
+pub(crate) async fn dispatch_all_async_blocking<PluginId, Ctx, Plugins, Instance>(
+	binding: &Binding<PluginId, Ctx, Plugins, Instance>,
+	driver: &Arc<DispatchDriver>,
 	ctx: StoreContextMut<'_, Ctx>,
 	package_name: &str,
 	interface_name: &str,
@@ -234,10 +250,11 @@ pub(crate) async fn dispatch_all_async_blocking<PluginId, Ctx, Plugins>(
 where
 	PluginId: Clone + std::hash::Hash + Eq + Send + Sync + Into<Val> + 'static,
 	Ctx: PluginContext,
-	Plugins: Cardinality<PluginId, PluginInstanceAsync<Ctx>>,
-	<Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceAsync<Ctx>>>>: Send + Sync,
-	<Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceAsync<Ctx>>>>: Cardinality<PluginId, Arc<Mutex<PluginInstanceAsync<Ctx>>>>,
-	<<Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceAsync<Ctx>>>> as Cardinality<PluginId, Arc<Mutex<PluginInstanceAsync<Ctx>>>>>::Rebind<Val>: Into<Val> + Send,
+	Instance: AsyncDispatchInstance<Ctx>,
+	Plugins: Cardinality<PluginId, Instance>,
+	<Plugins as Cardinality<PluginId, Instance>>::Rebind<Arc<Instance>>: Send + Sync,
+	<Plugins as Cardinality<PluginId, Instance>>::Rebind<Arc<Instance>>: Cardinality<PluginId, Arc<Instance>>,
+	<<Plugins as Cardinality<PluginId, Instance>>::Rebind<Arc<Instance>> as Cardinality<PluginId, Arc<Instance>>>::Rebind<Val>: Into<Val> + Send,
 {
 	debug_assert_eq!( function.kind(), FunctionKind::Freestanding );
 	let ctx = Mutex::new( ctx );
@@ -248,7 +265,9 @@ where
 		function,
 	};
 	binding.plugins().map_async(| plugin_id, plugin | async {
-		Val::Result( match dispatch_of_async_blocking( &ctx, plugin_id, plugin, &target, data ).await {
+		Val::Result( match dispatch_of_async_blocking(
+			driver, &ctx, plugin_id, plugin, &target, data,
+		).await {
 			Ok( val ) => Ok( Some( Box::new( val ))),
 			Err( err ) => Err( Some( Box::new( err.into() ))),
 		})
@@ -256,8 +275,10 @@ where
 }
 
 /// Asynchronously implements a synchronous WIT method import.
-pub(crate) async fn dispatch_method_async_blocking<PluginId, Ctx, Plugins>(
-	binding: &Binding<PluginId, Ctx, Plugins, PluginInstanceAsync<Ctx>>,
+#[allow( clippy::too_many_arguments )]
+pub(crate) async fn dispatch_method_async_blocking<PluginId, Ctx, Plugins, Instance>(
+	binding: &Binding<PluginId, Ctx, Plugins, Instance>,
+	driver: &Arc<DispatchDriver>,
 	ctx: StoreContextMut<'_, Ctx>,
 	package_name: &str,
 	interface_name: &str,
@@ -268,14 +289,16 @@ pub(crate) async fn dispatch_method_async_blocking<PluginId, Ctx, Plugins>(
 where
 	PluginId: Clone + std::hash::Hash + Eq + Send + Sync + 'static,
 	Ctx: PluginContext,
-	Plugins: Cardinality<PluginId, PluginInstanceAsync<Ctx>>,
-	<Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceAsync<Ctx>>>>: Send + Sync,
-	<Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceAsync<Ctx>>>>: Cardinality<PluginId, Arc<Mutex<PluginInstanceAsync<Ctx>>>>,
+	Instance: AsyncDispatchInstance<Ctx>,
+	Plugins: Cardinality<PluginId, Instance>,
+	<Plugins as Cardinality<PluginId, Instance>>::Rebind<Arc<Instance>>: Send + Sync,
+	<Plugins as Cardinality<PluginId, Instance>>::Rebind<Arc<Instance>>: Cardinality<PluginId, Arc<Instance>>,
 {
 	debug_assert_eq!( function.kind(), FunctionKind::Method );
 	let ctx = Mutex::new( ctx );
 	Val::Result( match route_method_async_blocking(
 		binding,
+		driver,
 		&ctx,
 		package_name,
 		interface_name,
@@ -288,19 +311,21 @@ where
 	})
 }
 
-async fn dispatch_of_async<PluginId, Ctx>(
+async fn dispatch_of_async<PluginId, Ctx, Instance>(
+	driver: &Arc<DispatchDriver>,
 	ctx: &Accessor<Ctx>,
 	plugin_id: PluginId,
-	plugin: Arc<Mutex<PluginInstanceAsync<Ctx>>>,
+	plugin: Arc<Instance>,
 	target: &DispatchTarget<'_>,
 	data: &[Val],
 ) -> Result<Val, DispatchError>
 where
 	PluginId: Clone + std::hash::Hash + Eq + Send + Sync + 'static,
 	Ctx: PluginContext,
+	Instance: AsyncDispatchInstance<Ctx>,
 {
-	let lock = plugin.lock().await;
-	let result = lock.dispatch_async(
+	let result = plugin.dispatch_for_async(
+		driver,
 		target.package_name,
 		target.interface_name,
 		target.function_name,
@@ -317,19 +342,21 @@ where
 	}
 }
 
-async fn dispatch_of_async_blocking<PluginId, Ctx>(
+async fn dispatch_of_async_blocking<PluginId, Ctx, Instance>(
+	driver: &Arc<DispatchDriver>,
 	ctx: &Mutex<StoreContextMut<'_, Ctx>>,
 	plugin_id: PluginId,
-	plugin: Arc<Mutex<PluginInstanceAsync<Ctx>>>,
+	plugin: Arc<Instance>,
 	target: &DispatchTarget<'_>,
 	data: &[Val],
 ) -> Result<Val, DispatchError>
 where
 	PluginId: Clone + std::hash::Hash + Eq + Send + Sync + 'static,
 	Ctx: PluginContext,
+	Instance: AsyncDispatchInstance<Ctx>,
 {
-	let lock = plugin.lock().await;
-	let result = lock.dispatch_async(
+	let result = plugin.dispatch_for_async(
+		driver,
 		target.package_name,
 		target.interface_name,
 		target.function_name,
@@ -346,8 +373,10 @@ where
 	}
 }
 
-async fn route_method_async<PluginId, Ctx, Plugins>(
-	binding: &Binding<PluginId, Ctx, Plugins, PluginInstanceAsync<Ctx>>,
+#[allow( clippy::too_many_arguments )]
+async fn route_method_async<PluginId, Ctx, Plugins, Instance>(
+	binding: &Binding<PluginId, Ctx, Plugins, Instance>,
+	driver: &Arc<DispatchDriver>,
 	ctx: &Accessor<Ctx>,
 	package_name: &str,
 	interface_name: &str,
@@ -358,9 +387,10 @@ async fn route_method_async<PluginId, Ctx, Plugins>(
 where
 	PluginId: Clone + std::hash::Hash + Eq + Send + Sync + 'static,
 	Ctx: PluginContext,
-	Plugins: Cardinality<PluginId, PluginInstanceAsync<Ctx>>,
-	<Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceAsync<Ctx>>>>: Send + Sync,
-	<Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceAsync<Ctx>>>>: Cardinality<PluginId, Arc<Mutex<PluginInstanceAsync<Ctx>>>>,
+	Instance: AsyncDispatchInstance<Ctx>,
+	Plugins: Cardinality<PluginId, Instance>,
+	<Plugins as Cardinality<PluginId, Instance>>::Rebind<Arc<Instance>>: Send + Sync,
+	<Plugins as Cardinality<PluginId, Instance>>::Rebind<Arc<Instance>>: Cardinality<PluginId, Arc<Instance>>,
 {
 	let handle = match data.first() {
 		Some( Val::Resource( handle )) => Ok( *handle ),
@@ -384,11 +414,13 @@ where
 		function,
 	};
 
-	dispatch_of_async( ctx, plugin_id, plugin, &target, &data ).await
+	dispatch_of_async( driver, ctx, plugin_id, plugin, &target, &data ).await
 }
 
-async fn route_method_async_blocking<PluginId, Ctx, Plugins>(
-	binding: &Binding<PluginId, Ctx, Plugins, PluginInstanceAsync<Ctx>>,
+#[allow( clippy::too_many_arguments )]
+async fn route_method_async_blocking<PluginId, Ctx, Plugins, Instance>(
+	binding: &Binding<PluginId, Ctx, Plugins, Instance>,
+	driver: &Arc<DispatchDriver>,
 	ctx: &Mutex<StoreContextMut<'_, Ctx>>,
 	package_name: &str,
 	interface_name: &str,
@@ -399,9 +431,10 @@ async fn route_method_async_blocking<PluginId, Ctx, Plugins>(
 where
 	PluginId: Clone + std::hash::Hash + Eq + Send + Sync + 'static,
 	Ctx: PluginContext,
-	Plugins: Cardinality<PluginId, PluginInstanceAsync<Ctx>>,
-	<Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceAsync<Ctx>>>>: Send + Sync,
-	<Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceAsync<Ctx>>>>: Cardinality<PluginId, Arc<Mutex<PluginInstanceAsync<Ctx>>>>,
+	Instance: AsyncDispatchInstance<Ctx>,
+	Plugins: Cardinality<PluginId, Instance>,
+	<Plugins as Cardinality<PluginId, Instance>>::Rebind<Arc<Instance>>: Send + Sync,
+	<Plugins as Cardinality<PluginId, Instance>>::Rebind<Arc<Instance>>: Cardinality<PluginId, Arc<Instance>>,
 {
 	let handle = match data.first() {
 		Some( Val::Resource( handle )) => Ok( *handle ),
@@ -424,7 +457,7 @@ where
 		function,
 	};
 
-	dispatch_of_async_blocking( ctx, plugin_id, plugin, &target, &data ).await
+	dispatch_of_async_blocking( driver, ctx, plugin_id, plugin, &target, &data ).await
 }
 
 fn wrap_resources<T, Id>( val: Val, plugin_id: Id, store: &mut StoreContextMut<T> ) -> Result<Val, DispatchError>

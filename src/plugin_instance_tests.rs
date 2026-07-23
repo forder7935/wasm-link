@@ -1,13 +1,20 @@
 use wasmtime::{ Config, Engine, Store };
 use wasmtime::component::{ Component, FutureReader, Linker, ResourceTable, StreamReader, Val };
 
-use super::ensure_supported_value ;
+use super::{ PluginInstanceAsync, PluginInstanceSync, ensure_supported_value };
 use crate::{ DispatchError, PluginContext };
 
 struct Context { table: ResourceTable }
 
 impl PluginContext for Context {
 	fn resource_table( &mut self ) -> &mut ResourceTable { &mut self.table }
+}
+
+#[test]
+fn plugin_instances_are_send_and_sync() {
+	fn assert_send_sync<T: Send + Sync>() {}
+	assert_send_sync::<PluginInstanceSync<Context>>();
+	assert_send_sync::<PluginInstanceAsync<Context>>();
 }
 
 #[test]
