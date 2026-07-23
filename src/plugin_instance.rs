@@ -1,4 +1,4 @@
-use std::collections::{ HashMap, VecDeque };
+use std::collections::{ HashMap, HashSet, VecDeque };
 use std::sync::{ Arc, Weak };
 use std::sync::atomic::{ AtomicU64, Ordering };
 use futures::future::BoxFuture ;
@@ -41,7 +41,8 @@ impl Caller {
 	}
 }
 
-pub(crate) trait AsyncDispatchInstance<Ctx, Executor>: Clone + Send + Sync + 'static
+pub(crate) trait AsyncDispatchInstance<Ctx, Executor>:
+	ExportEffectInstance + Clone + Send + Sync + 'static
 where
 	Ctx: PluginContext + 'static,
 	Executor: Spawn + Send + Sync + 'static,
@@ -57,6 +58,15 @@ where
 		function: &'a Function,
 		data: &'a [Val],
 	) -> BoxFuture<'a, Result<Val, DispatchError>>;
+}
+
+pub(crate) trait ExportEffectInstance {
+	fn export_is_async(
+		&self,
+		package_name: &str,
+		interface_name: &str,
+		function_name: &str,
+	) -> bool;
 }
 
 
@@ -78,6 +88,7 @@ struct SyncDispatcher<Ctx: 'static> {
 	state: std::sync::Mutex<PluginState<Ctx>>,
 	admission: std::sync::Mutex<SyncQueue>,
 	changed: std::sync::Condvar,
+	metadata: Arc<PluginMetadata>,
 }
 
 #[derive( Default )]
@@ -110,6 +121,7 @@ struct AsyncDispatcher<Ctx: 'static, Executor: 'static> {
 	state: Arc<Mutex<PluginState<Ctx>>>,
 	executor: Arc<Executor>,
 	queue: std::sync::Mutex<AsyncQueue>,
+	metadata: Arc<PluginMetadata>,
 }
 
 struct DrainGuard<Ctx: PluginContext + 'static, Executor: Spawn + Send + Sync + 'static> {
@@ -166,9 +178,14 @@ trait DestinationBudget: Send + Sync {
 struct PluginState<Ctx: 'static> {
 	store: Store<Ctx>,
 	instance: Instance,
-	interface_remaps: HashMap<String, Remap>,
+	metadata: Arc<PluginMetadata>,
 	fuel_limiter: Option<CallLimiter<Ctx>>,
 	epoch_limiter: Option<CallLimiter<Ctx>>,
+}
+
+struct PluginMetadata {
+	interface_remaps: HashMap<String, Remap>,
+	async_exports: HashSet<(String, String)>,
 }
 
 impl<Ctx: std::fmt::Debug + 'static> std::fmt::Debug for PluginInstanceSync<Ctx> {
@@ -177,7 +194,7 @@ impl<Ctx: std::fmt::Debug + 'static> std::fmt::Debug for PluginInstanceSync<Ctx>
 		f.debug_struct( "PluginInstanceSync" )
 			.field( "data", &state.store.data() )
 			.field( "store", &state.store )
-			.field( "interface_remaps", &state.interface_remaps )
+			.field( "interface_remaps", &state.metadata.interface_remaps )
 			.field( "fuel_limiter", &state.fuel_limiter.as_ref().map(| _ | "<closure>" ))
 			.field( "epoch_limiter", &state.epoch_limiter.as_ref().map(| _ | "<closure>" ))
 			.finish_non_exhaustive()
@@ -245,17 +262,20 @@ impl<Ctx: PluginContext + 'static> PluginInstanceSync<Ctx> {
 		interface_remaps: HashMap<String, Remap>,
 		fuel_limiter: Option<CallLimiter<Ctx>>,
 		epoch_limiter: Option<CallLimiter<Ctx>>,
+		async_exports: HashSet<(String, String)>,
 	) -> Self {
+		let metadata = Arc::new( PluginMetadata { interface_remaps, async_exports });
 		Self { dispatcher: Arc::new( SyncDispatcher {
 			state: std::sync::Mutex::new( PluginState {
 				store,
 				instance,
-				interface_remaps,
+				metadata: Arc::clone( &metadata ),
 				fuel_limiter,
 				epoch_limiter,
 			}),
 			admission: std::sync::Mutex::new( SyncQueue::default() ),
 			changed: std::sync::Condvar::new(),
+			metadata,
 		})}
 	}
 
@@ -271,6 +291,23 @@ impl<Ctx: PluginContext + 'static> PluginInstanceSync<Ctx> {
 		let _permit = self.dispatcher.enter( caller );
 		lock_unpoisoned( &self.dispatcher.state )
 			.dispatch( package_name, interface_name, function_name, function, data )
+	}
+}
+
+impl<Ctx: 'static> ExportEffectInstance for PluginInstanceSync<Ctx> {
+	fn export_is_async(
+		&self,
+		package_name: &str,
+		interface_name: &str,
+		function_name: &str,
+	) -> bool {
+		let export = resolve_export(
+			&self.dispatcher.metadata.interface_remaps,
+			package_name,
+			interface_name,
+			function_name,
+		);
+		self.dispatcher.metadata.async_exports.contains( &export )
 	}
 }
 
@@ -399,17 +436,20 @@ where
 		fuel_limiter: Option<CallLimiter<Ctx>>,
 		epoch_limiter: Option<CallLimiter<Ctx>>,
 		executor: Arc<Executor>,
+		async_exports: HashSet<(String, String)>,
 	) -> Self {
+		let metadata = Arc::new( PluginMetadata { interface_remaps, async_exports });
 		let dispatcher = Arc::new( AsyncDispatcher {
 			state: Arc::new( Mutex::new( PluginState {
 				store,
 				instance,
-				interface_remaps,
+				metadata: Arc::clone( &metadata ),
 				fuel_limiter,
 				epoch_limiter,
 			})),
 			executor,
 			queue: std::sync::Mutex::new( AsyncQueue::default() ),
+			metadata,
 		});
 		Self { dispatcher }
 	}
@@ -428,6 +468,23 @@ where
 			caller, package_name, interface_name, function_name, function, data,
 		)?;
 		result.await.map_err(| _ | DispatchError::ExecutorUnavailable )?
+	}
+}
+
+impl<Ctx: 'static, Executor: 'static> ExportEffectInstance for PluginInstanceAsync<Ctx, Executor> {
+	fn export_is_async(
+		&self,
+		package_name: &str,
+		interface_name: &str,
+		function_name: &str,
+	) -> bool {
+		let export = resolve_export(
+			&self.dispatcher.metadata.interface_remaps,
+			package_name,
+			interface_name,
+			function_name,
+		);
+		self.dispatcher.metadata.async_exports.contains( &export )
 	}
 }
 
@@ -720,18 +777,27 @@ impl<Ctx: PluginContext + 'static> PluginState<Ctx> {
 	}
 
 	fn resolve_export( &self, package_name: &str, interface_name: &str, function_name: &str ) -> (String, String) {
-		match self.interface_remaps.get( interface_name ) {
-			Some( remap ) => (
-				format!( "{}/{}", package_name, remap.interface_name( interface_name )),
-				remap.item_name( function_name ).to_string(),
-			),
-			None => (
-				format!( "{}/{}", package_name, interface_name ),
-				function_name.to_string(),
-			),
-		}
+		resolve_export( &self.metadata.interface_remaps, package_name, interface_name, function_name )
 	}
 
+}
+
+fn resolve_export(
+	interface_remaps: &HashMap<String, Remap>,
+	package_name: &str,
+	interface_name: &str,
+	function_name: &str,
+) -> (String, String) {
+	match interface_remaps.get( interface_name ) {
+		Some( remap ) => (
+			format!( "{}/{}", package_name, remap.interface_name( interface_name )),
+			remap.item_name( function_name ).to_string(),
+		),
+		None => (
+			format!( "{}/{}", package_name, interface_name ),
+			function_name.to_string(),
+		),
+	}
 }
 
 fn ensure_supported_values( values: &[Val] ) -> Result<(), DispatchError> {

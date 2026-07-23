@@ -4,7 +4,7 @@ use wasm_link::cardinality::ExactlyOne ;
 
 fixtures! {
 	bindings = { root: "root", dependency: "dependency" };
-	plugins  = { startup: "startup", child: "child" };
+	plugins  = { startup: "startup", child: "child", sync_child: "sync-child" };
 }
 
 enum TestExecutor {
@@ -128,5 +128,32 @@ fn propagates_executor_rejection_across_a_plugin_link() {
 			Ok( ExactlyOne( _, Ok( Val::U32( 0 )))) => {}
 			value => panic!( "Expected the consumer's error fallback U32(0), found: {value:#?}" ),
 		}
+	});
+}
+
+#[test]
+fn destination_export_effect_controls_async_linking() {
+	futures::executor::block_on( async {
+		let engine = Engine::default();
+		let linker = Linker::new( &engine );
+		let executor = futures::executor::ThreadPool::new()
+			.expect( "Failed to create async executor" );
+		let plugins = fixtures::plugins( &engine );
+		let bindings = fixtures::bindings();
+		let child = plugins.sync_child.plugin
+			.instantiate_async( &engine, &linker, executor.clone() )
+			.await
+			.expect( "Failed to instantiate synchronous-export child asynchronously" );
+		let dependency = Binding::new(
+			bindings.dependency.package,
+			HashMap::from([( bindings.dependency.name, bindings.dependency.spec )]),
+			ExactlyOne( "_".to_string(), child ),
+		);
+
+		let error = plugins.startup.plugin
+			.link_async( &engine, linker, vec![ dependency ], executor )
+			.await
+			.expect_err( "An async import must not determine a synchronous destination export's effect" );
+		assert!( error.to_string().contains( "matching implementation was not found" ));
 	});
 }

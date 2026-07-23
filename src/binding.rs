@@ -6,11 +6,14 @@
 
 use std::sync::Arc ;
 use std::collections::HashMap ;
+use nonempty_collections::NonEmptyIterator ;
 use wasmtime::component::{ Linker, Val };
 
 use crate::{ Interface, PluginContext };
 use crate::cardinality::{ Any, AtLeastOne, AtMostOne, Cardinality, ExactlyOne };
-use crate::plugin_instance::{ AsyncDispatchInstance, Caller, PluginInstanceAsync, PluginInstanceSync };
+use crate::plugin_instance::{
+	AsyncDispatchInstance, Caller, ExportEffectInstance, PluginInstanceAsync, PluginInstanceSync,
+};
 
 
 
@@ -26,6 +29,80 @@ type DispatchVals<PluginId, Plugins, Instance> =
 	<PluginSockets<PluginId, Plugins, Instance> as Cardinality<PluginId, Arc<Instance>>>::Rebind<
 		wasmtime::component::Val
 	>;
+
+pub(crate) trait ExportEffects {
+	fn has_async_export(
+		&self,
+		package_name: &str,
+		interface_name: &str,
+		function_name: &str,
+	) -> Option<bool>;
+}
+
+fn any_async_export( mut effects: impl Iterator<Item = bool> ) -> Option<bool> {
+	let effect = effects.next()?;
+	Some( effect || effects.any( std::convert::identity ))
+}
+
+impl<Id, Instance: ExportEffectInstance> ExportEffects for ExactlyOne<Id, Arc<Instance>> {
+	fn has_async_export(
+		&self,
+		package_name: &str,
+		interface_name: &str,
+		function_name: &str,
+	) -> Option<bool> {
+		Some( self.1.export_is_async( package_name, interface_name, function_name ))
+	}
+}
+
+impl<Id, Instance: ExportEffectInstance> ExportEffects for AtMostOne<Id, Arc<Instance>> {
+	fn has_async_export(
+		&self,
+		package_name: &str,
+		interface_name: &str,
+		function_name: &str,
+	) -> Option<bool> {
+		self.0.as_ref().map(|( _, instance )|
+			instance.export_is_async( package_name, interface_name, function_name )
+		)
+	}
+}
+
+impl<Id, Instance> ExportEffects for AtLeastOne<Id, Arc<Instance>>
+where
+	Id: std::hash::Hash + Eq,
+	Instance: ExportEffectInstance,
+{
+	fn has_async_export(
+		&self,
+		package_name: &str,
+		interface_name: &str,
+		function_name: &str,
+	) -> Option<bool> {
+		any_async_export(
+			self.0.nonempty_iter().map(|( _, instance )|
+				instance.export_is_async( package_name, interface_name, function_name )
+			).collect::<Vec<_>>().into_iter()
+		)
+	}
+}
+
+impl<Id, Instance> ExportEffects for Any<Id, Arc<Instance>>
+where
+	Id: std::hash::Hash + Eq,
+	Instance: ExportEffectInstance,
+{
+	fn has_async_export(
+		&self,
+		package_name: &str,
+		interface_name: &str,
+		function_name: &str,
+	) -> Option<bool> {
+		any_async_export( self.0.values().map(| instance |
+			instance.export_is_async( package_name, interface_name, function_name )
+		))
+	}
+}
 
 struct BindingData<PluginId, Plugins, Instance>
 where
@@ -154,6 +231,21 @@ where
 
 	pub(crate) fn plugins( &self ) -> &PluginSockets<PluginId, Plugins, Instance> {
 		&self.0.plugins
+	}
+
+	pub(crate) fn has_async_export(
+		&self,
+		interface_name: &str,
+		function_name: &str,
+	) -> Option<bool>
+	where
+		PluginSockets<PluginId, Plugins, Instance>: ExportEffects,
+	{
+		self.0.plugins.has_async_export(
+			&self.0.package_name,
+			interface_name,
+			function_name,
+		)
 	}
 }
 
@@ -320,7 +412,6 @@ fn add_to_linker_async<PluginId, Ctx, Plugins, Instance, Executor>(
 	linker: &mut Linker<Ctx>,
 	caller: &Caller,
 	executor: &Arc<Executor>,
-	async_imports: &std::collections::HashSet<(String, String)>,
 ) -> Result<(), wasmtime::Error>
 where
 	PluginId: std::hash::Hash + Eq + Clone + Send + Sync + 'static,
@@ -329,6 +420,7 @@ where
 	Instance: AsyncDispatchInstance<Ctx, Executor>,
 	Plugins: Cardinality<PluginId, Instance> + 'static,
 	PluginSockets<PluginId, Plugins, Instance>: Cardinality<PluginId, Arc<Instance>> + Send + Sync,
+	PluginSockets<PluginId, Plugins, Instance>: ExportEffects,
 	PluginId: Into<Val>,
 	DispatchVals<PluginId, Plugins, Instance>: Into<Val> + Send,
 {
@@ -336,7 +428,7 @@ where
 		let interface_ident = format!( "{}/{}", binding.0.package_name, name );
 		interface.add_to_linker_async(
 			linker, &binding.0.package_name, &interface_ident, name, binding,
-			caller, executor, async_imports,
+			caller, executor,
 		)
 	})
 }
@@ -380,16 +472,15 @@ where
 		linker: &mut Linker<Ctx>,
 		caller: &Caller,
 		executor: &Arc<Executor>,
-		async_imports: &std::collections::HashSet<(String, String)>,
 	) -> Result<(), wasmtime::Error>
 	where
 		Executor: futures::task::Spawn + Send + Sync + 'static,
 	{
 		match self {
-			Self::ExactlyOne( binding ) => add_to_linker_async( binding, linker, caller, executor, async_imports ),
-			Self::AtMostOne( binding ) => add_to_linker_async( binding, linker, caller, executor, async_imports ),
-			Self::AtLeastOne( binding ) => add_to_linker_async( binding, linker, caller, executor, async_imports ),
-			Self::Any( binding ) => add_to_linker_async( binding, linker, caller, executor, async_imports ),
+			Self::ExactlyOne( binding ) => add_to_linker_async( binding, linker, caller, executor ),
+			Self::AtMostOne( binding ) => add_to_linker_async( binding, linker, caller, executor ),
+			Self::AtLeastOne( binding ) => add_to_linker_async( binding, linker, caller, executor ),
+			Self::Any( binding ) => add_to_linker_async( binding, linker, caller, executor ),
 		}
 	}
 
@@ -406,13 +497,12 @@ where
 		linker: &mut Linker<Ctx>,
 		caller: &Caller,
 		executor: &Arc<Executor>,
-		async_imports: &std::collections::HashSet<(String, String)>,
 	) -> Result<(), wasmtime::Error> {
 		match self {
-			Self::ExactlyOne( binding ) => add_to_linker_async( binding, linker, caller, executor, async_imports ),
-			Self::AtMostOne( binding ) => add_to_linker_async( binding, linker, caller, executor, async_imports ),
-			Self::AtLeastOne( binding ) => add_to_linker_async( binding, linker, caller, executor, async_imports ),
-			Self::Any( binding ) => add_to_linker_async( binding, linker, caller, executor, async_imports ),
+			Self::ExactlyOne( binding ) => add_to_linker_async( binding, linker, caller, executor ),
+			Self::AtMostOne( binding ) => add_to_linker_async( binding, linker, caller, executor ),
+			Self::AtLeastOne( binding ) => add_to_linker_async( binding, linker, caller, executor ),
+			Self::Any( binding ) => add_to_linker_async( binding, linker, caller, executor ),
 		}
 	}
 }
@@ -460,11 +550,10 @@ where
 		linker: &mut Linker<Ctx>,
 		caller: &Caller,
 		executor: &Arc<Executor>,
-		async_imports: &std::collections::HashSet<(String, String)>,
 	) -> Result<(), wasmtime::Error> {
 		match self {
-			Self::Sync( binding ) => binding.add_to_linker_async( linker, caller, executor, async_imports ),
-			Self::Async( binding ) => binding.add_to_linker_async( linker, caller, executor, async_imports ),
+			Self::Sync( binding ) => binding.add_to_linker_async( linker, caller, executor ),
+			Self::Async( binding ) => binding.add_to_linker_async( linker, caller, executor ),
 		}
 	}
 }
@@ -595,5 +684,28 @@ where
 			Self::AtLeastOne( binding ) => Self::AtLeastOne( binding.clone() ),
 			Self::Any( binding ) => Self::Any( binding.clone() ),
 		}
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	struct Effect( bool );
+
+	impl ExportEffectInstance for Effect {
+		fn export_is_async( &self, _: &str, _: &str, _: &str ) -> bool { self.0 }
+	}
+
+	#[test]
+	fn aggregates_export_effects_across_optional_and_collection_cardinalities() {
+		let optional = AtMostOne( Some(( "sync", Arc::new( Effect( false )))));
+		assert_eq!( optional.has_async_export( "", "", "" ), Some( false ));
+
+		let collection = Any( HashMap::from([
+			( "sync", Arc::new( Effect( false ))),
+			( "async", Arc::new( Effect( true ))),
+		]));
+		assert_eq!( collection.has_async_export( "", "", "" ), Some( true ));
 	}
 }

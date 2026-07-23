@@ -3,6 +3,7 @@ use std::collections::{ HashMap, HashSet };
 use wasmtime::component::{ Linker, ResourceType, Val };
 
 use crate::{ Binding, PluginContext, PluginInstanceSync };
+use crate::binding::ExportEffects ;
 use crate::cardinality::Cardinality ;
 use crate::linker::{
 	dispatch_all,
@@ -127,7 +128,6 @@ impl Interface {
 		binding: &Binding<PluginId, Ctx, Plugins, Instance>,
 		caller: &Caller,
 		executor: &Arc<Executor>,
-		async_imports: &std::collections::HashSet<(String, String)>,
 	) -> Result<(), wasmtime::Error>
 	where
 		PluginId: std::hash::Hash + Eq + Clone + Send + Sync + Into<Val> + 'static,
@@ -137,12 +137,14 @@ impl Interface {
 		Plugins: Cardinality<PluginId, Instance> + 'static,
 		<Plugins as Cardinality<PluginId, Instance>>::Rebind<Arc<Instance>>: Send + Sync,
 		<Plugins as Cardinality<PluginId, Instance>>::Rebind<Arc<Instance>>: Cardinality<PluginId, Arc<Instance>>,
+		<Plugins as Cardinality<PluginId, Instance>>::Rebind<Arc<Instance>>: ExportEffects,
 		<<Plugins as Cardinality<PluginId, Instance>>::Rebind<Arc<Instance>> as Cardinality<PluginId, Arc<Instance>>>::Rebind<Val>: Into<Val> + Send,
 	{
 		let mut linker_root = linker.root();
 		let mut linker_instance = linker_root.instance( interface_ident )?;
 
 		self.functions.iter().try_for_each(|( name, metadata )| {
+			let is_async = binding.has_async_export( interface_name, name ).unwrap_or( false );
 			let package_name = package_name.to_string();
 			let interface_name = interface_name.to_string();
 			let binding = binding.clone();
@@ -189,7 +191,7 @@ impl Interface {
 				})
 			}}
 
-			match ( async_imports.contains(&( interface_ident.to_string(), name.clone() )), metadata.kind() ) {
+			match ( is_async, metadata.kind() ) {
 				( true, FunctionKind::Freestanding ) => link_concurrent!( dispatch_all_async ),
 				( true, FunctionKind::Method ) => link_concurrent!( dispatch_method_async ),
 				( false, FunctionKind::Freestanding ) => link_blocking!( dispatch_all_async_blocking ),

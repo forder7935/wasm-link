@@ -351,10 +351,9 @@ where
 	{
 		let executor = std::sync::Arc::new( executor );
 		let caller = Caller::new();
-		let async_imports = async_imports( engine, &self.component );
 		sockets.into_iter()
 			.map( Into::into )
-			.try_for_each(| binding | binding.add_to_linker( &mut linker, &caller, &executor, &async_imports ))?;
+			.try_for_each(| binding | binding.add_to_linker( &mut linker, &caller, &executor ))?;
 		self.instantiate_async_with_executor( engine, &linker, executor ).await
 	}
 
@@ -371,12 +370,14 @@ where
 		if let Some( fuel ) = self.initial_fuel { store.set_fuel( fuel )?; }
 		if let Some( limiter ) = self.memory_limiter { store.limiter( limiter ); }
 		let instance = linker.instantiate( &mut store, &self.component )?;
+		let async_exports = async_exports( engine, &self.component, &instance, &mut store );
 		Ok( PluginInstanceSync::new_sync(
 			store,
 			instance,
 			self.interface_remaps,
 			self.fuel_limiter,
 			self.epoch_limiter,
+			async_exports,
 		))
 	}
 
@@ -435,6 +436,7 @@ where
 		if let Some( fuel ) = self.initial_fuel { store.set_fuel( fuel )?; }
 		if let Some( limiter ) = self.memory_limiter { store.limiter( limiter ); }
 		let instance = linker.instantiate_async( &mut store, &self.component ).await?;
+		let async_exports = async_exports( engine, &self.component, &instance, &mut store );
 		Ok( PluginInstanceAsync::new(
 			store,
 			instance,
@@ -442,21 +444,28 @@ where
 			self.fuel_limiter,
 			self.epoch_limiter,
 			executor,
+			async_exports,
 		))
 	}
 
 }
 
-fn async_imports( engine: &Engine, component: &Component ) -> HashSet<(String, String)> {
+fn async_exports<Ctx>(
+	engine: &Engine,
+	component: &Component,
+	instance: &wasmtime::component::Instance,
+	store: &mut Store<Ctx>,
+) -> HashSet<(String, String)> {
 	use wasmtime::component::types::ComponentItem ;
 
-	component.component_type().imports( engine ).flat_map(|( interface_name, import )| {
-		let ComponentItem::ComponentInstance( interface ) = import.ty else { return Vec::new() };
-		interface.exports( engine ).filter_map(|( function_name, export )| {
+	component.component_type().exports( engine ).filter_map(|( interface_name, _ )| {
+		let ( export, _ ) = instance.get_export( &mut *store, None, interface_name )?;
+		let ComponentItem::ComponentInstance( interface ) = export else { return None };
+		Some( interface.exports( engine ).filter_map(move |( function_name, export )| {
 			let ComponentItem::ComponentFunc( function ) = export.ty else { return None };
 			function.async_().then(|| ( interface_name.to_string(), function_name.to_string() ))
-		}).collect()
-	}).collect()
+		}).collect::<Vec<_>>())
+	}).flatten().collect()
 }
 
 impl<Ctx: std::fmt::Debug + 'static> std::fmt::Debug for Plugin<Ctx> {
