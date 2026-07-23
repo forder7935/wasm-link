@@ -197,7 +197,8 @@ fn async_link_accepts_heterogeneous_sync_and_async_sockets() {
 			HashMap::from([( bindings.root.name.clone(), bindings.root.spec.clone() )]),
 			ExactlyOne( "async".to_string(), async_child ),
 		);
-		let sockets: Vec<SocketBindingAny<String, _>> = vec![ sync_socket.into(), async_socket.into() ];
+		let sockets: Vec<SocketBindingAny<String, _, futures::executor::ThreadPool>> =
+			vec![ sync_socket.into(), async_socket.into() ];
 
 		let root = root_plugins.startup.plugin
 			.link_async( &engine, linker, sockets, executor )

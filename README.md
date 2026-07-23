@@ -31,7 +31,6 @@ NOTE: Cross-plugin support for `future`, `stream`, `error-context`, and threads 
 - [Contents](#contents)
 - [Project Philosophy](#project-philosophy)
 - [Quick Start](#quick-start)
-- [Runtime Capabilities](#runtime-capabilities)
 - [Plugin Error ABI](#plugin-error-abi)
 - [Goals](#goals)
 - [License](#license)
@@ -129,43 +128,12 @@ match result {
 }
 ```
 
-## Runtime Capabilities
-
-`Plugin::instantiate` and `Plugin::link` produce `PluginInstanceSync`; bindings
-containing those instances expose synchronous `dispatch`. `Plugin::instantiate_async`
-and `Plugin::link_async` produce `PluginInstanceAsync`; their bindings expose an
-async `dispatch` with the same name.
-
-`Plugin::link` accepts only synchronous sockets. `Plugin::link_async` accepts both
-synchronous and asynchronous sockets without converting one instance type into the
-other. A homogeneous iterator is converted automatically. For a heterogeneous
-collection, erase each entry with `SocketBindingAny`:
-
-```rust,ignore
-let sockets: Vec<SocketBindingAny<String, Context>> = vec![
-	sync_binding.into(),
-	async_binding.into(),
-];
-let root = plugin.link_async( &engine, linker, sockets, executor ).await?;
-```
-
-This keeps mismatched async dependencies out of synchronous graphs at compile time,
-while allowing synchronous leaf plugins to remain synchronous inside an async graph.
-
 ## Plugin Error ABI
 
 The versioned [`wasm-link:runtime`](wit/wasm-link.wit) WIT package defines the
 dispatch errors exposed to WebAssembly plugins. It is included in the published
 crate so plugin bindings can be generated from the same contract used by the
 runtime's ABI tests.
-
-Asynchronous destinations use caller-aware round-robin dispatch. Each linked
-plugin has one opaque caller identity shared by all of its sockets, so a busy
-caller moves behind other callers after every completed call. Outstanding work
-is rejected with `dispatch-queue-full` above 1,024 calls or 64 MiB per caller,
-or above 4,096 calls or 256 MiB per destination. Synchronous destinations use a
-FIFO admission gate, so independent callers wait instead of receiving a timing-
-dependent dispatch error.
 
 ## Goals
 

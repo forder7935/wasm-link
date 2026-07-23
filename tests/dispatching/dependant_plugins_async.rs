@@ -7,11 +7,17 @@ fixtures! {
 	plugins  = { startup: "startup", child: "child" };
 }
 
-struct RejectingExecutor ;
+enum TestExecutor {
+	ThreadPool( futures::executor::ThreadPool ),
+	Reject,
+}
 
-impl futures::task::Spawn for RejectingExecutor {
-	fn spawn_obj( &self, _future: futures::task::FutureObj<'static, ()> ) -> Result<(), futures::task::SpawnError> {
-		Err( futures::task::SpawnError::shutdown() )
+impl futures::task::Spawn for TestExecutor {
+	fn spawn_obj( &self, future: futures::task::FutureObj<'static, ()> ) -> Result<(), futures::task::SpawnError> {
+		match self {
+			Self::ThreadPool( executor ) => executor.spawn_obj( future ),
+			Self::Reject => Err( futures::task::SpawnError::shutdown() ),
+		}
 	}
 }
 
@@ -73,7 +79,7 @@ fn reports_when_the_supplied_executor_rejects_dispatch() {
 		let plugins = fixtures::plugins( &engine );
 		let bindings = fixtures::bindings();
 		let child_instance = plugins.child.plugin
-			.instantiate_async( &engine, &linker, RejectingExecutor )
+			.instantiate_async( &engine, &linker, TestExecutor::Reject )
 			.await
 			.expect( "Failed to instantiate child plugin asynchronously" );
 		let binding = Binding::new(
@@ -94,12 +100,13 @@ fn propagates_executor_rejection_across_a_plugin_link() {
 	futures::executor::block_on( async {
 		let engine = Engine::default();
 		let linker = Linker::new( &engine );
-		let executor = futures::executor::ThreadPool::new()
-			.expect( "Failed to create async executor" );
+		let executor = TestExecutor::ThreadPool(
+			futures::executor::ThreadPool::new().expect( "Failed to create async executor" ),
+		);
 		let plugins = fixtures::plugins( &engine );
 		let bindings = fixtures::bindings();
 		let child = plugins.child.plugin
-			.instantiate_async( &engine, &linker, RejectingExecutor )
+			.instantiate_async( &engine, &linker, TestExecutor::Reject )
 			.await
 			.expect( "Failed to instantiate child plugin asynchronously" );
 		let dependency = Binding::new(

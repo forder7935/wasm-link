@@ -165,14 +165,18 @@ where
 	PluginSockets<PluginId, Plugins, PluginInstanceSync<Ctx>>: Cardinality<PluginId, Arc<PluginInstanceSync<Ctx>>> + Send + Sync,
 {
 
-	pub(crate) fn add_to_linker( binding: &Binding<PluginId, Ctx, Plugins>, linker: &mut Linker<Ctx> ) -> Result<(), wasmtime::Error>
+	pub(crate) fn add_to_linker(
+		binding: &Binding<PluginId, Ctx, Plugins>,
+		linker: &mut Linker<Ctx>,
+		caller: &Caller,
+	) -> Result<(), wasmtime::Error>
 	where
 		PluginId: Into<Val>,
 		DispatchVals<PluginId, Plugins, PluginInstanceSync<Ctx>>: Into<Val>,
 	{
 		binding.0.interfaces.iter().try_for_each(|( name, interface )| {
 			let interface_ident = format!( "{}/{}", binding.0.package_name, name );
-			interface.add_to_linker( linker, &binding.0.package_name, &interface_ident, name, binding )
+			interface.add_to_linker( linker, &binding.0.package_name, &interface_ident, name, binding, caller )
 		})
 	}
 
@@ -193,7 +197,8 @@ where
 	///
 	/// # Errors
 	/// Returns an error if the interface or function is not found in this binding.
-	/// Concurrent calls wait in FIFO order when the destination is already executing.
+	/// Concurrent calls wait in caller-aware round-robin order when the destination
+	/// is already executing.
 	pub fn dispatch(
 		&self,
 		interface_name: &str,
@@ -209,6 +214,7 @@ where
 
 		Ok( self.0.plugins.map(| _, plugin | {
 			plugin.dispatch_from(
+				&self.0.caller,
 				&self.0.package_name,
 				interface_name,
 				function_name,
@@ -222,12 +228,14 @@ where
 
 }
 
-impl<PluginId, Ctx, Plugins> Binding<PluginId, Ctx, Plugins, PluginInstanceAsync<Ctx>>
+impl<PluginId, Ctx, Plugins, Executor> Binding<PluginId, Ctx, Plugins, PluginInstanceAsync<Ctx, Executor>>
 where
 	PluginId: std::hash::Hash + Eq + Clone + Send + Sync + 'static,
 	Ctx: PluginContext + 'static,
-	Plugins: Cardinality<PluginId, PluginInstanceAsync<Ctx>> + 'static,
-	PluginSockets<PluginId, Plugins, PluginInstanceAsync<Ctx>>: Cardinality<PluginId, Arc<PluginInstanceAsync<Ctx>>> + Send + Sync,
+	Executor: futures::task::Spawn + Send + Sync + 'static,
+	Plugins: Cardinality<PluginId, PluginInstanceAsync<Ctx, Executor>> + 'static,
+	PluginSockets<PluginId, Plugins, PluginInstanceAsync<Ctx, Executor>>:
+		Cardinality<PluginId, Arc<PluginInstanceAsync<Ctx, Executor>>> + Send + Sync,
 {
 	/// Asynchronously dispatches a function call to all plugins implementing this binding.
 	///
@@ -279,10 +287,10 @@ where
 		interface_name: &str,
 		function_name: &str,
 		args: &[wasmtime::component::Val],
-	) -> Result<DispatchResults<PluginId, Plugins, PluginInstanceAsync<Ctx>>, crate::DispatchError>
+	) -> Result<DispatchResults<PluginId, Plugins, PluginInstanceAsync<Ctx, Executor>>, crate::DispatchError>
 	where
 		PluginId: Into<Val>,
-		DispatchResults<PluginId, Plugins, PluginInstanceAsync<Ctx>>: Send,
+		DispatchResults<PluginId, Plugins, PluginInstanceAsync<Ctx, Executor>>: Send,
 	{
 		let interface = self.0.interfaces.get( interface_name )
 			.ok_or_else(|| crate::DispatchError::InvalidInterfacePath( format!( "{}/{}", self.0.package_name, interface_name )))?;
@@ -307,15 +315,18 @@ where
 
 }
 
-fn add_to_linker_async<PluginId, Ctx, Plugins, Instance>(
+fn add_to_linker_async<PluginId, Ctx, Plugins, Instance, Executor>(
 	binding: &Binding<PluginId, Ctx, Plugins, Instance>,
 	linker: &mut Linker<Ctx>,
 	caller: &Caller,
+	executor: &Arc<Executor>,
+	async_imports: &std::collections::HashSet<(String, String)>,
 ) -> Result<(), wasmtime::Error>
 where
 	PluginId: std::hash::Hash + Eq + Clone + Send + Sync + 'static,
 	Ctx: PluginContext + 'static,
-	Instance: AsyncDispatchInstance<Ctx>,
+	Executor: futures::task::Spawn + Send + Sync + 'static,
+	Instance: AsyncDispatchInstance<Ctx, Executor>,
 	Plugins: Cardinality<PluginId, Instance> + 'static,
 	PluginSockets<PluginId, Plugins, Instance>: Cardinality<PluginId, Arc<Instance>> + Send + Sync,
 	PluginId: Into<Val>,
@@ -323,7 +334,10 @@ where
 {
 	binding.0.interfaces.iter().try_for_each(|( name, interface )| {
 		let interface_ident = format!( "{}/{}", binding.0.package_name, name );
-		interface.add_to_linker_async( linker, &binding.0.package_name, &interface_ident, name, binding, caller )
+		interface.add_to_linker_async(
+			linker, &binding.0.package_name, &interface_ident, name, binding,
+			caller, executor, async_imports,
+		)
 	})
 }
 
@@ -352,37 +366,53 @@ where
 	PluginId: std::hash::Hash + Eq + Clone + Send + Sync + Into<Val> + 'static,
 	Ctx: PluginContext + 'static,
 {
-	pub(crate) fn add_to_linker( &self, linker: &mut Linker<Ctx> ) -> Result<(), wasmtime::Error> {
+	pub(crate) fn add_to_linker( &self, linker: &mut Linker<Ctx>, caller: &Caller ) -> Result<(), wasmtime::Error> {
 		match self {
-			Self::ExactlyOne( binding ) => Binding::add_to_linker( binding, linker ),
-			Self::AtMostOne( binding ) => Binding::add_to_linker( binding, linker ),
-			Self::AtLeastOne( binding ) => Binding::add_to_linker( binding, linker ),
-			Self::Any( binding ) => Binding::add_to_linker( binding, linker ),
+			Self::ExactlyOne( binding ) => Binding::add_to_linker( binding, linker, caller ),
+			Self::AtMostOne( binding ) => Binding::add_to_linker( binding, linker, caller ),
+			Self::AtLeastOne( binding ) => Binding::add_to_linker( binding, linker, caller ),
+			Self::Any( binding ) => Binding::add_to_linker( binding, linker, caller ),
 		}
 	}
 
-	pub(crate) fn add_to_linker_async( &self, linker: &mut Linker<Ctx>, caller: &Caller ) -> Result<(), wasmtime::Error> {
+	pub(crate) fn add_to_linker_async<Executor>(
+		&self,
+		linker: &mut Linker<Ctx>,
+		caller: &Caller,
+		executor: &Arc<Executor>,
+		async_imports: &std::collections::HashSet<(String, String)>,
+	) -> Result<(), wasmtime::Error>
+	where
+		Executor: futures::task::Spawn + Send + Sync + 'static,
+	{
 		match self {
-			Self::ExactlyOne( binding ) => add_to_linker_async( binding, linker, caller ),
-			Self::AtMostOne( binding ) => add_to_linker_async( binding, linker, caller ),
-			Self::AtLeastOne( binding ) => add_to_linker_async( binding, linker, caller ),
-			Self::Any( binding ) => add_to_linker_async( binding, linker, caller ),
+			Self::ExactlyOne( binding ) => add_to_linker_async( binding, linker, caller, executor, async_imports ),
+			Self::AtMostOne( binding ) => add_to_linker_async( binding, linker, caller, executor, async_imports ),
+			Self::AtLeastOne( binding ) => add_to_linker_async( binding, linker, caller, executor, async_imports ),
+			Self::Any( binding ) => add_to_linker_async( binding, linker, caller, executor, async_imports ),
 		}
 	}
 
 }
 
-impl<PluginId, Ctx> BindingAny<PluginId, Ctx, PluginInstanceAsync<Ctx>>
+impl<PluginId, Ctx, Executor> BindingAny<PluginId, Ctx, PluginInstanceAsync<Ctx, Executor>>
 where
 	PluginId: std::hash::Hash + Eq + Clone + Send + Sync + Into<Val> + 'static,
 	Ctx: PluginContext + 'static,
+	Executor: futures::task::Spawn + Send + Sync + 'static,
 {
-	pub(crate) fn add_to_linker_async( &self, linker: &mut Linker<Ctx>, caller: &Caller ) -> Result<(), wasmtime::Error> {
+	pub(crate) fn add_to_linker_async(
+		&self,
+		linker: &mut Linker<Ctx>,
+		caller: &Caller,
+		executor: &Arc<Executor>,
+		async_imports: &std::collections::HashSet<(String, String)>,
+	) -> Result<(), wasmtime::Error> {
 		match self {
-			Self::ExactlyOne( binding ) => add_to_linker_async( binding, linker, caller ),
-			Self::AtMostOne( binding ) => add_to_linker_async( binding, linker, caller ),
-			Self::AtLeastOne( binding ) => add_to_linker_async( binding, linker, caller ),
-			Self::Any( binding ) => add_to_linker_async( binding, linker, caller ),
+			Self::ExactlyOne( binding ) => add_to_linker_async( binding, linker, caller, executor, async_imports ),
+			Self::AtMostOne( binding ) => add_to_linker_async( binding, linker, caller, executor, async_imports ),
+			Self::AtLeastOne( binding ) => add_to_linker_async( binding, linker, caller, executor, async_imports ),
+			Self::Any( binding ) => add_to_linker_async( binding, linker, caller, executor, async_imports ),
 		}
 	}
 }
@@ -393,21 +423,23 @@ where
 /// asynchronously. Homogeneous socket iterators are converted automatically; only
 /// explicitly heterogeneous collections need `.into()` at their insertion sites.
 #[derive( Debug )]
-pub enum SocketBindingAny<PluginId, Ctx>
+pub enum SocketBindingAny<PluginId, Ctx, Executor>
 where
 	PluginId: std::hash::Hash + Eq + Clone + Send + Sync + 'static,
 	Ctx: PluginContext + 'static,
+	Executor: futures::task::Spawn + Send + Sync + 'static,
 {
 	/// A synchronously instantiated destination.
 	Sync( BindingAny<PluginId, Ctx, PluginInstanceSync<Ctx>> ),
 	/// An asynchronously instantiated destination.
-	Async( BindingAny<PluginId, Ctx, PluginInstanceAsync<Ctx>> ),
+	Async( BindingAny<PluginId, Ctx, PluginInstanceAsync<Ctx, Executor>> ),
 }
 
-impl<PluginId, Ctx> Clone for SocketBindingAny<PluginId, Ctx>
+impl<PluginId, Ctx, Executor> Clone for SocketBindingAny<PluginId, Ctx, Executor>
 where
 	PluginId: std::hash::Hash + Eq + Clone + Send + Sync + 'static,
 	Ctx: PluginContext + 'static,
+	Executor: futures::task::Spawn + Send + Sync + 'static,
 {
 	fn clone( &self ) -> Self {
 		match self {
@@ -417,39 +449,52 @@ where
 	}
 }
 
-impl<PluginId, Ctx> SocketBindingAny<PluginId, Ctx>
+impl<PluginId, Ctx, Executor> SocketBindingAny<PluginId, Ctx, Executor>
 where
 	PluginId: std::hash::Hash + Eq + Clone + Send + Sync + Into<Val> + 'static,
 	Ctx: PluginContext + 'static,
+	Executor: futures::task::Spawn + Send + Sync + 'static,
 {
-	pub(crate) fn add_to_linker( &self, linker: &mut Linker<Ctx>, caller: &Caller ) -> Result<(), wasmtime::Error> {
+	pub(crate) fn add_to_linker(
+		&self,
+		linker: &mut Linker<Ctx>,
+		caller: &Caller,
+		executor: &Arc<Executor>,
+		async_imports: &std::collections::HashSet<(String, String)>,
+	) -> Result<(), wasmtime::Error> {
 		match self {
-			Self::Sync( binding ) => binding.add_to_linker_async( linker, caller ),
-			Self::Async( binding ) => binding.add_to_linker_async( linker, caller ),
+			Self::Sync( binding ) => binding.add_to_linker_async( linker, caller, executor, async_imports ),
+			Self::Async( binding ) => binding.add_to_linker_async( linker, caller, executor, async_imports ),
 		}
 	}
 }
 
-impl<PluginId, Ctx> From<BindingAny<PluginId, Ctx, PluginInstanceSync<Ctx>>> for SocketBindingAny<PluginId, Ctx>
+impl<PluginId, Ctx, Executor> From<BindingAny<PluginId, Ctx, PluginInstanceSync<Ctx>>>
+	for SocketBindingAny<PluginId, Ctx, Executor>
 where
 	PluginId: std::hash::Hash + Eq + Clone + Send + Sync + 'static,
 	Ctx: PluginContext + 'static,
+	Executor: futures::task::Spawn + Send + Sync + 'static,
 {
 	fn from( binding: BindingAny<PluginId, Ctx, PluginInstanceSync<Ctx>> ) -> Self { Self::Sync( binding ) }
 }
 
-impl<PluginId, Ctx> From<BindingAny<PluginId, Ctx, PluginInstanceAsync<Ctx>>> for SocketBindingAny<PluginId, Ctx>
+impl<PluginId, Ctx, Executor> From<BindingAny<PluginId, Ctx, PluginInstanceAsync<Ctx, Executor>>>
+	for SocketBindingAny<PluginId, Ctx, Executor>
 where
 	PluginId: std::hash::Hash + Eq + Clone + Send + Sync + 'static,
 	Ctx: PluginContext + 'static,
+	Executor: futures::task::Spawn + Send + Sync + 'static,
 {
-	fn from( binding: BindingAny<PluginId, Ctx, PluginInstanceAsync<Ctx>> ) -> Self { Self::Async( binding ) }
+	fn from( binding: BindingAny<PluginId, Ctx, PluginInstanceAsync<Ctx, Executor>> ) -> Self { Self::Async( binding ) }
 }
 
-impl<PluginId, Ctx, Plugins> From<Binding<PluginId, Ctx, Plugins, PluginInstanceSync<Ctx>>> for SocketBindingAny<PluginId, Ctx>
+impl<PluginId, Ctx, Plugins, Executor> From<Binding<PluginId, Ctx, Plugins, PluginInstanceSync<Ctx>>>
+	for SocketBindingAny<PluginId, Ctx, Executor>
 where
 	PluginId: std::hash::Hash + Eq + Clone + Send + Sync + 'static,
 	Ctx: PluginContext + 'static,
+	Executor: futures::task::Spawn + Send + Sync + 'static,
 	Plugins: Cardinality<PluginId, PluginInstanceSync<Ctx>> + 'static,
 	PluginSockets<PluginId, Plugins, PluginInstanceSync<Ctx>>: Send + Sync,
 	BindingAny<PluginId, Ctx, PluginInstanceSync<Ctx>>: From<Binding<PluginId, Ctx, Plugins, PluginInstanceSync<Ctx>>>,
@@ -459,15 +504,19 @@ where
 	}
 }
 
-impl<PluginId, Ctx, Plugins> From<Binding<PluginId, Ctx, Plugins, PluginInstanceAsync<Ctx>>> for SocketBindingAny<PluginId, Ctx>
+impl<PluginId, Ctx, Plugins, Executor>
+	From<Binding<PluginId, Ctx, Plugins, PluginInstanceAsync<Ctx, Executor>>>
+	for SocketBindingAny<PluginId, Ctx, Executor>
 where
 	PluginId: std::hash::Hash + Eq + Clone + Send + Sync + 'static,
 	Ctx: PluginContext + 'static,
-	Plugins: Cardinality<PluginId, PluginInstanceAsync<Ctx>> + 'static,
-	PluginSockets<PluginId, Plugins, PluginInstanceAsync<Ctx>>: Send + Sync,
-	BindingAny<PluginId, Ctx, PluginInstanceAsync<Ctx>>: From<Binding<PluginId, Ctx, Plugins, PluginInstanceAsync<Ctx>>>,
+	Executor: futures::task::Spawn + Send + Sync + 'static,
+	Plugins: Cardinality<PluginId, PluginInstanceAsync<Ctx, Executor>> + 'static,
+	PluginSockets<PluginId, Plugins, PluginInstanceAsync<Ctx, Executor>>: Send + Sync,
+	BindingAny<PluginId, Ctx, PluginInstanceAsync<Ctx, Executor>>:
+		From<Binding<PluginId, Ctx, Plugins, PluginInstanceAsync<Ctx, Executor>>>,
 {
-	fn from( binding: Binding<PluginId, Ctx, Plugins, PluginInstanceAsync<Ctx>> ) -> Self {
+	fn from( binding: Binding<PluginId, Ctx, Plugins, PluginInstanceAsync<Ctx, Executor>> ) -> Self {
 		Self::Async( binding.into() )
 	}
 }

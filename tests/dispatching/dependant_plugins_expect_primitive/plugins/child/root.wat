@@ -1,16 +1,6 @@
 (component
 	(core module $m
 		(func $get_value (export "get-value") (result i32)
-			(local $iterations i32)
-			(loop $delay
-				local.get $iterations
-				i32.const 1
-				i32.add
-				local.tee $iterations
-				i32.const 10000000
-				i32.lt_u
-				br_if $delay
-			)
 			i32.const 42
 		)
 	)

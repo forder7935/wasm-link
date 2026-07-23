@@ -5,6 +5,8 @@ use wasm_link::cardinality::{ Any, AtLeastOne, AtMostOne, ExactlyOne };
 
 use crate::fixture_linking::TestContext ;
 
+type Executor = futures::executor::ThreadPool ;
+
 fixtures! {
 	bindings = { root: "root" };
 	plugins  = { plugin: "plugin" };
@@ -25,7 +27,7 @@ fn links_each_type_erased_binding_cardinality() -> Result<(), Box<dyn std::error
 		ExactlyOne( "plugin".to_string(), instance ),
 	);
 	let socket = binding.into_any();
-	let socket_any: SocketBindingAny<String, TestContext> = socket.clone().into();
+	let socket_any: SocketBindingAny<String, TestContext, Executor> = socket.clone().into();
 	let _socket_clone = socket_any.clone();
 	let plugin = fixtures::plugins( &engine ).plugin.plugin;
 	let _ = plugin.link( &engine, Linker::new( &engine ), vec![ socket.clone() ])?;
@@ -85,15 +87,15 @@ fn links_each_async_type_erased_binding_cardinality() -> Result<(), Box<dyn std:
 		let binding: Binding<
 			String,
 			TestContext,
-			ExactlyOne<String, PluginInstanceAsync<TestContext>>,
-			PluginInstanceAsync<TestContext>,
+			ExactlyOne<String, PluginInstanceAsync<TestContext, Executor>>,
+			PluginInstanceAsync<TestContext, Executor>,
 		> = Binding::new(
 			bindings.root.package,
 			HashMap::from([( bindings.root.name, bindings.root.spec )]),
 			ExactlyOne( "plugin".to_string(), instance ),
 		);
 		let socket = binding.into_any();
-		let socket_any: SocketBindingAny<String, TestContext> = socket.clone().into();
+		let socket_any: SocketBindingAny<String, TestContext, Executor> = socket.clone().into();
 		let _socket_clone = socket_any.clone();
 		let plugin = fixtures::plugins( &engine ).plugin.plugin;
 		let _ = plugin.link_async(
@@ -107,8 +109,8 @@ fn links_each_async_type_erased_binding_cardinality() -> Result<(), Box<dyn std:
 		let binding: Binding<
 			String,
 			TestContext,
-			AtMostOne<String, PluginInstanceAsync<TestContext>>,
-			PluginInstanceAsync<TestContext>,
+			AtMostOne<String, PluginInstanceAsync<TestContext, Executor>>,
+			PluginInstanceAsync<TestContext, Executor>,
 		> = Binding::new(
 			bindings.root.package,
 			HashMap::from([( bindings.root.name, bindings.root.spec )]),
@@ -129,8 +131,8 @@ fn links_each_async_type_erased_binding_cardinality() -> Result<(), Box<dyn std:
 		let binding: Binding<
 			String,
 			TestContext,
-			AtLeastOne<String, PluginInstanceAsync<TestContext>>,
-			PluginInstanceAsync<TestContext>,
+			AtLeastOne<String, PluginInstanceAsync<TestContext, Executor>>,
+			PluginInstanceAsync<TestContext, Executor>,
 		> = Binding::new(
 			bindings.root.package,
 			HashMap::from([( bindings.root.name, bindings.root.spec )]),
@@ -149,8 +151,8 @@ fn links_each_async_type_erased_binding_cardinality() -> Result<(), Box<dyn std:
 		let binding: Binding<
 			String,
 			TestContext,
-			Any<String, PluginInstanceAsync<TestContext>>,
-			PluginInstanceAsync<TestContext>,
+			Any<String, PluginInstanceAsync<TestContext, Executor>>,
+			PluginInstanceAsync<TestContext, Executor>,
 		> = Binding::new(
 			bindings.root.package,
 			HashMap::from([( bindings.root.name, bindings.root.spec )]),

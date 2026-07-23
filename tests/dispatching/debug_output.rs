@@ -55,8 +55,8 @@ fn async_debug_output_exposes_configuration_without_component_internals() -> Res
 		let binding: Binding<
 			String,
 			TestContext,
-			ExactlyOne<String, PluginInstanceAsync<TestContext>>,
-			PluginInstanceAsync<TestContext>,
+			ExactlyOne<String, PluginInstanceAsync<TestContext, futures::executor::ThreadPool>>,
+			PluginInstanceAsync<TestContext, futures::executor::ThreadPool>,
 		> = Binding::new(
 			bindings.root.package,
 			HashMap::from([( bindings.root.name, bindings.root.spec )]),

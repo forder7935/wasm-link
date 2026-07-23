@@ -25,7 +25,7 @@ fn native_async_method_metadata_rejects_calls_without_resource_argument() -> Res
 				Interface::new(
 					HashMap::from([(
 						"get-value".to_string(),
-						Function::new_async( FunctionKind::Method, ReturnKind::AssumeNoResources ),
+						Function::new( FunctionKind::Method, ReturnKind::AssumeNoResources ),
 					)]),
 					HashSet::new(),
 				),

@@ -5,7 +5,7 @@
 //! (its **sockets**). The plug declares what the plugin exports; sockets declare what
 //! the plugin expects to import from other plugins.
 
-use std::collections::HashMap ;
+use std::collections::{ HashMap, HashSet };
 use wasmtime::{ Engine, Store };
 use wasmtime::component::{ Component, ResourceTable, Linker, Val };
 use futures::task::Spawn ;
@@ -293,9 +293,10 @@ where
 		Sockets: IntoIterator,
 		Sockets::Item: Into<BindingAny<PluginId, Ctx>>,
 	{
+		let caller = Caller::new();
 		sockets.into_iter()
 			.map( Into::into )
-			.try_for_each(| binding | binding.add_to_linker( &mut linker ))?;
+			.try_for_each(| binding | binding.add_to_linker( &mut linker, &caller ))?;
 		Self::instantiate( self, engine, &linker )
 	}
 
@@ -326,7 +327,7 @@ where
 	/// ).link_async(
 	/// 	&engine,
 	/// 	linker,
-	/// 	Vec::<SocketBindingAny<String, Context>>::new(),
+	/// 	Vec::<SocketBindingAny<String, Context, _>>::new(),
 	/// 	executor,
 	/// ).await?;
 	/// # let _ = instance;
@@ -341,18 +342,19 @@ where
 		mut linker: Linker<Ctx>,
 		sockets: Sockets,
 		executor: Executor,
-	) -> Result<PluginInstanceAsync<Ctx>, wasmtime::Error>
+	) -> Result<PluginInstanceAsync<Ctx, Executor>, wasmtime::Error>
 	where
 		PluginId: Eq + std::hash::Hash + Clone + std::fmt::Debug + Send + Sync + Into<Val> + 'static,
 		Sockets: IntoIterator,
-		Sockets::Item: Into<SocketBindingAny<PluginId, Ctx>>,
+		Sockets::Item: Into<SocketBindingAny<PluginId, Ctx, Executor>>,
 		Executor: Spawn + Send + Sync + 'static,
 	{
-		let executor: std::sync::Arc<dyn Spawn + Send + Sync> = std::sync::Arc::new( executor );
-		let caller = Caller::with_executor( std::sync::Arc::clone( &executor ));
+		let executor = std::sync::Arc::new( executor );
+		let caller = Caller::new();
+		let async_imports = async_imports( engine, &self.component );
 		sockets.into_iter()
 			.map( Into::into )
-			.try_for_each(| binding | binding.add_to_linker( &mut linker, &caller ))?;
+			.try_for_each(| binding | binding.add_to_linker( &mut linker, &caller, &executor, &async_imports ))?;
 		self.instantiate_async_with_executor( engine, &linker, executor ).await
 	}
 
@@ -413,19 +415,22 @@ where
 		engine: &Engine,
 		linker: &Linker<Ctx>,
 		executor: Executor,
-	) -> Result<PluginInstanceAsync<Ctx>, wasmtime::Error>
+	) -> Result<PluginInstanceAsync<Ctx, Executor>, wasmtime::Error>
 	where
 		Executor: Spawn + Send + Sync + 'static,
 	{
 		self.instantiate_async_with_executor( engine, linker, std::sync::Arc::new( executor )).await
 	}
 
-	async fn instantiate_async_with_executor(
+	async fn instantiate_async_with_executor<Executor>(
 		self,
 		engine: &Engine,
 		linker: &Linker<Ctx>,
-		executor: std::sync::Arc<dyn Spawn + Send + Sync>,
-	) -> Result<PluginInstanceAsync<Ctx>, wasmtime::Error> {
+		executor: std::sync::Arc<Executor>,
+	) -> Result<PluginInstanceAsync<Ctx, Executor>, wasmtime::Error>
+	where
+		Executor: Spawn + Send + Sync + 'static,
+	{
 		let mut store = Store::new( engine, self.context );
 		if let Some( fuel ) = self.initial_fuel { store.set_fuel( fuel )?; }
 		if let Some( limiter ) = self.memory_limiter { store.limiter( limiter ); }
@@ -440,6 +445,18 @@ where
 		))
 	}
 
+}
+
+fn async_imports( engine: &Engine, component: &Component ) -> HashSet<(String, String)> {
+	use wasmtime::component::types::ComponentItem ;
+
+	component.component_type().imports( engine ).flat_map(|( interface_name, import )| {
+		let ComponentItem::ComponentInstance( interface ) = import.ty else { return Vec::new() };
+		interface.exports( engine ).filter_map(|( function_name, export )| {
+			let ComponentItem::ComponentFunc( function ) = export.ty else { return None };
+			function.async_().then(|| ( interface_name.to_string(), function_name.to_string() ))
+		}).collect()
+	}).collect()
 }
 
 impl<Ctx: std::fmt::Debug + 'static> std::fmt::Debug for Plugin<Ctx> {

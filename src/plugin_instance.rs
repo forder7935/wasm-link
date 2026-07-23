@@ -24,7 +24,6 @@ static NEXT_CALLER_ID: AtomicU64 = AtomicU64::new( 1 );
 pub(crate) struct Caller {
 	id: u64,
 	budget: Arc<std::sync::Mutex<Budget>>,
-	executor: Option<Arc<dyn Spawn + Send + Sync>>,
 }
 
 #[derive( Default )]
@@ -38,19 +37,20 @@ impl Caller {
 		Self {
 			id: NEXT_CALLER_ID.fetch_add( 1, Ordering::Relaxed ),
 			budget: Arc::new( std::sync::Mutex::new( Budget::default() )),
-			executor: None,
 		}
-	}
-
-	pub(crate) fn with_executor( executor: Arc<dyn Spawn + Send + Sync> ) -> Self {
-		Self { executor: Some( executor ), ..Self::new() }
 	}
 }
 
-pub(crate) trait AsyncDispatchInstance<Ctx: PluginContext + 'static>: Clone + Send + Sync + 'static {
+pub(crate) trait AsyncDispatchInstance<Ctx, Executor>: Clone + Send + Sync + 'static
+where
+	Ctx: PluginContext + 'static,
+	Executor: Spawn + Send + Sync + 'static,
+{
+	#[allow( clippy::too_many_arguments )]
 	fn dispatch_for_async<'a>(
 		&'a self,
 		caller: &'a Caller,
+		executor: &'a Arc<Executor>,
 		package_name: &'a str,
 		interface_name: &'a str,
 		function_name: &'a str,
@@ -63,8 +63,9 @@ pub(crate) trait AsyncDispatchInstance<Ctx: PluginContext + 'static>: Clone + Se
 /// A synchronously instantiated plugin, ready for synchronous dispatch.
 ///
 /// Created by calling [`Plugin::instantiate`]( crate::Plugin::instantiate ),
-/// or [`Plugin::link`]( crate::Plugin::link ). Concurrent calls wait at a FIFO
-/// admission gate so shared synchronous dependencies do not fail when busy.
+/// or [`Plugin::link`]( crate::Plugin::link ). Concurrent calls wait in
+/// caller-aware round-robin order so shared synchronous dependencies do not fail
+/// when busy.
 pub struct PluginInstanceSync<Ctx: 'static> {
 	dispatcher: Arc<SyncDispatcher<Ctx>>,
 }
@@ -81,9 +82,9 @@ struct SyncDispatcher<Ctx: 'static> {
 
 #[derive( Default )]
 struct SyncQueue {
-	waiting: VecDeque<u64>,
-	active: Option<u64>,
-	next_ticket: u64,
+	pending: RoundRobinQueue<u64>,
+	active: Option<(u64, u64)>,
+	next_call_id: u64,
 }
 
 struct SyncPermit<'a, Ctx: 'static> {
@@ -97,37 +98,49 @@ struct SyncPermit<'a, Ctx: 'static> {
 /// executor supplied during instantiation. Each destination services one call at a
 /// time using caller-aware round-robin ordering. The plugin's Wasmtime [`Store`]
 /// remains independent and is serialized by the destination's drain task.
-pub struct PluginInstanceAsync<Ctx: 'static> {
-	dispatcher: Arc<Dispatcher<Ctx>>,
+pub struct PluginInstanceAsync<Ctx: 'static, Executor: 'static> {
+	dispatcher: Arc<AsyncDispatcher<Ctx, Executor>>,
 }
 
-impl<Ctx: 'static> Clone for PluginInstanceAsync<Ctx> {
+impl<Ctx: 'static, Executor: 'static> Clone for PluginInstanceAsync<Ctx, Executor> {
 	fn clone( &self ) -> Self { Self { dispatcher: Arc::clone( &self.dispatcher )}}
 }
 
-struct Dispatcher<Ctx: 'static> {
+struct AsyncDispatcher<Ctx: 'static, Executor: 'static> {
 	state: Arc<Mutex<PluginState<Ctx>>>,
-	executor: Arc<dyn Spawn + Send + Sync>,
-	queue: std::sync::Mutex<DispatchQueue>,
+	executor: Arc<Executor>,
+	queue: std::sync::Mutex<AsyncQueue>,
 }
 
-struct DrainGuard<Ctx: PluginContext + 'static> {
-	dispatcher: Option<Arc<Dispatcher<Ctx>>>,
+struct DrainGuard<Ctx: PluginContext + 'static, Executor: Spawn + Send + Sync + 'static> {
+	dispatcher: Option<Arc<AsyncDispatcher<Ctx, Executor>>>,
 }
 
 #[derive( Default )]
-struct DispatchQueue {
-	callers: HashMap<u64, CallerQueue>,
-	ready: VecDeque<u64>,
+struct AsyncQueue {
+	pending: RoundRobinQueue<PendingCall>,
 	calls: usize,
 	bytes: usize,
 	draining: bool,
 }
 
-#[derive( Default )]
-struct CallerQueue {
-	calls: VecDeque<PendingCall>,
-	ready: bool,
+struct RoundRobinQueue<Call> {
+	callers: HashMap<u64, CallerQueue<Call>>,
+	ready: VecDeque<u64>,
+}
+
+impl<Call> Default for RoundRobinQueue<Call> {
+	fn default() -> Self { Self { callers: HashMap::new(), ready: VecDeque::new() }}
+}
+
+struct CallerQueue<Call> {
+	calls: VecDeque<Call>,
+	queued: bool,
+	active: bool,
+}
+
+impl<Call> Default for CallerQueue<Call> {
+	fn default() -> Self { Self { calls: VecDeque::new(), queued: false, active: false }}
 }
 
 struct PendingCall {
@@ -171,7 +184,7 @@ impl<Ctx: std::fmt::Debug + 'static> std::fmt::Debug for PluginInstanceSync<Ctx>
 	}
 }
 
-impl<Ctx: 'static> std::fmt::Debug for PluginInstanceAsync<Ctx> {
+impl<Ctx: 'static, Executor: 'static> std::fmt::Debug for PluginInstanceAsync<Ctx, Executor> {
 	fn fmt( &self, f: &mut std::fmt::Formatter<'_> ) -> std::result::Result<(), std::fmt::Error> {
 		f.debug_struct( "PluginInstanceAsync" )
 			.field( "state", &"<serialized store>" )
@@ -248,22 +261,28 @@ impl<Ctx: PluginContext + 'static> PluginInstanceSync<Ctx> {
 
 	pub(crate) fn dispatch_from(
 		&self,
+		caller: &Caller,
 		package_name: &str,
 		interface_name: &str,
 		function_name: &str,
 		function: &Function,
 		data: &[Val],
 	) -> Result<Val, DispatchError> {
-		let _permit = self.dispatcher.enter();
+		let _permit = self.dispatcher.enter( caller );
 		lock_unpoisoned( &self.dispatcher.state )
 			.dispatch( package_name, interface_name, function_name, function, data )
 	}
 }
 
-impl<Ctx: PluginContext + 'static> AsyncDispatchInstance<Ctx> for PluginInstanceSync<Ctx> {
+impl<Ctx, Executor> AsyncDispatchInstance<Ctx, Executor> for PluginInstanceSync<Ctx>
+where
+	Ctx: PluginContext + 'static,
+	Executor: Spawn + Send + Sync + 'static,
+{
 	fn dispatch_for_async<'a>(
 		&'a self,
 		caller: &'a Caller,
+		executor: &'a Arc<Executor>,
 		package_name: &'a str,
 		interface_name: &'a str,
 		function_name: &'a str,
@@ -276,12 +295,13 @@ impl<Ctx: PluginContext + 'static> AsyncDispatchInstance<Ctx> for PluginInstance
 		let function_name = function_name.to_string();
 		let function = function.clone();
 		let data = data.to_vec();
-		let executor = caller.executor.clone();
+		let caller = caller.clone();
+		let executor = Arc::clone( executor );
 		Box::pin( async move {
-			let executor = executor.ok_or( DispatchError::ExecutorUnavailable )?;
 			let ( response, result ) = futures::channel::oneshot::channel();
 			let task: BoxFuture<'static, ()> = Box::pin( async move {
 				let result = instance.dispatch_from(
+					&caller,
 					&package_name,
 					&interface_name,
 					&function_name,
@@ -298,13 +318,13 @@ impl<Ctx: PluginContext + 'static> AsyncDispatchInstance<Ctx> for PluginInstance
 }
 
 impl<Ctx: 'static> SyncDispatcher<Ctx> {
-	fn enter( &self ) -> SyncPermit<'_, Ctx> {
+	fn enter( &self, caller: &Caller ) -> SyncPermit<'_, Ctx> {
 		let mut queue = lock_unpoisoned( &self.admission );
-		let ticket = queue.next_ticket;
-		queue.next_ticket = queue.next_ticket.wrapping_add( 1 );
-		queue.waiting.push_back( ticket );
+		let call_id = queue.next_call_id;
+		queue.next_call_id = queue.next_call_id.wrapping_add( 1 );
+		queue.pending.push( caller.id, call_id );
 		Self::select_next( &mut queue );
-		while queue.active != Some( ticket ) {
+		while queue.active != Some(( caller.id, call_id )) {
 			queue = self.changed.wait( queue ).unwrap_or_else( std::sync::PoisonError::into_inner );
 		}
 		SyncPermit { dispatcher: self }
@@ -312,14 +332,54 @@ impl<Ctx: 'static> SyncDispatcher<Ctx> {
 
 	fn leave( &self ) {
 		let mut queue = lock_unpoisoned( &self.admission );
-		if queue.active.take().is_none() { return; }
+		let Some(( caller_id, _ )) = queue.active.take() else { return };
+		queue.pending.finish( caller_id );
 		Self::select_next( &mut queue );
 		self.changed.notify_all();
 	}
 
 	fn select_next( queue: &mut SyncQueue ) {
 		if queue.active.is_some() { return; }
-		queue.active = queue.waiting.pop_front();
+		queue.active = queue.pending.pop();
+	}
+}
+
+impl<Call> RoundRobinQueue<Call> {
+	fn push( &mut self, caller_id: u64, call: Call ) {
+		let caller = self.callers.entry( caller_id ).or_default();
+		caller.calls.push_back( call );
+		if !caller.queued && !caller.active {
+			caller.queued = true;
+			self.ready.push_back( caller_id );
+		}
+	}
+
+	fn pop( &mut self ) -> Option<(u64, Call)> {
+		let caller_id = self.ready.pop_front()?;
+		let caller = self.callers.get_mut( &caller_id )?;
+		caller.queued = false;
+		caller.active = true;
+		let call = caller.calls.pop_front()?;
+		Some(( caller_id, call ))
+	}
+
+	fn finish( &mut self, caller_id: u64 ) {
+		let mut remove = false;
+		let caller = self.callers.get_mut( &caller_id )
+			.expect( "a caller must remain registered until its active turn finishes" );
+		caller.active = false;
+		if caller.calls.is_empty() {
+			remove = true;
+		} else if !caller.queued {
+			caller.queued = true;
+			self.ready.push_back( caller_id );
+		}
+		if remove { self.callers.remove( &caller_id ); }
+	}
+
+	fn drain( &mut self ) -> Vec<Call> {
+		self.ready.clear();
+		self.callers.drain().flat_map(|( _, caller )| caller.calls ).collect()
 	}
 }
 
@@ -327,16 +387,20 @@ impl<Ctx: 'static> Drop for SyncPermit<'_, Ctx> {
 	fn drop( &mut self ) { self.dispatcher.leave(); }
 }
 
-impl<Ctx: PluginContext + 'static> PluginInstanceAsync<Ctx> {
+impl<Ctx, Executor> PluginInstanceAsync<Ctx, Executor>
+where
+	Ctx: PluginContext + 'static,
+	Executor: Spawn + Send + Sync + 'static,
+{
 	pub(crate) fn new(
 		store: Store<Ctx>,
 		instance: Instance,
 		interface_remaps: HashMap<String, Remap>,
 		fuel_limiter: Option<CallLimiter<Ctx>>,
 		epoch_limiter: Option<CallLimiter<Ctx>>,
-		executor: Arc<dyn Spawn + Send + Sync>,
+		executor: Arc<Executor>,
 	) -> Self {
-		let dispatcher = Arc::new( Dispatcher {
+		let dispatcher = Arc::new( AsyncDispatcher {
 			state: Arc::new( Mutex::new( PluginState {
 				store,
 				instance,
@@ -345,7 +409,7 @@ impl<Ctx: PluginContext + 'static> PluginInstanceAsync<Ctx> {
 				epoch_limiter,
 			})),
 			executor,
-			queue: std::sync::Mutex::new( DispatchQueue::default() ),
+			queue: std::sync::Mutex::new( AsyncQueue::default() ),
 		});
 		Self { dispatcher }
 	}
@@ -367,10 +431,15 @@ impl<Ctx: PluginContext + 'static> PluginInstanceAsync<Ctx> {
 	}
 }
 
-impl<Ctx: PluginContext + 'static> AsyncDispatchInstance<Ctx> for PluginInstanceAsync<Ctx> {
+impl<Ctx, Executor> AsyncDispatchInstance<Ctx, Executor> for PluginInstanceAsync<Ctx, Executor>
+where
+	Ctx: PluginContext + 'static,
+	Executor: Spawn + Send + Sync + 'static,
+{
 	fn dispatch_for_async<'a>(
 		&'a self,
 		caller: &'a Caller,
+		_executor: &'a Arc<Executor>,
 		package_name: &'a str,
 		interface_name: &'a str,
 		function_name: &'a str,
@@ -388,7 +457,11 @@ impl<Ctx: PluginContext + 'static> AsyncDispatchInstance<Ctx> for PluginInstance
 	}
 }
 
-impl<Ctx: PluginContext + 'static> Dispatcher<Ctx> {
+impl<Ctx, Executor> AsyncDispatcher<Ctx, Executor>
+where
+	Ctx: PluginContext + 'static,
+	Executor: Spawn + Send + Sync + 'static,
+{
 	fn enqueue(
 		self: &Arc<Self>,
 		caller: &Caller,
@@ -422,12 +495,7 @@ impl<Ctx: PluginContext + 'static> Dispatcher<Ctx> {
 			response,
 			_reservation: Reservation { caller: caller.clone(), destination: Arc::downgrade( &destination ), bytes },
 		};
-		let caller_queue = queue.callers.entry( caller.id ).or_default();
-		caller_queue.calls.push_back( pending );
-		if !caller_queue.ready {
-			caller_queue.ready = true;
-			queue.ready.push_back( caller.id );
-		}
+		queue.pending.push( caller.id, pending );
 		let start_drain = !queue.draining;
 		queue.draining = true;
 		drop( queue );
@@ -470,51 +538,50 @@ impl<Ctx: PluginContext + 'static> Dispatcher<Ctx> {
 
 	fn next( &self ) -> Option<(u64, PendingCall)> {
 		let mut queue = lock_unpoisoned( &self.queue );
-		let Some( caller_id ) = queue.ready.pop_front() else {
+		let Some( pending ) = queue.pending.pop() else {
 			queue.draining = false;
 			return None;
 		};
-		let caller_queue = queue.callers.get_mut( &caller_id )?;
-		caller_queue.ready = false;
-		caller_queue.calls.pop_front().map(| pending | ( caller_id, pending ))
+		Some( pending )
 	}
 
 	fn finish_turn( &self, caller_id: u64 ) {
-		let mut queue = lock_unpoisoned( &self.queue );
-		let mut remove = false;
-		let caller_queue = queue.callers.get_mut( &caller_id )
-			.expect( "a caller must remain registered until its active turn finishes" );
-		if caller_queue.calls.is_empty() {
-			remove = true;
-		} else if !caller_queue.ready {
-			caller_queue.ready = true;
-			queue.ready.push_back( caller_id );
-		}
-		if remove { queue.callers.remove( &caller_id ); }
+		lock_unpoisoned( &self.queue ).pending.finish( caller_id );
 	}
 
 	fn reject_all( &self ) {
 		let pending = {
 			let mut queue = lock_unpoisoned( &self.queue );
 			queue.draining = false;
-			queue.ready.clear();
-			queue.callers.drain().flat_map(|( _, caller )| caller.calls ).collect::<Vec<_>>()
+			queue.pending.drain()
 		};
 		drop( pending );
 	}
 }
 
-impl<Ctx: PluginContext + 'static> Drop for DrainGuard<Ctx> {
+impl<Ctx, Executor> Drop for DrainGuard<Ctx, Executor>
+where
+	Ctx: PluginContext + 'static,
+	Executor: Spawn + Send + Sync + 'static,
+{
 	fn drop( &mut self ) {
 		if let Some( dispatcher ) = self.dispatcher.take() { dispatcher.reject_all(); }
 	}
 }
 
-impl<Ctx: PluginContext + 'static> DrainGuard<Ctx> {
+impl<Ctx, Executor> DrainGuard<Ctx, Executor>
+where
+	Ctx: PluginContext + 'static,
+	Executor: Spawn + Send + Sync + 'static,
+{
 	fn disarm( &mut self ) { self.dispatcher = None; }
 }
 
-impl<Ctx: PluginContext + 'static> DestinationBudget for Dispatcher<Ctx> {
+impl<Ctx, Executor> DestinationBudget for AsyncDispatcher<Ctx, Executor>
+where
+	Ctx: PluginContext + 'static,
+	Executor: Spawn + Send + Sync + 'static,
+{
 	fn release( &self, bytes: usize ) {
 		let mut queue = lock_unpoisoned( &self.queue );
 		queue.calls = queue.calls.saturating_sub( 1 );
@@ -540,7 +607,7 @@ fn retained_bytes( values: &[Val] ) -> Option<usize> {
 	values.iter().try_fold( 0usize, | total, value | total.checked_add( retained_value_bytes( value )? ))
 }
 
-fn has_capacity( caller: &Budget, destination: &DispatchQueue, bytes: usize ) -> bool {
+fn has_capacity( caller: &Budget, destination: &AsyncQueue, bytes: usize ) -> bool {
 	caller.calls < MAX_CALLER_CALLS
 		&& caller.bytes.checked_add( bytes ).is_some_and(| total | total <= MAX_CALLER_BYTES )
 		&& destination.calls < MAX_DESTINATION_CALLS

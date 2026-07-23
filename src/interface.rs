@@ -70,6 +70,7 @@ impl Interface {
 		interface_ident: &str,
 		interface_name: &str,
 		binding: &Binding<PluginId, Ctx, Plugins, PluginInstanceSync<Ctx>>,
+		caller: &Caller,
 	) -> Result<(), wasmtime::Error>
 	where
 		PluginId: std::hash::Hash + Eq + Clone + Send + Sync + Into<Val> + 'static,
@@ -89,10 +90,14 @@ impl Interface {
 			let binding_clone = binding.clone();
 			let name_clone = name.clone();
 			let metadata_clone = metadata.clone();
+			let caller = caller.clone();
 
 			macro_rules! link {( $dispatch: expr ) => {
 				linker_instance.func_new( name, move | ctx, _ty, args, results | Ok(
-					results[0] = $dispatch( &binding_clone, ctx, &package_name_clone, &interface_name_clone, &name_clone, &metadata_clone, args )
+					results[0] = $dispatch(
+						&binding_clone, &caller, ctx, &package_name_clone,
+						&interface_name_clone, &name_clone, &metadata_clone, args,
+					)
 				))
 			}}
 
@@ -112,7 +117,8 @@ impl Interface {
 	}
 
 	#[inline]
-	pub(crate) fn add_to_linker_async<PluginId, Ctx, Plugins, Instance>(
+	#[allow( clippy::too_many_arguments )]
+	pub(crate) fn add_to_linker_async<PluginId, Ctx, Plugins, Instance, Executor>(
 		&self,
 		linker: &mut Linker<Ctx>,
 		package_name: &str,
@@ -120,11 +126,14 @@ impl Interface {
 		interface_name: &str,
 		binding: &Binding<PluginId, Ctx, Plugins, Instance>,
 		caller: &Caller,
+		executor: &Arc<Executor>,
+		async_imports: &std::collections::HashSet<(String, String)>,
 	) -> Result<(), wasmtime::Error>
 	where
 		PluginId: std::hash::Hash + Eq + Clone + Send + Sync + Into<Val> + 'static,
 		Ctx: PluginContext,
-		Instance: AsyncDispatchInstance<Ctx>,
+		Executor: futures::task::Spawn + Send + Sync + 'static,
+		Instance: AsyncDispatchInstance<Ctx, Executor>,
 		Plugins: Cardinality<PluginId, Instance> + 'static,
 		<Plugins as Cardinality<PluginId, Instance>>::Rebind<Arc<Instance>>: Send + Sync,
 		<Plugins as Cardinality<PluginId, Instance>>::Rebind<Arc<Instance>>: Cardinality<PluginId, Arc<Instance>>,
@@ -140,6 +149,7 @@ impl Interface {
 			let function_name = name.clone();
 			let function = metadata.clone();
 			let caller = caller.clone();
+			let executor = Arc::clone( executor );
 
 			macro_rules! link_concurrent {( $dispatch: expr ) => {
 				linker_instance.func_new_concurrent( name, move | ctx, _ty, args, results | {
@@ -149,9 +159,11 @@ impl Interface {
 					let function_name = function_name.clone();
 					let function = function.clone();
 					let caller = caller.clone();
+					let executor = Arc::clone( &executor );
 					Box::pin( async move {
 						results[0] = $dispatch(
-							&binding, &caller, ctx, &package_name, &interface_name, &function_name, &function, args,
+							&binding, &caller, &executor, ctx, &package_name,
+							&interface_name, &function_name, &function, args,
 						).await;
 						Ok(())
 					})
@@ -166,16 +178,18 @@ impl Interface {
 					let function_name = function_name.clone();
 					let function = function.clone();
 					let caller = caller.clone();
+					let executor = Arc::clone( &executor );
 					Box::new( async move {
 						results[0] = $dispatch(
-							&binding, &caller, ctx, &package_name, &interface_name, &function_name, &function, args,
+							&binding, &caller, &executor, ctx, &package_name,
+							&interface_name, &function_name, &function, args,
 						).await;
 						Ok(())
 					})
 				})
 			}}
 
-			match ( metadata.is_async(), metadata.kind() ) {
+			match ( async_imports.contains(&( interface_ident.to_string(), name.clone() )), metadata.kind() ) {
 				( true, FunctionKind::Freestanding ) => link_concurrent!( dispatch_all_async ),
 				( true, FunctionKind::Method ) => link_concurrent!( dispatch_method_async ),
 				( false, FunctionKind::Freestanding ) => link_blocking!( dispatch_all_async_blocking ),
@@ -213,8 +227,6 @@ pub struct Function {
 	kind: FunctionKind,
 	/// The function's return kind for dispatch handling
 	return_kind: ReturnKind,
-	/// Whether the WIT function is declared with the `async` effect.
-	is_async: bool,
 }
 
 impl Function {
@@ -223,25 +235,7 @@ impl Function {
 		kind: FunctionKind,
 		return_kind: ReturnKind,
 	) -> Self {
-		Self { kind, return_kind, is_async: false }
-	}
-
-	/// Creates metadata for a WIT function declared with the `async` effect.
-	///
-	/// ```
-	/// use wasm_link::{ Function, FunctionKind, ReturnKind };
-	///
-	/// let function = Function::new_async(
-	/// 	FunctionKind::Freestanding,
-	/// 	ReturnKind::MayContainResources,
-	/// );
-	/// assert!( function.is_async() );
-	/// ```
-	pub fn new_async(
-		kind: FunctionKind,
-		return_kind: ReturnKind,
-	) -> Self {
-		Self { kind, return_kind, is_async: true }
+		Self { kind, return_kind }
 	}
 
 	/// The function's return kind for dispatch handling.
@@ -249,15 +243,6 @@ impl Function {
 
 	/// Whether this function is freestanding or a resource method.
 	pub fn kind( &self ) -> FunctionKind { self.kind }
-
-	/// Whether the WIT function is declared with the `async` effect.
-	///
-	/// ```
-	/// # use wasm_link::{ Function, FunctionKind, ReturnKind };
-	/// let function = Function::new( FunctionKind::Freestanding, ReturnKind::Void );
-	/// assert!( !function.is_async() );
-	/// ```
-	pub fn is_async( &self ) -> bool { self.is_async }
 
 }
 

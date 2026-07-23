@@ -2,7 +2,8 @@ use wasmtime::{ Config, Engine, Store };
 use wasmtime::component::{ Component, FutureReader, Linker, ResourceTable, StreamReader, Val };
 
 use super::{
-	Budget, DispatchQueue, MAX_CALLER_BYTES, MAX_CALLER_CALLS,
+	AsyncQueue, Budget, PluginInstanceAsync, PluginInstanceSync, RoundRobinQueue,
+	MAX_CALLER_BYTES, MAX_CALLER_CALLS,
 	MAX_DESTINATION_BYTES, MAX_DESTINATION_CALLS, ensure_supported_value,
 	has_capacity, retained_bytes,
 };
@@ -12,6 +13,32 @@ struct Context { table: ResourceTable }
 
 impl PluginContext for Context {
 	fn resource_table( &mut self ) -> &mut ResourceTable { &mut self.table }
+}
+
+#[test]
+fn plugin_instances_are_send_and_sync() {
+	fn assert_send_sync<T: Send + Sync>() {}
+	assert_send_sync::<PluginInstanceSync<Context>>();
+	assert_send_sync::<PluginInstanceAsync<Context, futures::executor::ThreadPool>>();
+}
+
+#[test]
+fn queues_calls_round_robin_by_caller() {
+	let mut queue = RoundRobinQueue::default();
+	queue.push( 1, "a1" );
+	queue.push( 1, "a2" );
+	queue.push( 1, "a3" );
+
+	assert_eq!( queue.pop(), Some(( 1, "a1" )));
+	queue.push( 2, "b1" );
+	queue.finish( 1 );
+	assert_eq!( queue.pop(), Some(( 2, "b1" )));
+	queue.finish( 2 );
+	assert_eq!( queue.pop(), Some(( 1, "a2" )));
+	queue.finish( 1 );
+	assert_eq!( queue.pop(), Some(( 1, "a3" )));
+	queue.finish( 1 );
+	assert_eq!( queue.pop(), None );
 }
 
 #[test]
@@ -95,23 +122,23 @@ fn measures_nested_retained_argument_bytes() {
 
 #[test]
 fn enforces_caller_and_destination_count_and_byte_limits() {
-	assert!( has_capacity( &Budget::default(), &DispatchQueue::default(), MAX_CALLER_BYTES ));
+	assert!( has_capacity( &Budget::default(), &AsyncQueue::default(), MAX_CALLER_BYTES ));
 	assert!( !has_capacity(
-		&Budget { calls: MAX_CALLER_CALLS, bytes: 0 }, &DispatchQueue::default(), 0,
+		&Budget { calls: MAX_CALLER_CALLS, bytes: 0 }, &AsyncQueue::default(), 0,
 	));
 	assert!( !has_capacity(
-		&Budget { calls: 0, bytes: 1 }, &DispatchQueue::default(), MAX_CALLER_BYTES,
+		&Budget { calls: 0, bytes: 1 }, &AsyncQueue::default(), MAX_CALLER_BYTES,
 	));
 	assert!( !has_capacity(
-		&Budget::default(), &DispatchQueue { calls: MAX_DESTINATION_CALLS, ..DispatchQueue::default() }, 0,
+		&Budget::default(), &AsyncQueue { calls: MAX_DESTINATION_CALLS, ..AsyncQueue::default() }, 0,
 	));
 	assert!( !has_capacity(
 		&Budget::default(),
-		&DispatchQueue { bytes: MAX_DESTINATION_BYTES, ..DispatchQueue::default() },
+		&AsyncQueue { bytes: MAX_DESTINATION_BYTES, ..AsyncQueue::default() },
 		1,
 	));
-	assert!( !has_capacity( &Budget { calls: 0, bytes: usize::MAX }, &DispatchQueue::default(), 1 ));
+	assert!( !has_capacity( &Budget { calls: 0, bytes: usize::MAX }, &AsyncQueue::default(), 1 ));
 	assert!( !has_capacity(
-		&Budget::default(), &DispatchQueue { bytes: usize::MAX, ..DispatchQueue::default() }, 1,
+		&Budget::default(), &AsyncQueue { bytes: usize::MAX, ..AsyncQueue::default() }, 1,
 	));
 }
