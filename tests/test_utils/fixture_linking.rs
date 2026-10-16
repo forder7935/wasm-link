@@ -177,11 +177,17 @@ mod fixture_linking {
 				let kind = match function.kind {
 					wit_parser::FunctionKind::Freestanding
 					| wit_parser::FunctionKind::AsyncFreestanding
+					| wit_parser::FunctionKind::Getter
+					| wit_parser::FunctionKind::Setter
 					| wit_parser::FunctionKind::Static( _ )
 					| wit_parser::FunctionKind::AsyncStatic( _ )
+					| wit_parser::FunctionKind::StaticGetter( _ )
+					| wit_parser::FunctionKind::StaticSetter( _ )
 					| wit_parser::FunctionKind::Constructor( _ ) => FunctionKind::Freestanding,
 					wit_parser::FunctionKind::Method( _ )
-					| wit_parser::FunctionKind::AsyncMethod( _ ) => FunctionKind::Method,
+					| wit_parser::FunctionKind::AsyncMethod( _ )
+					| wit_parser::FunctionKind::MethodGetter( _ )
+					| wit_parser::FunctionKind::MethodSetter( _ ) => FunctionKind::Method,
 				};
 				let return_kind = parse_return_kind( &resolve, function.result )?;
 				let metadata = Function::new( kind, return_kind );

@@ -20,15 +20,14 @@ fn duplicate_socket_interfaces_are_rejected() -> Result<(), Box<dyn std::error::
 		HashMap::from([( bindings.dependency.name, bindings.dependency.spec )]),
 		ExactlyOne( "child".to_string(), child ),
 	);
-	let error = match plugins.startup.plugin.link(
+	let Err( error ) = plugins.startup.plugin.link(
 		&engine,
 		linker,
 		vec![ dependency.clone(), dependency ],
-	) {
-		Err( error ) => error,
-		Ok( _ ) => return Err( "duplicate synchronous sockets linked successfully".into() ),
+	) else {
+		return Err( "duplicate synchronous sockets linked successfully".into() );
 	};
-	assert_eq!( error.to_string(), "map entry `test:child/root` defined twice" );
+	assert_eq!( error.to_string(), "map entry `get-value` defined twice" );
 	Ok(())
 }
 
@@ -45,15 +44,14 @@ fn duplicate_async_socket_interfaces_are_rejected_with_the_exact_error() -> Resu
 			HashMap::from([( bindings.dependency.name, bindings.dependency.spec )]),
 			ExactlyOne( "child".to_string(), child ),
 		);
-		let error = match plugins.startup.plugin.link_async(
+		let Err( error ) = plugins.startup.plugin.link_async(
 			&engine,
 			linker,
 			vec![ dependency.clone(), dependency ],
-		).await {
-			Err( error ) => error,
-			Ok( _ ) => return Err( "duplicate asynchronous sockets linked successfully".into() ),
+		).await else {
+			return Err( "duplicate asynchronous sockets linked successfully".into() );
 		};
-		assert_eq!( error.to_string(), "map entry `test:child/root` defined twice" );
+		assert_eq!( error.to_string(), "map entry `get-value` defined twice" );
 		Ok(())
 	})
 }

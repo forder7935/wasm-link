@@ -441,6 +441,7 @@ fn test_state_without_concurrency() -> Result<PluginState<Context>, wasmtime::Er
 fn accepts_nested_component_values() -> Result<(), DispatchError> {
 	let value = Val::Record( vec![
 		( "list".to_string(), Val::List( vec![ Val::U32( 1 ) ])),
+		( "fixed-length-list".to_string(), Val::FixedLengthList( vec![ Val::U32( 1 ) ])),
 		( "tuple".to_string(), Val::Tuple( vec![ Val::U32( 2 ) ])),
 		( "map".to_string(), Val::Map( vec![( Val::String( "key".to_string() ), Val::U32( 3 ))])),
 		( "variant".to_string(), Val::Variant( "some".to_string(), Some( Box::new( Val::U32( 4 ))))),

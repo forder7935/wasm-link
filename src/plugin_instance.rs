@@ -625,7 +625,7 @@ impl<Ctx: PluginContext + 'static> PluginState<Ctx> {
 		}
 		Ok( match function.return_kind() != ReturnKind::Void {
 			true => vec![ Self::PLACEHOLDER_VAL ],
-			false => Vec::with_capacity( 0 ),
+			false => Vec::new(),
 		})
 	}
 
@@ -774,7 +774,7 @@ fn ensure_supported_values( values: &[Val] ) -> Result<(), DispatchError> {
 
 fn ensure_supported_value( value: &Val ) -> Result<(), DispatchError> {
 	match value {
-		Val::List( values ) | Val::Tuple( values ) => ensure_supported_values( values ),
+		Val::List( values ) | Val::FixedLengthList( values ) | Val::Tuple( values ) => ensure_supported_values( values ),
 		Val::Map( values ) => values.iter().try_for_each(|( key, value )| {
 			ensure_supported_value( key )?;
 			ensure_supported_value( value )

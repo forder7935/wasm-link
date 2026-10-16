@@ -17,7 +17,7 @@ fn dispatch_errors_cover_the_provided_wit_contract() -> Result<(), Box<dyn std::
 	let (resolve, world) = load_contract()?;
 	let contract_case_count = dispatch_error_case_count( &resolve, world )?;
 	let mut module = dummy_module( &resolve, world, ManglingAndAbi::Standard32 );
-	embed_component_metadata( &mut module, &resolve, world, StringEncoding::UTF8 )?;
+	embed_component_metadata( &mut module, &resolve, world, StringEncoding::UTF8, false )?;
 	let component = ComponentEncoder::default().module( &module )?.encode()?;
 
 	let engine = Engine::default();

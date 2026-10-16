@@ -1,6 +1,6 @@
 [package]
 name = "wasm-link"
-version = "0.4.1"
+version = "0.5.0"
 authors = ["Forder7935"]
 edition = "2021"
 rust-version = "1.94.0"
@@ -21,16 +21,16 @@ include = [
 ]
 
 [dependencies]
-wasmtime = "47.0"
-thiserror = "2.0"
-nonempty-collections = "1.3"
-futures = "0.3"
+wasmtime = "49.0"
+thiserror = "2.0.21"
+nonempty-collections = "1.4"
+futures = "0.3.34"
 
 [dev-dependencies]
-wit-parser = "0.253.0"
-wit-component = { version = "0.253.0", features = [ "dummy-module" ] }
+wit-parser = "0.262.0"
+wit-component = { version = "0.262.0", features = [ "dummy-module" ] }
 once_cell = "1.21.4"
-futures = { version = "0.3.31", features = [ "executor" ] }
+futures = { version = "0.3.34", features = [ "executor" ] }
 
 [lints.clippy]
 pedantic = { level = "warn", priority = -1 }

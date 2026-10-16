@@ -5,7 +5,7 @@
 	)
 	(core instance $memory (instantiate $memory))
 	(core func $error-context-new
-		(canon error-context.new (memory $memory "memory"))
+		(canon error-context.new (memory (core memory $memory "memory")))
 	)
 
 	(core module $implementation

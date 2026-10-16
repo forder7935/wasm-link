@@ -7,7 +7,7 @@
 	(alias export $host "wait" (func $wait))
 	(core module $memory (memory (export "memory") 1))
 	(core instance $memory (instantiate $memory))
-	(core func $lowered-wait (canon lower (func $wait) async (memory $memory "memory")))
+	(core func $lowered-wait (canon lower (func $wait) async (memory (core memory $memory "memory"))))
 	(core func $waitable-set-new (canon waitable-set.new))
 	(core func $waitable-join (canon waitable.join))
 	(core func $task-return (canon task.return (result u32)))
@@ -53,8 +53,8 @@
 	(func $lifted-get-value async (result u32) (canon lift
 		(core func $get-value)
 		async
-		(memory $memory "memory")
-		(callback (func $callback))
+		(memory (core memory $memory "memory"))
+		(callback (core func $callback))
 	))
 	(instance $root (export "get-value" (func $lifted-get-value)))
 	(export "test:plugin/root" (instance $root))

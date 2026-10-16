@@ -71,17 +71,17 @@ fn async_dependant_dispatch_encodes_child_errors() -> Result<(), Box<dyn std::er
 			HashMap::from([( bindings.dependency.name, bindings.dependency.spec )]),
 			ExactlyOne( "child".to_string(), child ),
 		);
-		let startup_async = plugins.startup_async.plugin.link_async(
+		let async_importer = plugins.startup_async.plugin.link_async(
 			&engine,
 			linker.clone(),
 			vec![ dependency.clone() ],
 		).await?;
-		let startup_sync = plugins.startup.plugin.link_async(
+		let sync_importer = plugins.startup.plugin.link_async(
 			&engine,
 			linker,
 			vec![ dependency ],
 		).await?;
-		for startup in [ startup_async, startup_sync ] {
+		for startup in [ async_importer, sync_importer ] {
 			let root = Binding::new(
 				bindings.root.package.clone(),
 				HashMap::from([( bindings.root.name.clone(), bindings.root.spec.clone() )]),

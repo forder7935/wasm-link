@@ -18,6 +18,7 @@ fn wraps_nested_component_values_without_resources() -> Result<(), crate::Dispat
 	let values = [
 		Val::Bool( true ),
 		Val::List( vec![ Val::U32( 1 ) ]),
+		Val::FixedLengthList( vec![ Val::U32( 1 ) ]),
 		Val::Map( vec![( Val::String( "key".to_string() ), Val::U32( 2 ))]),
 		Val::Record( vec![( "field".to_string(), Val::U32( 3 ))]),
 		Val::Tuple( vec![ Val::U32( 4 ) ]),

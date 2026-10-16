@@ -430,6 +430,7 @@ where
 		| Val::Option( None )
 		| Val::Result( Ok( Option::None )) | Val::Result( Err( Option::None )) => val,
 		Val::List( list ) => Val::List( list.into_iter().map(| item | wrap_resources( item, plugin_id.clone(), store )).collect::<Result<_,_>>()? ),
+		Val::FixedLengthList( list ) => Val::FixedLengthList( list.into_iter().map(| item | wrap_resources( item, plugin_id.clone(), store )).collect::<Result<_,_>>()? ),
 		Val::Map( entries ) => Val::Map( entries.into_iter()
 			.map(|( key, value )| Ok::<_, DispatchError>((
 				wrap_resources( key, plugin_id.clone(), store )?,
