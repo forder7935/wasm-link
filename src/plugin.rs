@@ -6,7 +6,7 @@
 //! the plugin expects to import from other plugins.
 
 use std::collections::HashMap ;
-use wasmtime::{ Engine, Store };
+use wasmtime::{ Engine, Store, StoreContextMut };
 use wasmtime::component::{ Component, ResourceTable, Linker, Val };
 
 use crate::{ BindingAny, BindingAnyAsync };
@@ -86,10 +86,10 @@ pub struct Plugin<Ctx: 'static> {
 	initial_fuel: Option<u64>,
 	/// Closure that determines fuel for each function call
 	#[allow( clippy::type_complexity )]
-	fuel_limiter: Option<Box<dyn FnMut( &mut Store<Ctx>, &str, &str, &Function ) -> u64 + Send>>,
+	fuel_limiter: Option<Box<dyn FnMut( &mut StoreContextMut<'_, Ctx>, &str, &str, &Function ) -> u64 + Send>>,
 	/// Closure that determines epoch deadline for each function call
 	#[allow( clippy::type_complexity )]
-	epoch_limiter: Option<Box<dyn FnMut( &mut Store<Ctx>, &str, &str, &Function ) -> u64 + Send>>,
+	epoch_limiter: Option<Box<dyn FnMut( &mut StoreContextMut<'_, Ctx>, &str, &str, &Function ) -> u64 + Send>>,
 	/// Closure that returns a mutable reference to the `ResourceLimiter` in the context
 	#[allow( clippy::type_complexity )]
 	memory_limiter: Option<Box<dyn (FnMut( &mut Ctx ) -> &mut dyn wasmtime::ResourceLimiter) + Send + Sync>>,
@@ -150,12 +150,15 @@ where
 
 	/// Sets a closure that determines the fuel limit for each function call.
 	///
-	/// The closure receives the store, the interface path (e.g., `"my:package/api"`),
+	/// Each call retains its own remaining fuel across suspension. Executing a
+	/// dependency does not consume the caller's fuel.
+	///
+	/// The closure receives a mutable [`StoreContextMut`], the interface path (e.g., `"my:package/api"`),
 	/// the function name, and the [`Function`] metadata. It returns the fuel to set.
 	///
 	/// **Warning:** Fuel consumption must be enabled in the [`Engine`]( wasmtime::Engine )
 	/// via [`Config::consume_fuel`]( wasmtime::Config::consume_fuel ). If not enabled,
-	/// dispatch will fail with a [`RuntimeException`]( crate::DispatchError::RuntimeException )
+	/// dispatch will fail with a [`RuntimeException`]( crate::CallError::RuntimeException )
 	/// at call time.
 	///
 	/// ```
@@ -169,16 +172,28 @@ where
 	/// 	.with_fuel_limiter(| _store, _interface, _function, _metadata | 100_000 );
 	/// # }
 	/// ```
-	pub fn with_fuel_limiter( mut self, limiter: impl FnMut( &mut Store<Ctx>, &str, &str, &Function ) -> u64 + Send + 'static ) -> Self {
+	pub fn with_fuel_limiter( mut self, limiter: impl FnMut( &mut StoreContextMut<'_, Ctx>, &str, &str, &Function ) -> u64 + Send + 'static ) -> Self {
 		self.fuel_limiter = Some( Box::new( limiter ));
 		self
 	}
 
 	/// Sets a closure that determines the epoch deadline for each function call.
 	///
-	/// The closure receives the store, the interface path (e.g., `"my:package/api"`),
+	/// The closure receives a mutable [`StoreContextMut`], the interface path (e.g., `"my:package/api"`),
 	/// the function name, and the [`Function`] metadata. It returns the epoch deadline
 	/// in ticks.
+	///
+	/// **Warning:** Epoch deadlines include time spent waiting on host functions
+	/// and dependencies. A stalled dependency can cause its caller to exceed its
+	/// deadline, even if the caller executes little Wasm itself. Use fuel limits
+	/// when you need to bound only the plugin's own execution.
+	/// Expiration is checked during Wasm execution; it does not cancel a pending
+	/// host function or dependency wait by itself.
+	///
+	/// Wasmtime has one epoch deadline per store. To preserve independent per-call
+	/// deadlines, an epoch-limited plugin admits one call at a time, including
+	/// while that call is suspended. Queued calls receive their deadline when
+	/// admitted. Other plugin stores remain independently runnable.
 	///
 	/// **Warning:** Epoch interruption must be enabled in the [`Engine`]( wasmtime::Engine )
 	/// via [`Config::epoch_interruption`]( wasmtime::Config::epoch_interruption ). If not
@@ -195,7 +210,7 @@ where
 	/// 	.with_epoch_limiter(| _store, _interface, _function, _metadata | 5 );
 	/// # }
 	/// ```
-	pub fn with_epoch_limiter( mut self, limiter: impl FnMut( &mut Store<Ctx>, &str, &str, &Function ) -> u64 + Send + 'static ) -> Self {
+	pub fn with_epoch_limiter( mut self, limiter: impl FnMut( &mut StoreContextMut<'_, Ctx>, &str, &str, &Function ) -> u64 + Send + 'static ) -> Self {
 		self.epoch_limiter = Some( Box::new( limiter ));
 		self
 	}
@@ -285,7 +300,7 @@ where
 	pub fn link<PluginId, Sockets>(
 		self,
 		engine: &Engine,
-		mut linker: Linker<Ctx>,
+		linker: Linker<Ctx>,
 		sockets: Sockets,
 	) -> Result<PluginInstanceSync<Ctx>, wasmtime::Error>
 	where
@@ -293,9 +308,10 @@ where
 		Sockets: IntoIterator,
 		Sockets::Item: Into<BindingAny<PluginId, Ctx>>,
 	{
-		let sockets = sockets.into_iter().map( Into::into ).collect::<Vec<_>>();
-		sockets.iter().try_for_each(| binding | binding.add_to_linker( &mut linker ))?;
-		self.instantiate_with_linker( engine, &linker )
+        let sockets: Vec<BindingAnyAsync<PluginId, Ctx>> = sockets.into_iter()
+            .map(|binding| BindingAnyAsync::from(binding.into())).collect();
+        crate::plugin_instance::block_on(self.link_async(engine, linker, sockets)).map(PluginInstanceAsync::into_sync)
+
 	}
 
 	/// Asynchronously links this plugin with its socket bindings and instantiates it.
@@ -303,7 +319,9 @@ where
 	/// Use this variant when this plugin imports functions asynchronously or any
 	/// destination socket may suspend. Socket bindings may contain either
 	/// [`PluginInstanceSync`] or [`PluginInstanceAsync`].
-	/// The future returned by dispatch drives every involved plugin store
+	/// Busy dependencies wait throughout the tree, including already-linked synchronous
+    /// dependencies. See [`runtime`](crate::runtime) for cancellation and ownership.
+    /// The future returned by dispatch drives every involved plugin store
 	/// cooperatively on its current async task.
 	///
 	/// # Example
@@ -349,7 +367,7 @@ where
 				_ => None,
 			}).collect::<HashMap<_, _>>();
 			let interface = import.implements.unwrap_or( import_name );
-			import_asyncness.insert( unversioned( interface ).to_string(), ImportMetadata {
+			import_asyncness.entry( unversioned( interface ).to_string() ).or_insert_with( Vec::new ).push( ImportMetadata {
 				linker_name: import_name.to_string(),
 				functions,
 			});
@@ -362,7 +380,12 @@ where
 		self.instantiate_async_with_linkage( engine, &linker, linkage ).await
 	}
 
-	/// A convenience alias for [`Plugin::link`] with 0 sockets
+	/// Instantiates a plugin with synchronous public dispatch and no sockets.
+    ///
+    /// Internal imports remain async-capable. Synchronous dispatch blocks the
+    /// calling thread and reports [`SyncCallError::PluginBusy`](crate::SyncCallError::PluginBusy)
+    /// for an occupied target. Wasmtime concurrency support must remain enabled.
+    /// See [`runtime`](crate::runtime) for execution and ownership details.
 	///
 	/// # Errors
 	/// Returns an error if instantiation fails.
@@ -379,23 +402,15 @@ where
 		engine: &Engine,
 		linker: &Linker<Ctx>,
 	) -> Result<PluginInstanceSync<Ctx>, wasmtime::Error> {
-		let mut store = Store::new( engine, self.context );
-		if let Some( fuel ) = self.initial_fuel { store.set_fuel( fuel )?; }
-		if let Some( limiter ) = self.memory_limiter { store.limiter( limiter ); }
-		let instance = linker.instantiate( &mut store, &self.component )?;
-		Ok( PluginInstanceSync::new_sync(
-			store,
-			instance,
-			self.interface_remaps,
-			self.fuel_limiter,
-			self.epoch_limiter,
-		))
+        crate::plugin_instance::block_on(self.instantiate_async(engine, linker)).map(PluginInstanceAsync::into_sync)
+
 	}
 
 	/// Asynchronously instantiates this plugin.
 	///
 	/// This variant is required for WIT async functions, asynchronous host functions,
-	/// and plugins that will be used in a graph created with [`link_async`](Self::link_async).
+	/// or when the host wants to await dispatch rather than block. Synchronous instances
+    /// can also be used as dependencies in graphs created with [`link_async`](Self::link_async).
 	/// The plugin's [`Store`](wasmtime::Store) is driven by the future returned from
 	/// asynchronous dispatch; no executor or worker thread is required.
 	/// Wasmtime concurrency support, which is enabled by default, must not be disabled
@@ -436,11 +451,13 @@ where
 		self,
 		engine: &Engine,
 		linker: &Linker<Ctx>,
-		linkage: AsyncLinkage<Ctx>,
+		linkage: AsyncLinkage,
 	) -> Result<PluginInstanceAsync<Ctx>, wasmtime::Error> {
 		let mut store = Store::new( engine, self.context );
 		if let Some( fuel ) = self.initial_fuel { store.set_fuel( fuel )?; }
 		if let Some( limiter ) = self.memory_limiter { store.limiter( limiter ); }
+		let mut linker = linker.clone();
+        crate::plugin_instance::add_runtime_imports(&mut linker, linkage.active_calls())?;
 		let instance = linker.instantiate_async( &mut store, &self.component ).await?;
 		Ok( PluginInstanceAsync::new(
 			store,

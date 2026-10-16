@@ -10,7 +10,7 @@ fixtures! {
 	plugins  = { burn_fuel: "burn-fuel" };
 }
 
-fn dispatch_with_epoch( deadline: u64, concurrent_ticker: bool ) -> Result<ExactlyOne<String, Result<Val, wasm_link::DispatchError>>, wasm_link::DispatchError> {
+fn dispatch_with_epoch( deadline: u64, concurrent_ticker: bool ) -> Result<ExactlyOne<String, Result<Val, wasm_link::SyncCallError>>, wasm_link::DispatchError> {
 
 	let mut config = Config::new();
 	config.epoch_interruption( true );
@@ -66,7 +66,7 @@ fn dispatch_with_epoch( deadline: u64, concurrent_ticker: bool ) -> Result<Exact
 fn epoch_exhaustion_returns_runtime_exception() {
 	// Deadline of 1 with concurrent ticker -> should trap after just 1 increment
 	match dispatch_with_epoch( 1, true ) {
-		Ok( ExactlyOne( _, Err( wasm_link::DispatchError::RuntimeException( _ )))) => {}
+		Ok( ExactlyOne( _, Err( wasm_link::SyncCallError::Call( wasm_link::CallError::RuntimeException( _ ))))) => {}
 		other => panic!( "Expected RuntimeException from epoch exhaustion, got: {:#?}", other ),
 	}
 }

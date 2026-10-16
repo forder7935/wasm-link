@@ -55,7 +55,7 @@ fn plugin_dispatch_rejects_a_non_function_export() -> Result<(), wasmtime::Error
 
 	assert!( matches!(
 		binding.dispatch( "root", "not-a-function", &[] ),
-		Ok( ExactlyOne( _, Err( DispatchError::InvalidFunction( _ ))))
+		Ok( ExactlyOne( _, Err( wasm_link::SyncCallError::Call( wasm_link::CallError::InvalidFunction( _ )))))
 	));
 	Ok(())
 }

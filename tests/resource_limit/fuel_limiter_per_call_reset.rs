@@ -1,6 +1,6 @@
 use std::collections::{ HashMap, HashSet };
 use std::sync::{ Arc, atomic::{ AtomicU64, AtomicUsize, Ordering } };
-use wasm_link::{ Binding, Engine, Function, FunctionKind, Interface, Linker, ReturnKind, Val, DispatchError };
+use wasm_link::{ Binding, Engine, Function, FunctionKind, Interface, Linker, ReturnKind, Val };
 use wasm_link::cardinality::ExactlyOne ;
 use wasmtime::Config;
 
@@ -62,7 +62,7 @@ fn closure_is_called_per_dispatch_and_can_observe_remaining_fuel() {
 	// this dispatch would not exhaust fuel immediately
 	dispatch_call_count.store( 0, Ordering::Relaxed );
 	match binding.dispatch( "root", "burn", &[] ) {
-		Ok( ExactlyOne( _, Err( DispatchError::RuntimeException( _ )))) => {}
+		Ok( ExactlyOne( _, Err( wasm_link::SyncCallError::Call( wasm_link::CallError::RuntimeException( _ ))))) => {}
 		other => panic!( "Expected RuntimeException on second dispatch, got: {:#?}", other ),
 	}
 	assert_eq!( dispatch_call_count.load( Ordering::Relaxed ), 1, "limiter should be called exactly once per dispatch" );

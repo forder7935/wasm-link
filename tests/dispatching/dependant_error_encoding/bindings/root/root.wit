@@ -2,10 +2,9 @@ package test:dependant-error ;
 
 interface root {
 	variant dispatch-error {
-		lock-rejected,
+		plugin-busy,
 		invalid-interface-path(string),
 		invalid-function(string),
-		missing-response,
 		runtime-exception(string),
 		invalid-argument-list,
 		unsupported-type(string),

@@ -3,7 +3,7 @@ name = "wasm-link"
 version = "0.5.0"
 authors = ["Forder7935"]
 edition = "2021"
-rust-version = "1.94.0"
+rust-version = "1.96.0"
 description = "A WebAssembly plugin runtime based around Wasmtime intended for building fully modular applications"
 documentation = "https://docs.rs/wasm-link"
 readme = "README.md"
@@ -21,7 +21,7 @@ include = [
 ]
 
 [dependencies]
-wasmtime = "49.0"
+wasmtime = { version = "49.0", features = [ "call-hook" ] }
 thiserror = "2.0.21"
 nonempty-collections = "1.4"
 futures = "0.3.34"

@@ -1,15 +1,13 @@
-use std::sync::Arc ;
-use futures::lock::Mutex ;
-use wasmtime::{ AsContextMut, StoreContextMut };
-use wasmtime::component::{ Accessor, Val };
+use futures::lock::Mutex;
+use std::sync::Arc;
+use wasmtime::component::{Accessor, Val};
+use wasmtime::{AsContextMut, StoreContextMut};
 
-use crate::{ Binding, Function, FunctionKind, ReturnKind, PluginContext, DispatchError };
-use crate::cardinality::Cardinality ;
-use crate::plugin_instance::{ PluginInstanceAsync, PluginInstanceSync };
-use crate::async_scheduler::{ DispatchContext, AsyncScheduler, ExecutionPathId, PluginKey };
-use super::resource_wrapper::ResourceWrapper ;
+use crate::cardinality::Cardinality;
+use crate::errors::RouteError;
+use crate::{Binding, Function, FunctionKind, PluginContext, ReturnKind};
 
-
+use super::resource_wrapper::ResourceWrapper;
 
 pub(crate) struct DispatchTarget<'a> {
 	package_name: &'a str,
@@ -19,156 +17,25 @@ pub(crate) struct DispatchTarget<'a> {
 }
 
 impl<'a> DispatchTarget<'a> {
-	pub(crate) fn new( package_name: &'a str, interface_name: &'a str, function_name: &'a str, function: &'a Function ) -> Self {
-		Self { package_name, interface_name, function_name, function }
+	pub(crate) fn new(
+		package_name: &'a str,
+		interface_name: &'a str,
+		function_name: &'a str,
+		function: &'a Function,
+	) -> Self {
+		Self {
+			package_name,
+			interface_name,
+			function_name,
+			function,
+		}
 	}
 }
 
-/// Dispatches a non-method function call to all plugins
-pub(crate) fn dispatch_all<PluginId, Ctx, Plugins>(
-	binding: &Binding<PluginId, Ctx, Plugins, PluginInstanceSync<Ctx>>,
-	mut ctx: StoreContextMut<Ctx>,
-	package_name: &str,
-	interface_name: &str,
-	function_name: &str,
-	function: &Function,
-	data: &[Val],
-) -> Val
-where
-	PluginId: Clone + std::hash::Hash + Eq + Send + Sync + Into<Val> + 'static,
-	Ctx: PluginContext,
-	Plugins: Cardinality<PluginId, PluginInstanceSync<Ctx>>,
-	<Plugins as Cardinality<PluginId, PluginInstanceSync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceSync<Ctx>>>>: Send + Sync,
-	<Plugins as Cardinality<PluginId, PluginInstanceSync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceSync<Ctx>>>>: Cardinality<PluginId, Arc<Mutex<PluginInstanceSync<Ctx>>>>,
-	<<Plugins as Cardinality<PluginId, PluginInstanceSync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceSync<Ctx>>>> as Cardinality<PluginId, Arc<Mutex<PluginInstanceSync<Ctx>>>>>::Rebind<Val>: Into<Val>,
-{
-	debug_assert_eq!( function.kind(), FunctionKind::Freestanding );
-	let target = DispatchTarget {
-		package_name,
-		interface_name,
-		function_name,
-		function,
-	};
-	binding.plugins().map(| plugin_id, plugin | Val::Result(
-		match dispatch_of(
-			&mut ctx,
-			plugin_id.clone(),
-			plugin,
-			&target,
-			data,
-		) {
-			Ok( val ) => Ok( Some( Box::new( val ))),
-			Err( err ) => Err( Some( Box::new( err.into() ))),
-		}
-	)).into()
-}
-
-/// Dispatches a method function call, routing to the correct plugin.
-pub(crate) fn dispatch_method<PluginId, Ctx, Plugins>(
-	binding: &Binding<PluginId, Ctx, Plugins, PluginInstanceSync<Ctx>>,
-	ctx: StoreContextMut<Ctx>,
-	package_name: &str,
-	interface_name: &str,
-	function_name: &str,
-	function: &Function,
-	data: &[Val],
-) -> Val
-where
-	PluginId: Clone + std::hash::Hash + Eq + Send + Sync + 'static,
-	Ctx: PluginContext,
-	Plugins: Cardinality<PluginId, PluginInstanceSync<Ctx>>,
-	<Plugins as Cardinality<PluginId, PluginInstanceSync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceSync<Ctx>>>>: Send + Sync,
-	<Plugins as Cardinality<PluginId, PluginInstanceSync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceSync<Ctx>>>>: Cardinality<PluginId, Arc<Mutex<PluginInstanceSync<Ctx>>>>,
-{
-	debug_assert_eq!( function.kind(), FunctionKind::Method );
-	Val::Result( match route_method(
-		binding,
-		ctx,
-		package_name,
-		interface_name,
-		function_name,
-		function,
-		data,
-	) {
-		Ok( val ) => Ok( Some( Box::new( val ))),
-		Err( err ) => Err( Some( Box::new( err.into() ))),
-	})
-}
-
-#[inline]
-fn dispatch_of<PluginId, Ctx>(
-	ctx: &mut StoreContextMut<Ctx>,
-	plugin_id: PluginId,
-	plugin: &Arc<Mutex<PluginInstanceSync<Ctx>>>,
-	target: &DispatchTarget<'_>,
-	data: &[Val],
-) -> Result<Val, DispatchError>
-where
-	PluginId: Clone + std::hash::Hash + Eq + Send + Sync + 'static,
-	Ctx: PluginContext,
-{
-
-	let mut lock = plugin.try_lock().ok_or( DispatchError::LockRejected )?;
-	let result = lock.dispatch( target.package_name, target.interface_name, target.function_name, target.function, data )?;
-
-	Ok( match target.function.return_kind() {
-		ReturnKind::Void | ReturnKind::AssumeNoResources => result,
-		ReturnKind::MayContainResources => wrap_resources( result, plugin_id, ctx )?,
-	})
-}
-
-#[inline]
-fn route_method<PluginId, Ctx, Plugins>(
-	binding: &Binding<PluginId, Ctx, Plugins, PluginInstanceSync<Ctx>>,
-	mut ctx: StoreContextMut<Ctx>,
-	package_name: &str,
-	interface_name: &str,
-	function_name: &str,
-	function: &Function,
-	data: &[Val],
-) -> Result<Val, DispatchError>
-where
-	PluginId: Clone + std::hash::Hash + Eq + Send + Sync + 'static,
-	Ctx: PluginContext,
-	Plugins: Cardinality<PluginId, PluginInstanceSync<Ctx>>,
-	<Plugins as Cardinality<PluginId, PluginInstanceSync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceSync<Ctx>>>>: Send + Sync,
-	<Plugins as Cardinality<PluginId, PluginInstanceSync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceSync<Ctx>>>>: Cardinality<PluginId, Arc<Mutex<PluginInstanceSync<Ctx>>>>,
-{
-
-	let handle = match data.first() {
-		Some( Val::Resource( handle )) => Ok( handle ),
-		_ => Err( DispatchError::InvalidArgumentList ),
-	}?;
-
-	let resource = ResourceWrapper::<PluginId>::from_handle( *handle, &mut ctx )?;
-	let plugin = binding.plugins().get( &resource.plugin_id ).ok_or( DispatchError::InvalidArgumentList )?;
-	let plugin_id = resource.plugin_id.clone();
-
-	let mut data = Vec::from( data );
-	data[0] = Val::Resource( resource.resource_handle );
-	let target = DispatchTarget {
-		package_name,
-		interface_name,
-		function_name,
-		function,
-	};
-
-	dispatch_of(
-		&mut ctx,
-		plugin_id,
-		plugin,
-		&target,
-		&data,
-	)
-
-}
-
 /// Asynchronously dispatches a non-method function call to all plugins.
-pub(crate) async fn dispatch_all_async<PluginId, Ctx, Plugins>(
-	binding: &Binding<PluginId, Ctx, Plugins, PluginInstanceAsync<Ctx>>,
-	scheduler: &AsyncScheduler<Ctx>,
-	caller: PluginKey,
-	path: ExecutionPathId,
+pub(crate) async fn dispatch_all_async<PluginId, Ctx, Plugins, Instance>(
+	binding: &Binding<PluginId, Ctx, Plugins, Instance>,
+	context: &crate::plugin_instance::CallContext,
 	ctx: &Accessor<Ctx>,
 	target: &DispatchTarget<'_>,
 	data: &[Val],
@@ -176,26 +43,37 @@ pub(crate) async fn dispatch_all_async<PluginId, Ctx, Plugins>(
 where
 	PluginId: Clone + std::hash::Hash + Eq + Send + Sync + Into<Val> + 'static,
 	Ctx: PluginContext,
-	Plugins: Cardinality<PluginId, PluginInstanceAsync<Ctx>>,
-	<Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceAsync<Ctx>>>>: Send + Sync,
-	<Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceAsync<Ctx>>>>: Cardinality<PluginId, Arc<Mutex<PluginInstanceAsync<Ctx>>>>,
-	<<Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceAsync<Ctx>>>> as Cardinality<PluginId, Arc<Mutex<PluginInstanceAsync<Ctx>>>>>::Rebind<Val>: Into<Val> + Send,
+	Instance: crate::plugin_instance::InstanceHandle<Ctx> + Send + Sync + 'static,
+	Plugins: Cardinality<PluginId, Instance>,
+	<Plugins as Cardinality<PluginId, Instance>>::Rebind<Arc<Instance>>: Send + Sync,
+	<Plugins as Cardinality<PluginId, Instance>>::Rebind<Arc<Instance>>: Cardinality<PluginId, Arc<Instance>>,
+	<<Plugins as Cardinality<PluginId, Instance>>::Rebind<Arc<Instance>> as Cardinality<PluginId, Arc<Instance>>>::Rebind<Val>: Into<Val> + Send,
 {
-	debug_assert_eq!( target.function.kind(), FunctionKind::Freestanding );
-	binding.plugins().map_async(| plugin_id, plugin | async {
-		Val::Result( match dispatch_of_async( DispatchContext::new( scheduler, caller, path ), ctx, plugin_id, plugin, target, data ).await {
-			Ok( val ) => Ok( Some( Box::new( val ))),
-			Err( err ) => Err( Some( Box::new( err.into() ))),
+	debug_assert_eq!(target.function.kind(), FunctionKind::Freestanding);
+	let deliveries = crate::plugin_instance::DeliveryBatch::default();
+	let result = binding
+		.plugins()
+		.map_async(|plugin_id, plugin| async {
+			Val::Result(
+				match dispatch_of_async(context, ctx, plugin_id, plugin, target, data).await {
+					Ok(val) => Ok(Some(Box::new(deliveries.hold(crate::plugin_instance::OwnedValue {
+						value: Some(val),
+						cleanup: context.cleanup.clone(),
+					})))),
+					Err(err) => Err(Some(Box::new(err.into()))),
+				},
+			)
 		})
-	}).await.into()
+		.await
+		.into();
+	deliveries.delivered();
+	result
 }
 
 /// Asynchronously dispatches a method call to the plugin owning its resource.
-pub(crate) async fn dispatch_method_async<PluginId, Ctx, Plugins>(
-	binding: &Binding<PluginId, Ctx, Plugins, PluginInstanceAsync<Ctx>>,
-	scheduler: &AsyncScheduler<Ctx>,
-	caller: PluginKey,
-	path: ExecutionPathId,
+pub(crate) async fn dispatch_method_async<PluginId, Ctx, Plugins, Instance>(
+	binding: &Binding<PluginId, Ctx, Plugins, Instance>,
+	context: &crate::plugin_instance::CallContext,
 	ctx: &Accessor<Ctx>,
 	target: &DispatchTarget<'_>,
 	data: &[Val],
@@ -203,31 +81,22 @@ pub(crate) async fn dispatch_method_async<PluginId, Ctx, Plugins>(
 where
 	PluginId: Clone + std::hash::Hash + Eq + Send + Sync + 'static,
 	Ctx: PluginContext,
-	Plugins: Cardinality<PluginId, PluginInstanceAsync<Ctx>>,
-	<Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceAsync<Ctx>>>>: Send + Sync,
-	<Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceAsync<Ctx>>>>: Cardinality<PluginId, Arc<Mutex<PluginInstanceAsync<Ctx>>>>,
+	Instance: crate::plugin_instance::InstanceHandle<Ctx> + Send + Sync + 'static,
+	Plugins: Cardinality<PluginId, Instance>,
+	<Plugins as Cardinality<PluginId, Instance>>::Rebind<Arc<Instance>>: Send + Sync,
+	<Plugins as Cardinality<PluginId, Instance>>::Rebind<Arc<Instance>>: Cardinality<PluginId, Arc<Instance>>,
 {
-	debug_assert_eq!( target.function.kind(), FunctionKind::Method );
-	Val::Result( match route_method_async(
-		binding,
-		scheduler,
-		caller,
-		path,
-		ctx,
-		target,
-		data,
-	).await {
-		Ok( val ) => Ok( Some( Box::new( val ))),
-		Err( err ) => Err( Some( Box::new( err.into() ))),
+	debug_assert_eq!(target.function.kind(), FunctionKind::Method);
+	Val::Result(match route_method_async(binding, context, ctx, target, data).await {
+		Ok(val) => Ok(Some(Box::new(val))),
+		Err(err) => Err(Some(Box::new(err.into()))),
 	})
 }
 
 /// Asynchronously implements a synchronous WIT import without blocking its host thread.
-pub(crate) async fn dispatch_all_async_sync<PluginId, Ctx, Plugins>(
-	binding: &Binding<PluginId, Ctx, Plugins, PluginInstanceAsync<Ctx>>,
-	scheduler: &AsyncScheduler<Ctx>,
-	caller: PluginKey,
-	path: ExecutionPathId,
+pub(crate) async fn dispatch_all_async_sync<PluginId, Ctx, Plugins, Instance>(
+	binding: &Binding<PluginId, Ctx, Plugins, Instance>,
+	context: &crate::plugin_instance::CallContext,
 	ctx: StoreContextMut<'_, Ctx>,
 	target: &DispatchTarget<'_>,
 	data: &[Val],
@@ -235,27 +104,38 @@ pub(crate) async fn dispatch_all_async_sync<PluginId, Ctx, Plugins>(
 where
 	PluginId: Clone + std::hash::Hash + Eq + Send + Sync + Into<Val> + 'static,
 	Ctx: PluginContext,
-	Plugins: Cardinality<PluginId, PluginInstanceAsync<Ctx>>,
-	<Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceAsync<Ctx>>>>: Send + Sync,
-	<Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceAsync<Ctx>>>>: Cardinality<PluginId, Arc<Mutex<PluginInstanceAsync<Ctx>>>>,
-	<<Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceAsync<Ctx>>>> as Cardinality<PluginId, Arc<Mutex<PluginInstanceAsync<Ctx>>>>>::Rebind<Val>: Into<Val> + Send,
+	Instance: crate::plugin_instance::InstanceHandle<Ctx> + Send + Sync + 'static,
+	Plugins: Cardinality<PluginId, Instance>,
+	<Plugins as Cardinality<PluginId, Instance>>::Rebind<Arc<Instance>>: Send + Sync,
+	<Plugins as Cardinality<PluginId, Instance>>::Rebind<Arc<Instance>>: Cardinality<PluginId, Arc<Instance>>,
+	<<Plugins as Cardinality<PluginId, Instance>>::Rebind<Arc<Instance>> as Cardinality<PluginId, Arc<Instance>>>::Rebind<Val>: Into<Val> + Send,
 {
-	debug_assert_eq!( target.function.kind(), FunctionKind::Freestanding );
-	let ctx = Mutex::new( ctx );
-	binding.plugins().map_async(| plugin_id, plugin | async {
-		Val::Result( match dispatch_of_async_sync( DispatchContext::new( scheduler, caller, path ), &ctx, plugin_id, plugin, target, data ).await {
-			Ok( val ) => Ok( Some( Box::new( val ))),
-			Err( err ) => Err( Some( Box::new( err.into() ))),
+	debug_assert_eq!(target.function.kind(), FunctionKind::Freestanding);
+	let ctx = Mutex::new(ctx);
+	let deliveries = crate::plugin_instance::DeliveryBatch::default();
+	let result = binding
+		.plugins()
+		.map_async(|plugin_id, plugin| async {
+			Val::Result(
+				match dispatch_of_async_sync(context, &ctx, plugin_id, plugin, target, data).await {
+					Ok(val) => Ok(Some(Box::new(deliveries.hold(crate::plugin_instance::OwnedValue {
+						value: Some(val),
+						cleanup: context.cleanup.clone(),
+					})))),
+					Err(err) => Err(Some(Box::new(err.into()))),
+				},
+			)
 		})
-	}).await.into()
+		.await
+		.into();
+	deliveries.delivered();
+	result
 }
 
 /// Asynchronously implements a synchronous WIT method import.
-pub(crate) async fn dispatch_method_async_sync<PluginId, Ctx, Plugins>(
-	binding: &Binding<PluginId, Ctx, Plugins, PluginInstanceAsync<Ctx>>,
-	scheduler: &AsyncScheduler<Ctx>,
-	caller: PluginKey,
-	path: ExecutionPathId,
+pub(crate) async fn dispatch_method_async_sync<PluginId, Ctx, Plugins, Instance>(
+	binding: &Binding<PluginId, Ctx, Plugins, Instance>,
+	context: &crate::plugin_instance::CallContext,
 	ctx: StoreContextMut<'_, Ctx>,
 	target: &DispatchTarget<'_>,
 	data: &[Val],
@@ -263,196 +143,307 @@ pub(crate) async fn dispatch_method_async_sync<PluginId, Ctx, Plugins>(
 where
 	PluginId: Clone + std::hash::Hash + Eq + Send + Sync + 'static,
 	Ctx: PluginContext,
-	Plugins: Cardinality<PluginId, PluginInstanceAsync<Ctx>>,
-	<Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceAsync<Ctx>>>>: Send + Sync,
-	<Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceAsync<Ctx>>>>: Cardinality<PluginId, Arc<Mutex<PluginInstanceAsync<Ctx>>>>,
+	Instance: crate::plugin_instance::InstanceHandle<Ctx> + Send + Sync + 'static,
+	Plugins: Cardinality<PluginId, Instance>,
+	<Plugins as Cardinality<PluginId, Instance>>::Rebind<Arc<Instance>>: Send + Sync,
+	<Plugins as Cardinality<PluginId, Instance>>::Rebind<Arc<Instance>>: Cardinality<PluginId, Arc<Instance>>,
 {
-	debug_assert_eq!( target.function.kind(), FunctionKind::Method );
-	let ctx = Mutex::new( ctx );
-	Val::Result( match route_method_async_sync(
-		binding,
-		scheduler,
-		caller,
-		path,
-		&ctx,
-		target,
-		data,
-	).await {
-		Ok( val ) => Ok( Some( Box::new( val ))),
-		Err( err ) => Err( Some( Box::new( err.into() ))),
-	})
+	debug_assert_eq!(target.function.kind(), FunctionKind::Method);
+	let ctx = Mutex::new(ctx);
+	Val::Result(
+		match route_method_async_sync(binding, context, &ctx, target, data).await {
+			Ok(val) => Ok(Some(Box::new(val))),
+			Err(err) => Err(Some(Box::new(err.into()))),
+		},
+	)
 }
 
-async fn dispatch_of_async<PluginId, Ctx>(
-	dispatch: DispatchContext<'_, Ctx>,
+async fn dispatch_of_async<PluginId, Ctx, Instance>(
+	dispatch: &crate::plugin_instance::CallContext,
 	ctx: &Accessor<Ctx>,
 	plugin_id: PluginId,
-	plugin: Arc<Mutex<PluginInstanceAsync<Ctx>>>,
+	plugin: Arc<Instance>,
 	target: &DispatchTarget<'_>,
 	data: &[Val],
-) -> Result<Val, DispatchError>
+) -> Result<Val, RouteError>
 where
 	PluginId: Clone + std::hash::Hash + Eq + Send + Sync + 'static,
 	Ctx: PluginContext,
+	Instance: crate::plugin_instance::InstanceHandle<Ctx> + Send + Sync + 'static,
 {
-	let instance = plugin.lock().await.handle();
-	let result = instance.dispatch_async(
-		&dispatch,
-		target.package_name,
-		target.interface_name,
-		target.function_name,
-		target.function,
-		data,
-	).await?;
+	let instance = plugin.handle();
+	let result = instance
+		.dispatch_routed(
+			dispatch,
+			target.package_name,
+			target.interface_name,
+			target.function_name,
+			target.function,
+			data,
+		)
+		.await?;
 
 	match target.function.return_kind() {
-		ReturnKind::Void | ReturnKind::AssumeNoResources => Ok( result ),
-		ReturnKind::MayContainResources => ctx.with(| mut access | {
+		ReturnKind::Void | ReturnKind::AssumeNoResources => Ok(result.take()),
+		ReturnKind::MayContainResources => ctx.with(|mut access| {
 			let mut store = access.as_context_mut();
-			wrap_resources( result, plugin_id, &mut store )
+			wrap_owned_resources(result, plugin_id, &mut store, &dispatch.cleanup)
 		}),
 	}
 }
 
-async fn dispatch_of_async_sync<PluginId, Ctx>(
-	dispatch: DispatchContext<'_, Ctx>,
+async fn dispatch_of_async_sync<PluginId, Ctx, Instance>(
+	dispatch: &crate::plugin_instance::CallContext,
 	ctx: &Mutex<StoreContextMut<'_, Ctx>>,
 	plugin_id: PluginId,
-	plugin: Arc<Mutex<PluginInstanceAsync<Ctx>>>,
+	plugin: Arc<Instance>,
 	target: &DispatchTarget<'_>,
 	data: &[Val],
-) -> Result<Val, DispatchError>
+) -> Result<Val, RouteError>
 where
 	PluginId: Clone + std::hash::Hash + Eq + Send + Sync + 'static,
 	Ctx: PluginContext,
+	Instance: crate::plugin_instance::InstanceHandle<Ctx> + Send + Sync + 'static,
 {
-	let instance = plugin.lock().await.handle();
-	let result = instance.dispatch_async(
-		&dispatch,
-		target.package_name,
-		target.interface_name,
-		target.function_name,
-		target.function,
-		data,
-	).await?;
+	let instance = plugin.handle();
+	let result = instance
+		.dispatch_routed(
+			dispatch,
+			target.package_name,
+			target.interface_name,
+			target.function_name,
+			target.function,
+			data,
+		)
+		.await?;
 
 	match target.function.return_kind() {
-		ReturnKind::Void | ReturnKind::AssumeNoResources => Ok( result ),
+		ReturnKind::Void | ReturnKind::AssumeNoResources => Ok(result.take()),
 		ReturnKind::MayContainResources => {
 			let mut store = ctx.lock().await;
-			wrap_resources( result, plugin_id, &mut store )
+			wrap_owned_resources(result, plugin_id, &mut store, &dispatch.cleanup)
 		}
 	}
 }
 
-async fn route_method_async<PluginId, Ctx, Plugins>(
-	binding: &Binding<PluginId, Ctx, Plugins, PluginInstanceAsync<Ctx>>,
-	scheduler: &AsyncScheduler<Ctx>,
-	caller: PluginKey,
-	path: ExecutionPathId,
+async fn route_method_async<PluginId, Ctx, Plugins, Instance>(
+	binding: &Binding<PluginId, Ctx, Plugins, Instance>,
+	context: &crate::plugin_instance::CallContext,
 	ctx: &Accessor<Ctx>,
 	target: &DispatchTarget<'_>,
 	data: &[Val],
-) -> Result<Val, DispatchError>
+) -> Result<Val, RouteError>
 where
 	PluginId: Clone + std::hash::Hash + Eq + Send + Sync + 'static,
 	Ctx: PluginContext,
-	Plugins: Cardinality<PluginId, PluginInstanceAsync<Ctx>>,
-	<Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceAsync<Ctx>>>>: Send + Sync,
-	<Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceAsync<Ctx>>>>: Cardinality<PluginId, Arc<Mutex<PluginInstanceAsync<Ctx>>>>,
+	Instance: crate::plugin_instance::InstanceHandle<Ctx> + Send + Sync + 'static,
+	Plugins: Cardinality<PluginId, Instance>,
+	<Plugins as Cardinality<PluginId, Instance>>::Rebind<Arc<Instance>>: Send + Sync,
+	<Plugins as Cardinality<PluginId, Instance>>::Rebind<Arc<Instance>>: Cardinality<PluginId, Arc<Instance>>,
 {
 	let handle = match data.first() {
-		Some( Val::Resource( handle )) => Ok( *handle ),
-		_ => Err( DispatchError::InvalidArgumentList ),
+		Some(Val::Resource(handle)) => Ok(*handle),
+		_ => Err(RouteError::InvalidArgumentList),
 	}?;
-	let ( plugin_id, resource_handle ) = ctx.with(| mut access | {
+	let (plugin_id, resource_handle) = ctx.with(|mut access| {
 		let mut store = access.as_context_mut();
-		let resource = ResourceWrapper::<PluginId>::from_handle( handle, &mut store )?;
-		Ok::<_, DispatchError>(( resource.plugin_id.clone(), resource.resource_handle ))
+		let resource = ResourceWrapper::<PluginId>::from_handle(handle, &mut store)?;
+		Ok::<_, RouteError>((resource.plugin_id.clone(), resource.resource_handle))
 	})?;
-	let plugin = binding.plugins().get( &plugin_id )
-		.ok_or( DispatchError::InvalidArgumentList )?
+	let plugin = binding
+		.plugins()
+		.get(&plugin_id)
+		.ok_or(RouteError::InvalidArgumentList)?
 		.clone();
 
-	let mut data = Vec::from( data );
-	data[0] = Val::Resource( resource_handle );
-	dispatch_of_async( DispatchContext::new( scheduler, caller, path ), ctx, plugin_id, plugin, target, &data ).await
+	let mut data = Vec::from(data);
+	data[0] = Val::Resource(resource_handle);
+	dispatch_of_async(context, ctx, plugin_id, plugin, target, &data).await
 }
 
-async fn route_method_async_sync<PluginId, Ctx, Plugins>(
-	binding: &Binding<PluginId, Ctx, Plugins, PluginInstanceAsync<Ctx>>,
-	scheduler: &AsyncScheduler<Ctx>,
-	caller: PluginKey,
-	path: ExecutionPathId,
+async fn route_method_async_sync<PluginId, Ctx, Plugins, Instance>(
+	binding: &Binding<PluginId, Ctx, Plugins, Instance>,
+	context: &crate::plugin_instance::CallContext,
 	ctx: &Mutex<StoreContextMut<'_, Ctx>>,
 	target: &DispatchTarget<'_>,
 	data: &[Val],
-) -> Result<Val, DispatchError>
+) -> Result<Val, RouteError>
 where
 	PluginId: Clone + std::hash::Hash + Eq + Send + Sync + 'static,
 	Ctx: PluginContext,
-	Plugins: Cardinality<PluginId, PluginInstanceAsync<Ctx>>,
-	<Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceAsync<Ctx>>>>: Send + Sync,
-	<Plugins as Cardinality<PluginId, PluginInstanceAsync<Ctx>>>::Rebind<Arc<Mutex<PluginInstanceAsync<Ctx>>>>: Cardinality<PluginId, Arc<Mutex<PluginInstanceAsync<Ctx>>>>,
+	Instance: crate::plugin_instance::InstanceHandle<Ctx> + Send + Sync + 'static,
+	Plugins: Cardinality<PluginId, Instance>,
+	<Plugins as Cardinality<PluginId, Instance>>::Rebind<Arc<Instance>>: Send + Sync,
+	<Plugins as Cardinality<PluginId, Instance>>::Rebind<Arc<Instance>>: Cardinality<PluginId, Arc<Instance>>,
 {
 	let handle = match data.first() {
-		Some( Val::Resource( handle )) => Ok( *handle ),
-		_ => Err( DispatchError::InvalidArgumentList ),
+		Some(Val::Resource(handle)) => Ok(*handle),
+		_ => Err(RouteError::InvalidArgumentList),
 	}?;
-	let ( plugin_id, resource_handle ) = {
+	let (plugin_id, resource_handle) = {
 		let mut store = ctx.lock().await;
-		let resource = ResourceWrapper::<PluginId>::from_handle( handle, &mut store )?;
-		( resource.plugin_id.clone(), resource.resource_handle )
+		let resource = ResourceWrapper::<PluginId>::from_handle(handle, &mut store)?;
+		(resource.plugin_id.clone(), resource.resource_handle)
 	};
-	let plugin = binding.plugins().get( &plugin_id )
-		.ok_or( DispatchError::InvalidArgumentList )?
+	let plugin = binding
+		.plugins()
+		.get(&plugin_id)
+		.ok_or(RouteError::InvalidArgumentList)?
 		.clone();
-	let mut data = Vec::from( data );
-	data[0] = Val::Resource( resource_handle );
-	dispatch_of_async_sync( DispatchContext::new( scheduler, caller, path ), ctx, plugin_id, plugin, target, &data ).await
+	let mut data = Vec::from(data);
+	data[0] = Val::Resource(resource_handle);
+	dispatch_of_async_sync(context, ctx, plugin_id, plugin, target, &data).await
 }
 
-fn wrap_resources<T, Id>( val: Val, plugin_id: Id, store: &mut StoreContextMut<T> ) -> Result<Val, DispatchError>
+fn wrap_resources<T, Id>(
+	val: Val,
+	plugin_id: Id,
+	store: &mut StoreContextMut<T>,
+	transaction: &mut WrapTransaction,
+) -> Result<Val, RouteError>
 where
 	T: PluginContext,
 	Id: Clone + Send + Sync + 'static,
 {
-	Ok( match val {
-		Val::Bool( _ )
-		| Val::S8( _ ) | Val::S16( _ ) | Val::S32( _ ) | Val::S64( _ )
-		| Val::U8( _ ) | Val::U16( _ ) | Val::U32( _ ) | Val::U64( _ )
-		| Val::Float32( _ ) | Val::Float64( _ )
-		| Val::Char( _ )
-		| Val::String( _ )
-		| Val::Enum( _ )
-		| Val::Flags( _ )
-		| Val::Variant( _, Option::None )
-		| Val::Option( None )
-		| Val::Result( Ok( Option::None )) | Val::Result( Err( Option::None )) => val,
-		Val::List( list ) => Val::List( list.into_iter().map(| item | wrap_resources( item, plugin_id.clone(), store )).collect::<Result<_,_>>()? ),
-		Val::FixedLengthList( list ) => Val::FixedLengthList( list.into_iter().map(| item | wrap_resources( item, plugin_id.clone(), store )).collect::<Result<_,_>>()? ),
-		Val::Map( entries ) => Val::Map( entries.into_iter()
-			.map(|( key, value )| Ok::<_, DispatchError>((
-				wrap_resources( key, plugin_id.clone(), store )?,
-				wrap_resources( value, plugin_id.clone(), store )?
-			)) )
-			.collect::<Result<_,_>>()?
+	Ok(match val {
+		Val::Bool(_)
+		| Val::S8(_)
+		| Val::S16(_)
+		| Val::S32(_)
+		| Val::S64(_)
+		| Val::U8(_)
+		| Val::U16(_)
+		| Val::U32(_)
+		| Val::U64(_)
+		| Val::Float32(_)
+		| Val::Float64(_)
+		| Val::Char(_)
+		| Val::String(_)
+		| Val::Enum(_)
+		| Val::Flags(_)
+		| Val::Variant(_, Option::None)
+		| Val::Option(None)
+		| Val::Result(Ok(Option::None))
+		| Val::Result(Err(Option::None)) => val,
+		Val::List(list) => Val::List(
+			list.into_iter()
+				.map(|item| wrap_resources(item, plugin_id.clone(), store, transaction))
+				.collect::<Result<_, _>>()?,
 		),
-		Val::Record( entries ) => Val::Record( entries.into_iter()
-			.map(|( key, value )| Ok::<_, DispatchError>(( key, wrap_resources( value, plugin_id.clone(), store )?)) )
-			.collect::<Result<_,_>>()?
+		Val::FixedLengthList(list) => Val::FixedLengthList(
+			list.into_iter()
+				.map(|item| wrap_resources(item, plugin_id.clone(), store, transaction))
+				.collect::<Result<_, _>>()?,
 		),
-		Val::Tuple( list ) => Val::Tuple( list.into_iter().map(| item | wrap_resources( item, plugin_id.clone(), store )).collect::<Result<_,_>>()? ),
-		Val::Variant( variant, Some( data_box )) => Val::Variant( variant, Some( Box::new( wrap_resources( *data_box, plugin_id, store )? ))),
-		Val::Option( Some( data_box )) => Val::Option( Some( Box::new( wrap_resources( *data_box, plugin_id, store )? ))),
-		Val::Result( Ok( Some( data_box ))) => Val::Result( Ok( Some( Box::new( wrap_resources( *data_box, plugin_id, store )? )))),
-		Val::Result( Err( Some( data_box ))) => Val::Result( Err( Some( Box::new( wrap_resources( *data_box, plugin_id, store )? )))),
-		Val::Resource( handle ) => Val::Resource( ResourceWrapper::new( plugin_id, handle ).attach( store )? ),
-		Val::Future( _ ) => return Err( DispatchError::UnsupportedType( "future".to_string() )),
-		Val::Stream( _ ) => return Err( DispatchError::UnsupportedType( "stream".to_string() )),
-		Val::ErrorContext( _ ) => return Err( DispatchError::UnsupportedType( "error-context".to_string() )),
+		Val::Map(entries) => Val::Map(
+			entries
+				.into_iter()
+				.map(|(key, value)| {
+					Ok::<_, RouteError>((
+						wrap_resources(key, plugin_id.clone(), store, transaction)?,
+						wrap_resources(value, plugin_id.clone(), store, transaction)?,
+					))
+				})
+				.collect::<Result<_, _>>()?,
+		),
+		Val::Record(entries) => Val::Record(
+			entries
+				.into_iter()
+				.map(|(key, value)| {
+					Ok::<_, RouteError>((key, wrap_resources(value, plugin_id.clone(), store, transaction)?))
+				})
+				.collect::<Result<_, _>>()?,
+		),
+		Val::Tuple(list) => Val::Tuple(
+			list.into_iter()
+				.map(|item| wrap_resources(item, plugin_id.clone(), store, transaction))
+				.collect::<Result<_, _>>()?,
+		),
+		Val::Variant(variant, Some(data_box)) => Val::Variant(
+			variant,
+			Some(Box::new(wrap_resources(*data_box, plugin_id, store, transaction)?)),
+		),
+		Val::Option(Some(data_box)) => Val::Option(Some(Box::new(wrap_resources(
+			*data_box,
+			plugin_id,
+			store,
+			transaction,
+		)?))),
+		Val::Result(Ok(Some(data_box))) => Val::Result(Ok(Some(Box::new(wrap_resources(
+			*data_box,
+			plugin_id,
+			store,
+			transaction,
+		)?)))),
+		Val::Result(Err(Some(data_box))) => Val::Result(Err(Some(Box::new(wrap_resources(
+			*data_box,
+			plugin_id,
+			store,
+			transaction,
+		)?)))),
+		Val::Resource(handle) => {
+			let wrapped = ResourceWrapper::new(plugin_id, handle)
+				.with_cleanup(transaction.cleanup.clone(), transaction.armed.clone())
+				.attach(store)?;
+			transaction.created.push(wrapped);
+			Val::Resource(wrapped)
+		}
+		Val::Future(_) => {
+			return Err(RouteError::Call(crate::CallError::UnsupportedType(
+				"future".to_string(),
+			)))
+		}
+		Val::Stream(_) => {
+			return Err(RouteError::Call(crate::CallError::UnsupportedType(
+				"stream".to_string(),
+			)))
+		}
+		Val::ErrorContext(_) => {
+			return Err(RouteError::Call(crate::CallError::UnsupportedType(
+				"error-context".to_string(),
+			)))
+		}
 	})
 }
 
+struct WrapTransaction {
+	cleanup: Arc<crate::plugin_instance::CleanupQueue>,
+	armed: Arc<std::sync::atomic::AtomicBool>,
+	created: Vec<wasmtime::component::ResourceAny>,
+}
+fn wrap_owned_resources<T: PluginContext, Id: Clone + Send + Sync + 'static>(
+	value: crate::plugin_instance::OwnedValue,
+	id: Id,
+	store: &mut StoreContextMut<T>,
+	caller_cleanup: &crate::plugin_instance::CleanupQueue,
+) -> Result<Val, RouteError> {
+	let mut transaction = WrapTransaction {
+		cleanup: value.cleanup(),
+		armed: Arc::default(),
+		created: Vec::new(),
+	};
+	let result = wrap_resources(
+		value.value().cloned().unwrap_or(Val::Option(None)),
+		id,
+		store,
+		&mut transaction,
+	);
+	match result {
+		Ok(result) => {
+			value.take();
+			transaction.armed.store(true, std::sync::atomic::Ordering::Release);
+			Ok(result)
+		}
+		Err(error) => {
+			for resource in transaction.created {
+				caller_cleanup.enqueue(resource);
+			}
+			Err(error)
+		}
+	}
+}
+
 #[cfg(test)]
-mod tests { include!( "linker_tests.rs" ); }
+mod tests {
+	include!("linker_tests.rs");
+}

@@ -1,7 +1,7 @@
 use std::collections::HashSet ;
 
 use wasm_link::{
-	Component, DispatchError, Engine, ResourceCreationError, ResourceReceiveError, Val,
+	Component, CallError, SyncCallError, Engine, ResourceCreationError, ResourceReceiveError, Val,
 };
 use wasmtime::Store ;
 use wit_component::{ ComponentEncoder, StringEncoding, dummy_module, embed_component_metadata };
@@ -78,16 +78,15 @@ fn variant_case_count(
 
 fn dispatch_error_values() -> Vec<Val> {
 	vec![
-		DispatchError::LockRejected.into(),
-		DispatchError::InvalidInterfacePath( "package/interface".to_string() ).into(),
-		DispatchError::InvalidFunction( "function".to_string() ).into(),
-		DispatchError::MissingResponse.into(),
-		DispatchError::RuntimeException( TestRuntimeError.into() ).into(),
-		DispatchError::InvalidArgumentList.into(),
-		DispatchError::UnsupportedType( "future".to_string() ).into(),
-		DispatchError::ResourceCreationError( ResourceCreationError::ResourceTableFull ).into(),
-		DispatchError::ResourceCreationError( ResourceCreationError::ResourceHandleConversionFailed ).into(),
-		DispatchError::ResourceReceiveError( ResourceReceiveError::InvalidHandle ).into(),
+		SyncCallError::PluginBusy.into(),
+		CallError::InvalidInterfacePath( "package/interface".to_string() ).into(),
+		CallError::InvalidFunction( "function".to_string() ).into(),
+		CallError::RuntimeException( TestRuntimeError.into() ).into(),
+		Val::Variant("invalid-argument-list".into(), None),
+		CallError::UnsupportedType( "future".to_string() ).into(),
+		ResourceCreationError::ResourceTableFull.into(),
+		ResourceCreationError::ResourceHandleConversionFailed.into(),
+		ResourceReceiveError::InvalidHandle.into(),
 	]
 }
 

@@ -35,7 +35,7 @@ impl wasmtime::ResourceLimiter for MemoryLimiter {
 	}
 }
 
-fn dispatch_grow_memory( max_pages: usize ) -> Result<ExactlyOne<String, Result<Val, wasm_link::DispatchError>>, wasm_link::DispatchError> {
+fn dispatch_grow_memory( max_pages: usize ) -> Result<ExactlyOne<String, Result<Val, wasm_link::SyncCallError>>, wasm_link::DispatchError> {
 	let engine = Engine::default();
 	let linker = Linker::new( &engine );
 	let bindings = fixtures::bindings();

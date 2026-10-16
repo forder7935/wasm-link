@@ -13,7 +13,7 @@
     <a href="https://crates.io/crates/wasm-link"><img src="https://img.shields.io/crates/v/wasm-link" alt="crates.io version" /></a>
     <a href="https://docs.rs/wasm-link/latest/wasm_link"><img src="https://img.shields.io/docsrs/wasm-link" alt="documentation status" /></a>
     <a href="https://github.com/forder7935/wasm-link/actions/workflows/ci.yml"><img src="https://github.com/forder7935/wasm-link/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
-    <img src="https://img.shields.io/badge/rustc-1.94%2B-green.svg" alt="rustc 1.94+" />
+    <img src="https://img.shields.io/badge/rustc-1.96%2B-green.svg" alt="rustc 1.96+" />
   </p>
 </div>
 
@@ -22,7 +22,7 @@
 - Unlimited plugin composition with no architectural restrictions
 - Performant language-agnostic plugin system
 - Component Model async functions
-- Synchronous applications keep a fully synchronous API and runtime path
+- Synchronous applications keep a fully synchronous dispatch API
 
 NOTE: Cross-plugin support for `future`, `stream`, `error-context`, and threads is waiting for Wasmtime's implementations to be ready.
 
@@ -113,8 +113,7 @@ let root_binding = Binding::new(
 	"my:package",
 	HashMap::from([( "example".to_string(), Interface::new(
 		HashMap::from([( "get-value".into(), Function::new(
-			FunctionKind::Freestanding,
-			ReturnKind::MayContainResources,
+			FunctionKind::Freestanding, ReturnKind::MayContainResources,
 		))]),
 		HashSet::new(),
 	))]),
@@ -132,33 +131,11 @@ match result {
 
 ## Async Plugin Graphs
 
-Wasmtime chooses synchronous or async-capable execution when a component is
-instantiated, so wasm-link exposes `PluginInstanceSync` and
-`PluginInstanceAsync`. Use `instantiate`, `link`, and `Binding::dispatch` for a
-fully synchronous graph. Use `instantiate_async`, `link_async`, and
-`Binding::dispatch(...).await` when a plugin may suspend.
-
-`link_async` accepts both synchronous and asynchronous socket bindings. A
-synchronous instance can also be placed in an async binding by converting it
-with `PluginInstanceAsync::from`/`Into`; it remains a synchronous Wasmtime
-instance. `Function` only describes routing and return-value handling—wasm-link
-reads each importing component's function types while linking and registers the
-matching Wasmtime host function.
-
-One dispatch future cooperatively drives the whole graph. It does not create
-worker threads and does not require an executor argument. Calls in one dispatch
-may suspend together inside a shared plugin. Independent dispatches whose graphs
-share a plugin are served one at a time; disjoint graphs remain independent.
-
-Ready calls deeper in the graph run first. At the same depth, the destination
-with the oldest eligible call runs next; each destination rotates between
-calling plugins and then between their execution paths so one call-heavy branch
-cannot starve another.
-
-Dropping a dispatch releases its graph so a later session can drive the store.
-Already-admitted Wasmtime calls remain suspended rather than having their
-futures discarded; they can finish or receive a runtime error when the store is
-next driven.
+Use `Plugin::instantiate_async` or `Plugin::link_async` and await
+`binding.dispatch(...)`. Async trees accept synchronous dependencies and wait
+when they are busy. No executor argument is required. See the
+[runtime documentation](https://docs.rs/wasm-link/latest/wasm_link/runtime/)
+for queue behavior, cancellation, ownership, and limiter semantics.
 
 ## Plugin Error ABI
 

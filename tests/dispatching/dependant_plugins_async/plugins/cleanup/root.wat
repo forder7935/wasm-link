@@ -1,0 +1,35 @@
+(component
+    (import "test:cleanup/root" (instance $host
+        (export "pause" (func))
+        (export "dropped" (func (param "rep" u32)))))
+    (alias export $host "pause" (func $pause))
+    (alias export $host "dropped" (func $dropped))
+    (core func $pause (canon lower (func $pause)))
+    (core func $dropped (canon lower (func $dropped)))
+    (type $r (resource (rep i32) (dtor (core func $dropped))))
+    (core func $new (canon resource.new $r))
+    (core module $m
+        (import "" "new" (func $new (param i32) (result i32)))
+        (import "" "pause" (func $pause))
+        (memory (export "memory") 1)
+        (func (export "make") (result i32)
+            (call $pause)
+            (i32.store (i32.const 0) (call $new (i32.const 1)))
+            (i32.store (i32.const 4) (call $new (i32.const 2)))
+            (i32.const 0))
+        (func (export "ping") (result i32) (i32.const 42)))
+    (core instance $m (instantiate $m (with "" (instance
+        (export "new" (func $new)) (export "pause" (func $pause))))))
+    (func $make (result (tuple (own $r) (own $r)))
+        (canon lift (core func $m "make") (memory (core memory $m "memory"))))
+    (func $ping (result u32) (canon lift (core func $m "ping")))
+    (component $exports
+        (import "r" (type $r (sub resource)))
+        (import "make" (func $make (result (tuple (own $r) (own $r)))))
+        (import "ping" (func $ping (result u32)))
+        (export $r-export "item" (type $r))
+        (export "make" (func $make) (func (result (tuple (own $r-export) (own $r-export)))))
+        (export "ping" (func $ping)))
+    (instance $exports (instantiate $exports
+        (with "r" (type $r)) (with "make" (func $make)) (with "ping" (func $ping))))
+    (export "test:cleanup-plugin/root" (instance $exports)))

@@ -55,7 +55,7 @@ fn plugin_dispatch_rejects_an_unexported_interface() -> Result<(), wasmtime::Err
 
 	assert!( matches!(
 		binding.dispatch( "missing", "test", &[] ),
-		Ok( ExactlyOne( _, Err( DispatchError::InvalidInterfacePath( _ ))))
+		Ok( ExactlyOne( _, Err( wasm_link::SyncCallError::Call( wasm_link::CallError::InvalidInterfacePath( _ )))))
 	));
 	Ok(())
 }
