@@ -80,12 +80,20 @@ impl<Id: 'static + Send + Sync> ResourceWrapper<Id> {
 		self,
 		store: &mut StoreContextMut<Ctx>,
 	) -> Result<ResourceAny, ResourceCreationError> {
+		self.attach_with(store, |resource, store| ResourceAny::try_from_resource(resource, store))
+	}
+
+	fn attach_with<Ctx: PluginContext>(
+		self,
+		store: &mut StoreContextMut<Ctx>,
+		convert: impl FnOnce(Resource<Arc<Self>>, &mut StoreContextMut<Ctx>) -> Result<ResourceAny, wasmtime::Error>,
+	) -> Result<ResourceAny, ResourceCreationError> {
 		let table = store.data_mut().resource_table();
 		let resource = table
 			.push(Arc::new(self))
 			.map_err(|_| ResourceCreationError::ResourceTableFull)?;
 		let rep = resource.rep();
-		if let Ok(resource) = ResourceAny::try_from_resource(resource, &mut *store) {
+		if let Ok(resource) = convert(resource, store) {
 			Ok(resource)
 		} else {
 			let _ = store
@@ -126,13 +134,6 @@ impl<Id> Drop for ResourceWrapper<Id> {
 				cleanup.enqueue(self.resource_handle);
 			}
 		}
-	}
-}
-impl<Id: std::fmt::Debug> std::fmt::Debug for ResourceWrapper<Id> {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		f.debug_struct("ResourceWrapper")
-			.field("plugin_id", &self.plugin_id)
-			.finish_non_exhaustive()
 	}
 }
 

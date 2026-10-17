@@ -6,7 +6,12 @@
     (alias export $host "dropped" (func $dropped))
     (core func $pause (canon lower (func $pause)))
     (core func $dropped (canon lower (func $dropped)))
-    (type $r (resource (rep i32) (dtor (core func $dropped))))
+    (core module $destructor
+        (import "" "dropped" (func $dropped (param i32)))
+        (func (export "drop") (param i32) (call $dropped (local.get 0))))
+    (core instance $destructor (instantiate $destructor
+        (with "" (instance (export "dropped" (func $dropped))))))
+    (type $r (resource (rep i32) (dtor (core func $destructor "drop"))))
     (core func $new (canon resource.new $r))
     (core module $m
         (import "" "new" (func $new (param i32) (result i32)))

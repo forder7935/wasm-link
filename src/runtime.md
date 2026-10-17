@@ -29,6 +29,9 @@ Each store owns its admitted calls. Polling a dispatch drives that store and the
 dependency stores needed by its calls. It can also progress earlier calls whose
 result futures were dropped. There are no background workers. Keeping an
 unpolled future retains its operation; dropping it requests cancellation.
+Waiting for async admission also drives outstanding guest work and cleanup.
+Guest code may continue after returning a result; its call bookkeeping stays
+alive until Wasmtime reports that the store has no active tasks.
 
 Admission queues are unbounded. Each destination rotates between calling plugins
 and then between their call paths, preserving FIFO order within a path. There

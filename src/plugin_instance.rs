@@ -35,13 +35,6 @@ pub(crate) trait InstanceHandle<Ctx: 'static> {
 pub(crate) struct PluginDispatchHandle<Ctx: 'static> {
 	inner: Arc<InstanceInner<Ctx>>,
 }
-impl<Ctx> Clone for PluginDispatchHandle<Ctx> {
-	fn clone(&self) -> Self {
-		Self {
-			inner: self.inner.clone(),
-		}
-	}
-}
 impl<Ctx> InstanceHandle<Ctx> for PluginInstanceSync<Ctx> {
 	fn handle(&self) -> PluginDispatchHandle<Ctx> {
 		PluginDispatchHandle {
@@ -245,6 +238,9 @@ pub(crate) struct CleanupQueue {
 	waker: futures::task::AtomicWaker,
 }
 impl CleanupQueue {
+	pub(crate) fn take(&self) -> Vec<ResourceAny> {
+		std::mem::take(&mut *self.resources.lock().unwrap_or_else(std::sync::PoisonError::into_inner))
+	}
 	pub(crate) fn enqueue(&self, resource: ResourceAny) {
 		self.resources
 			.lock()
@@ -442,8 +438,8 @@ impl<Ctx: PluginContext + 'static> PluginDispatchHandle<Ctx> {
 			exclusive: true,
 		})
 	}
-	async fn reserve_async(&self) -> Permit {
-		futures::future::poll_fn(|cx| {
+	async fn reserve_async(&self) -> Result<Permit, CallError> {
+		let admission = futures::future::poll_fn(|cx| {
 			let mut state = self
 				.inner
 				.admission
@@ -460,8 +456,15 @@ impl<Ctx: PluginContext + 'static> PluginDispatchHandle<Ctx> {
 				admission: self.inner.admission.clone(),
 				exclusive: false,
 			})
-		})
-		.await
+		});
+		let driver = self.inner.driver.clone();
+		futures::pin_mut!(admission, driver);
+		// A previous caller may have returned while guest work or a destructor
+		// still owns the reservation. Waiting for admission must drive that work.
+		match futures::future::select(admission, driver).await {
+			futures::future::Either::Left((permit, _)) => Ok(permit),
+			futures::future::Either::Right((error, _)) => Err(store_error(&error)),
+		}
 	}
 	pub(crate) async fn dispatch_async(
 		&self,
@@ -472,7 +475,7 @@ impl<Ctx: PluginContext + 'static> PluginDispatchHandle<Ctx> {
 		function: &Function,
 		args: &[Val],
 	) -> Result<OwnedValue, CallError> {
-		let permit = self.reserve_async().await;
+		let permit = self.reserve_async().await?;
 		self.invoke(context, package, interface, name, function, args, permit)
 			.await
 	}
@@ -488,7 +491,7 @@ impl<Ctx: PluginContext + 'static> PluginDispatchHandle<Ctx> {
 		let permit = if context.synchronous {
 			self.reserve_sync().ok_or(RouteError::PluginBusy)?
 		} else {
-			self.reserve_async().await
+			self.reserve_async().await?
 		};
 		Ok(self
 			.invoke(context, package, interface, name, function, args, permit)
@@ -567,11 +570,9 @@ async fn run_store<Ctx: PluginContext + 'static>(
 	if state.fuel_limiter.is_some() {
 		let budgets = budgets.clone();
 		state.store.call_hook(move |mut store, hook| {
-			let Some(task) = store.async_call_stack()?.last() else {
-				return Ok(());
-			};
+			let task = store.async_call_stack()?.last();
 			let mut budgets = budgets.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-			if let Some(remaining) = budgets.get_mut(&task) {
+			if let Some(remaining) = task.and_then(|task| budgets.get_mut(&task)) {
 				match hook {
 					CallHook::CallingWasm | CallHook::ReturningFromHost => store.set_fuel(*remaining)?,
 					CallHook::ReturningFromWasm | CallHook::CallingHost => *remaining = store.get_fuel()?,
@@ -615,12 +616,7 @@ async fn run_store<Ctx: PluginContext + 'static>(
 							.clear();
 					}
 					if quiescent && calls.is_empty() {
-						let resources = std::mem::take(
-							&mut *cleanup
-								.resources
-								.lock()
-								.unwrap_or_else(std::sync::PoisonError::into_inner),
-						);
+						let resources = cleanup.take();
 						if !resources.is_empty() {
 							return Ok(Some(resources));
 						}
@@ -687,10 +683,18 @@ async fn run_store<Ctx: PluginContext + 'static>(
 						calls.next().await;
 					}
 					.fuse();
-					futures::pin_mut!(clean, incoming, completed);
+					let became_idle = async {
+						if quiescent {
+							futures::future::pending::<()>().await;
+						}
+						futures::future::poll_fn(|cx| accessor.poll_no_interesting_tasks(cx)).await;
+					}
+					.fuse();
+					futures::pin_mut!(clean, incoming, completed, became_idle);
 					futures::select_biased! {
 						resources = clean => return Ok(Some(resources)),
 						() = completed => {},
+						() = became_idle => {},
 						incoming = incoming => match incoming {
 							Some(request) => ready.enqueue(request.requester, request.active.path, request),
 							None => return Ok(None),
@@ -837,9 +841,7 @@ fn start_call<'a, Ctx: PluginContext + 'static>(
 					value: Some(results.pop().unwrap_or(Val::Option(None))),
 					cleanup,
 				};
-				if let Some(raw) = value.value() {
-					ensure_supported_value(raw)?;
-				}
+				value.value().map(ensure_supported_value).transpose()?;
 				Ok(value)
 			});
 			request.respond(result);

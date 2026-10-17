@@ -110,3 +110,44 @@ fn rejects_error_contexts_during_cross_plugin_transfer() -> Result<(), Box<dyn s
 		Ok::<_, Box<dyn std::error::Error>>(())
 	})
 }
+
+#[test]
+fn wrapping_failure_releases_partial_wrappers_without_double_dropping_origin() -> Result<(), Box<dyn std::error::Error>>
+{
+	use std::sync::Arc;
+	use wasmtime::component::{Resource, ResourceAny};
+	let mut store = Store::new(
+		&Engine::default(),
+		Context {
+			table: ResourceTable::new(),
+		},
+	);
+	let resource = ResourceAny::try_from_resource(Resource::<u32>::new_own(7), &mut store)?;
+	let future =
+		FutureReader::new(&mut store, async { Ok::<_, wasmtime::Error>(1_u32) })?.try_into_future_any(&mut store)?;
+	for unsupported in [
+		Val::Option(Some(Box::new(Val::Future(future.clone())))),
+		Val::Result(Ok(Some(Box::new(Val::Future(future.clone()))))),
+		Val::Result(Err(Some(Box::new(Val::Future(future.clone()))))),
+	] {
+		assert!(wrap_resources(unsupported, "plugin".into(), &mut store.as_context_mut()).is_err());
+	}
+	let origin = Arc::new(crate::plugin_instance::CleanupQueue::default());
+	let caller = crate::plugin_instance::CleanupQueue::default();
+	let value = crate::plugin_instance::OwnedValue {
+		value: Some(Val::Tuple(vec![Val::Resource(resource), Val::Future(future.clone())])),
+		cleanup: origin.clone(),
+	};
+	assert!(super::wrap_owned_resources(value, "plugin".to_string(), &mut store.as_context_mut(), &caller).is_err());
+	// Failed wrapping keeps the origin guard armed and leaves wrappers unarmed.
+	let origin_resources = origin.take();
+	assert_eq!(origin_resources, [resource]);
+	let wrappers = caller.take();
+	assert_eq!(wrappers.len(), 1);
+	for wrapper in wrappers {
+		wrapper.resource_drop(&mut store)?;
+	}
+	assert_eq!(origin.take(), [] as [ResourceAny; 0]);
+	resource.resource_drop(&mut store)?;
+	Ok(())
+}

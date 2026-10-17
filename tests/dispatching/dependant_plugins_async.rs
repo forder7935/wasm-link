@@ -16,6 +16,7 @@ fixtures! {
 		child: "child",
 		child_sync: "child-sync",
 		suspending: "suspending",
+		post_return: "post-return",
 		fuel_suspending: "fuel-suspending",
 		ordered_root: "ordered-root",
 		shared_leaf: "shared-leaf",
@@ -641,6 +642,78 @@ fn abandoned_fanout_cleans_completed_and_later_nested_resource_results() -> Resu
         let Any(results) = binding.dispatch("root", "ping", &[]).await?;
         assert!(results.values().all(Result::is_ok), "{results:?}");
         assert_eq!(drops.load(Ordering::SeqCst), 8);
+        Ok(())
+    })
+}
+
+#[test]
+fn epoch_queue_resumes_after_post_return_guest_work() -> Result<(), Box<dyn std::error::Error>> {
+    futures::executor::block_on(async {
+        let mut config = wasmtime::Config::new();
+        config.wasm_component_model_implements(true);
+        config.epoch_interruption(true);
+        let engine = Engine::new(&config)?;
+        let calls = Arc::new(AtomicUsize::new(0));
+        let (release_first, first_wait) = futures::channel::oneshot::channel();
+        let (_release_second, second_wait) = futures::channel::oneshot::channel();
+        let linker = suspending_linker(&engine, VecDeque::from([first_wait, second_wait]), calls.clone())?;
+        let instance = fixtures::plugins(&engine).post_return.plugin
+            .with_epoch_limiter(|_, _, _, _| 100)
+            .instantiate_async(&engine, &linker).await?;
+        let binding = Binding::new("test:plugin", HashMap::from([("root".into(), suspending_interface())]), ExactlyOne("plugin".to_string(), instance));
+        assert_u32(&binding.dispatch("root", "get-value", &[]).await, 42);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        let mut second = Box::pin(binding.dispatch("root", "get-value", &[]));
+        let waker = futures::task::noop_waker();
+        let mut cx = Context::from_waker(&waker);
+        for _ in 0..10 { assert!(second.as_mut().poll(&mut cx).is_pending()); }
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert!(release_first.send(()).is_ok());
+        for _ in 0..100 {
+            if let Poll::Ready(result) = second.as_mut().poll(&mut cx) {
+                assert_u32(&result, 42);
+                assert_eq!(calls.load(Ordering::SeqCst), 2);
+                return Ok(());
+            }
+        }
+        Err("epoch queue did not wake after post-return work completed".into())
+    })
+}
+
+#[test]
+fn destructor_limits_and_failure_are_reported_to_later_calls() -> Result<(), Box<dyn std::error::Error>> {
+    futures::executor::block_on(async {
+        let mut config = wasmtime::Config::new();
+        config.wasm_component_model_implements(true).consume_fuel(true).epoch_interruption(true);
+        let engine = Engine::new(&config)?;
+        let budgets = Arc::new(AtomicUsize::new(0));
+        let mut linker = Linker::<TestContext>::new(&engine);
+        linker.root().instance("test:cleanup/root")?.func_wrap("pause", |_, (): ()| Ok(()))?;
+        linker.root().instance("test:cleanup/root")?.func_wrap("dropped", |_, (_rep,): (u32,)| -> Result<(), wasmtime::Error> { Err(TestHostError::UnexpectedWait.into()) })?;
+        let fuel_budgets = budgets.clone();
+        let epoch_budgets = budgets.clone();
+        let instance = fixtures::plugins(&engine).cleanup.plugin.with_initial_fuel(10000)
+            .with_fuel_limiter(move |_, interface, name, _| {
+                if interface == "wasm-link:runtime/cleanup" { assert_eq!(name, "resource-drop"); fuel_budgets.fetch_add(1, Ordering::SeqCst); }
+                10000
+            })
+            .with_epoch_limiter(move |_, interface, name, _| {
+                if interface == "wasm-link:runtime/cleanup" { assert_eq!(name, "resource-drop"); epoch_budgets.fetch_add(1, Ordering::SeqCst); }
+                100
+            })
+            .instantiate_async(&engine, &linker).await?;
+        let interface = Interface::new(HashMap::from([
+            ("make".into(), Function::new(FunctionKind::Freestanding, ReturnKind::MayContainResources)),
+            ("ping".into(), Function::new(FunctionKind::Freestanding, ReturnKind::AssumeNoResources)),
+        ]), HashSet::from(["item".into()]));
+        let binding = Binding::new("test:cleanup-plugin", HashMap::from([("root".into(), interface)]), ExactlyOne("plugin".to_string(), instance));
+        let ExactlyOne(id, result) = binding.dispatch("root", "make", &[]).await?;
+        binding.release_resources(&id, result?)?;
+        for _ in 0..2 {
+            let ExactlyOne(_, result) = binding.dispatch("root", "ping", &[]).await?;
+            assert!(matches!(result, Err(wasm_link::CallError::RuntimeException(ref error)) if error.to_string().contains("resource cleanup failed")), "{result:?}");
+        }
+        assert_eq!(budgets.load(Ordering::SeqCst), 2);
         Ok(())
     })
 }

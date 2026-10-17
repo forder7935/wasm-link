@@ -99,3 +99,28 @@ pub struct ResourceReleaseError {
 	/// The original value, whose resource ownership remains with the caller.
 	pub value: Val,
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	#[test]
+	fn routing_and_sync_errors_preserve_wire_variants() {
+		let cases = [
+			(
+				Val::from(RouteError::ResourceCreation(ResourceCreationError::ResourceTableFull)),
+				"resource-table-full",
+			),
+			(
+				Val::from(RouteError::ResourceReceive(ResourceReceiveError::InvalidHandle)),
+				"invalid-resource-handle",
+			),
+			(
+				Val::from(SyncCallError::Call(CallError::InvalidFunction("missing".into()))),
+				"invalid-function",
+			),
+		];
+		for (value, expected) in cases {
+			assert!(matches!(value, Val::Variant(name, _) if name == expected));
+		}
+	}
+}
