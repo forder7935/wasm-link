@@ -25,6 +25,15 @@
 
 NOTE: Cross-plugin support for `future`, `stream`, `error-context`, and threads is waiting for Wasmtime's implementations to be ready.
 
+**WARNING: The current async implementation is temporary.** We recommend waiting
+for its replacement unless your project needs async support now. The thread-pool
+API will be replaced with native Rust futures.
+With the current latest version of Wasmtime, a trap can fail all tasks on the
+affected plugin and leave it unusable. See
+[issue #19](https://github.com/forder7935/wasm-link/issues/19) for details.
+There is no timeline for a replacement, as resolving these limitations depends
+on Wasmtime and the Component Model specification.
+
 ## Contents
 
 - [Highlights](#highlights)
