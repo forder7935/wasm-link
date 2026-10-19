@@ -1,5 +1,5 @@
 use std::collections::HashMap ;
-use wasm_link::{ Binding, Engine, Linker, Val };
+use wasm_link::{ sync::Binding, Engine, Linker, Val };
 use wasm_link::cardinality::ExactlyOne ;
 use wasmtime::Config ;
 

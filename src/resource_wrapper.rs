@@ -3,7 +3,7 @@ use thiserror::Error ;
 use wasmtime::component::{ Resource, ResourceAny, Val };
 use wasmtime::StoreContextMut ;
 
-use crate::PluginContext ;
+use crate::plugin::PluginContext ;
 
 
 

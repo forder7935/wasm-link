@@ -25,11 +25,11 @@ fn instantiate_with_fuel( fuel: u64 ) -> Result<(), wasmtime::Error> {
 async fn instantiate_async_with_fuel( fuel: u64 ) -> Result<(), wasmtime::Error> {
 	let engine = engine();
 	let linker = Linker::new( &engine );
-	let plugins = fixtures::plugins( &engine );
+	let plugins = fixtures::concurrent_plugins( &engine );
 	let executor = futures::executor::ThreadPool::new().expect( "failed to create executor" );
 	plugins.startup.plugin
 		.with_initial_fuel( fuel )
-		.instantiate_async( &engine, &linker, executor ).await?;
+		.instantiate( &engine, &linker, executor ).await?;
 	Ok(())
 }
 

@@ -1,6 +1,8 @@
 use std::collections::HashMap ;
 
-use wasm_link::{ Binding, Engine, Linker, PluginInstanceAsync, PluginInstanceSync };
+use wasm_link::{ Engine, Linker };
+use wasm_link::concurrent::{ Binding as ConcurrentBinding, PluginInstance as ConcurrentPluginInstance };
+use wasm_link::sync::{ Binding, PluginInstance };
 use wasm_link::cardinality::ExactlyOne ;
 
 use crate::fixture_linking::TestContext ;
@@ -28,7 +30,7 @@ fn debug_output_exposes_configuration_without_component_internals() -> Result<()
 	let binding: Binding<
 		String,
 		TestContext,
-		ExactlyOne<String, PluginInstanceSync<TestContext>>,
+		ExactlyOne<String, PluginInstance<TestContext>>,
 	> = Binding::new(
 		bindings.root.package,
 		HashMap::from([( bindings.root.name, bindings.root.spec )]),
@@ -46,25 +48,28 @@ fn async_debug_output_exposes_configuration_without_component_internals() -> Res
 		let engine = Engine::default();
 		let linker = Linker::new( &engine );
 		let executor = futures::executor::ThreadPool::new()?;
-		let plugins = fixtures::plugins( &engine );
-		let bindings = fixtures::bindings();
-		let plugin_instance = plugins.plugin.plugin.instantiate_async( &engine, &linker, executor ).await?;
+		let plugins = fixtures::concurrent_plugins( &engine );
+		let bindings = fixtures::concurrent_bindings();
+		let plugin_debug = format!( "{:?}", plugins.plugin.plugin );
+		assert!( plugin_debug.contains( "component: \"<Component>\"" ));
+		let plugin_instance = plugins.plugin.plugin.instantiate( &engine, &linker, executor ).await?;
 		let instance_debug = format!( "{plugin_instance:?}" );
 		assert!( instance_debug.contains( "state: \"<serialized store>\"" ));
 		assert!( instance_debug.contains( "executor: \"<executor>\"" ));
-		let binding: Binding<
+		let binding: ConcurrentBinding<
 			String,
 			TestContext,
-			ExactlyOne<String, PluginInstanceAsync<TestContext>>,
-			PluginInstanceAsync<TestContext>,
-		> = Binding::new(
+			ExactlyOne<String, ConcurrentPluginInstance<TestContext>>,
+		> = ConcurrentBinding::new(
 			bindings.root.package,
 			HashMap::from([( bindings.root.name, bindings.root.spec )]),
 			ExactlyOne( "plugin".to_string(), plugin_instance ),
 		);
-		let binding_debug = format!( "{binding:?}" );
+		let binding_debug = format!( "{:?}", binding.clone() );
 		assert!( binding_debug.contains( "package_name: \"test:primitive\"" ));
 		assert!( binding_debug.contains( "plugins: ExactlyOne" ));
+		let socket = binding.into_any();
+		let _socket_clone = socket.clone();
 		Ok(())
 	})
 }

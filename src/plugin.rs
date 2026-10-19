@@ -8,11 +8,12 @@
 use std::collections::HashMap ;
 use wasmtime::{ Engine, Store };
 use wasmtime::component::{ Component, ResourceTable, Linker, Val };
+use wasmtime::component::types::{ Component as ComponentType, ComponentInstance, ComponentItem };
 use futures::task::Spawn ;
 
-use crate::BindingAny ;
-use crate::plugin_instance::{ PluginInstanceAsync, PluginInstanceSync };
-use crate::Function ;
+use crate::binding::BindingAny ;
+use crate::plugin_instance::{ concurrent, sync };
+use crate::interface::FunctionMetadata as Function ;
 use crate::Remap ;
 
 /// Trait for accessing a [`ResourceTable`] from the store's data type.
@@ -57,7 +58,8 @@ pub trait PluginContext: Send {
 /// # Example
 ///
 /// ```
-/// # use wasm_link::{ Plugin, PluginContext, ResourceTable, Component, Engine, Linker };
+/// # use wasm_link::sync::Plugin;
+/// # use wasm_link::{ PluginContext, ResourceTable, Component, Engine, Linker };
 /// # struct Ctx { resource_table: ResourceTable }
 /// # impl PluginContext for Ctx {
 /// # 	fn resource_table( &mut self ) -> &mut ResourceTable { &mut self.resource_table }
@@ -74,7 +76,7 @@ pub trait PluginContext: Send {
 /// # Ok(())
 /// # }
 /// ```
-#[must_use = "call .instantiate() or .link() to create a PluginInstanceSync"]
+#[must_use = "call .instantiate() or .link() to create a plugin instance"]
 pub struct Plugin<Ctx: 'static> {
 	/// Compiled WASM component
 	component: Component,
@@ -99,6 +101,13 @@ impl<Ctx> Plugin<Ctx>
 where
 	Ctx: PluginContext + 'static,
 {
+	pub(crate) fn ensure_synchronous( &self, engine: &Engine ) -> Result<(), wasmtime::Error> {
+		let component_type = self.component.component_type();
+		match component_contains_async( engine, &component_type ) {
+			true => Err( wasmtime::Error::msg( "synchronous plugins cannot contain WIT-async functions" )),
+			false => Ok(()),
+		}
+	}
 
 	/// Creates a new plugin declaration.
 	///
@@ -132,7 +141,8 @@ where
 	/// instantiation will fail when the initial fuel is applied.
 	///
 	/// ```
-	/// # use wasm_link::{ Plugin, PluginContext, ResourceTable, Component };
+	/// # use wasm_link::sync::Plugin;
+	/// # use wasm_link::{ PluginContext, ResourceTable, Component };
 	/// # struct Ctx { resource_table: ResourceTable }
 	/// # impl PluginContext for Ctx {
 	/// # 	fn resource_table( &mut self ) -> &mut ResourceTable { &mut self.resource_table }
@@ -159,7 +169,8 @@ where
 	/// at call time.
 	///
 	/// ```
-	/// # use wasm_link::{ Plugin, PluginContext, ResourceTable, Component, Engine };
+	/// # use wasm_link::sync::Plugin;
+	/// # use wasm_link::{ PluginContext, ResourceTable, Component, Engine };
 	/// # struct Ctx { resource_table: ResourceTable }
 	/// # impl PluginContext for Ctx {
 	/// # 	fn resource_table( &mut self ) -> &mut ResourceTable { &mut self.resource_table }
@@ -185,7 +196,8 @@ where
 	/// enabled, the deadline is silently ignored.
 	///
 	/// ```
-	/// # use wasm_link::{ Plugin, PluginContext, ResourceTable, Component, Engine };
+	/// # use wasm_link::sync::Plugin;
+	/// # use wasm_link::{ PluginContext, ResourceTable, Component, Engine };
 	/// # struct Ctx { resource_table: ResourceTable }
 	/// # impl PluginContext for Ctx {
 	/// # 	fn resource_table( &mut self ) -> &mut ResourceTable { &mut self.resource_table }
@@ -210,7 +222,8 @@ where
 	/// so that wasmtime can access it through a `&mut Ctx` reference.
 	///
 	/// ```
-	/// # use wasm_link::{ Plugin, PluginContext, ResourceTable, Component, Engine };
+	/// # use wasm_link::sync::Plugin;
+	/// # use wasm_link::{ PluginContext, ResourceTable, Component, Engine };
 	/// # struct Ctx { resource_table: ResourceTable, limiter: MyLimiter }
 	/// # impl PluginContext for Ctx {
 	/// # 	fn resource_table( &mut self ) -> &mut ResourceTable { &mut self.resource_table }
@@ -250,7 +263,8 @@ where
 	///
 	/// ```
 	/// # use std::collections::HashMap ;
-	/// # use wasm_link::{ Plugin, PluginContext, ResourceTable, Component, Engine, Remap };
+	/// # use wasm_link::sync::Plugin;
+	/// # use wasm_link::{ PluginContext, ResourceTable, Component, Engine, Remap };
 	/// # struct Ctx { resource_table: ResourceTable }
 	/// # impl PluginContext for Ctx {
 	/// # 	fn resource_table( &mut self ) -> &mut ResourceTable { &mut self.resource_table }
@@ -287,7 +301,7 @@ where
 		engine: &Engine,
 		mut linker: Linker<Ctx>,
 		sockets: Sockets,
-	) -> Result<PluginInstanceSync<Ctx>, wasmtime::Error>
+	) -> Result<sync::PluginInstance<Ctx>, wasmtime::Error>
 	where
 		PluginId: Eq + std::hash::Hash + Clone + std::fmt::Debug + Send + Sync + Into<Val> + 'static,
 		Sockets: IntoIterator,
@@ -311,7 +325,8 @@ where
 	/// # Example
 	///
 	/// ```
-	/// # use wasm_link::{ BindingAny, Component, Engine, Linker, Plugin, PluginContext, ResourceTable };
+	/// # use wasm_link::concurrent::{ BindingAny, Plugin };
+	/// # use wasm_link::{ Component, Engine, Linker, PluginContext, ResourceTable };
 	/// # struct Context { table: ResourceTable }
 	/// # impl PluginContext for Context { fn resource_table( &mut self ) -> &mut ResourceTable { &mut self.table } }
 	/// # fn main() -> Result<(), Box<dyn std::error::Error>> { futures::executor::block_on( async {
@@ -321,10 +336,10 @@ where
 	/// let instance = Plugin::new(
 	/// 	Component::new( &engine, "(component)" )?,
 	/// 	Context { table: ResourceTable::new() },
-	/// ).link_async(
+	/// ).link(
 	/// 	&engine,
 	/// 	linker,
-	/// 	Vec::<BindingAny<String, Context, wasm_link::PluginInstanceAsync<Context>>>::new(),
+	/// 	Vec::<BindingAny<String, Context>>::new(),
 	/// 	executor,
 	/// ).await?;
 	/// # let _ = instance;
@@ -339,11 +354,11 @@ where
 		mut linker: Linker<Ctx>,
 		sockets: Sockets,
 		executor: Executor,
-	) -> Result<PluginInstanceAsync<Ctx>, wasmtime::Error>
+	) -> Result<concurrent::PluginInstance<Ctx>, wasmtime::Error>
 	where
 		PluginId: Eq + std::hash::Hash + Clone + std::fmt::Debug + Send + Sync + Into<Val> + 'static,
 		Sockets: IntoIterator,
-		Sockets::Item: Into<BindingAny<PluginId, Ctx, PluginInstanceAsync<Ctx>>>,
+		Sockets::Item: Into<BindingAny<PluginId, Ctx, concurrent::PluginInstance<Ctx>>>,
 		Executor: Spawn + Send + Sync + 'static,
 	{
 		sockets.into_iter()
@@ -360,12 +375,12 @@ where
 		self,
 		engine: &Engine,
 		linker: &Linker<Ctx>
-	) -> Result<PluginInstanceSync<Ctx>, wasmtime::Error> {
+	) -> Result<sync::PluginInstance<Ctx>, wasmtime::Error> {
 		let mut store = Store::new( engine, self.context );
 		if let Some( fuel ) = self.initial_fuel { store.set_fuel( fuel )?; }
 		if let Some( limiter ) = self.memory_limiter { store.limiter( limiter ); }
 		let instance = linker.instantiate( &mut store, &self.component )?;
-		Ok( PluginInstanceSync::new_sync(
+		Ok( sync::PluginInstance::new_sync(
 			store,
 			instance,
 			self.interface_remaps,
@@ -387,7 +402,8 @@ where
 	/// # Example
 	///
 	/// ```
-	/// # use wasm_link::{ Component, Engine, Linker, Plugin, PluginContext, ResourceTable };
+	/// # use wasm_link::concurrent::Plugin;
+	/// # use wasm_link::{ Component, Engine, Linker, PluginContext, ResourceTable };
 	/// # struct Context { table: ResourceTable }
 	/// # impl PluginContext for Context { fn resource_table( &mut self ) -> &mut ResourceTable { &mut self.table } }
 	/// # fn main() -> Result<(), Box<dyn std::error::Error>> { futures::executor::block_on( async {
@@ -397,7 +413,7 @@ where
 	/// let instance = Plugin::new(
 	/// 	Component::new( &engine, "(component)" )?,
 	/// 	Context { table: ResourceTable::new() },
-	/// ).instantiate_async( &engine, &linker, executor ).await?;
+	/// ).instantiate( &engine, &linker, executor ).await?;
 	/// # let _ = instance;
 	/// # Ok(()) }) }
 	/// ```
@@ -409,7 +425,7 @@ where
 		engine: &Engine,
 		linker: &Linker<Ctx>,
 		executor: Executor,
-	) -> Result<PluginInstanceAsync<Ctx>, wasmtime::Error>
+	) -> Result<concurrent::PluginInstance<Ctx>, wasmtime::Error>
 	where
 		Executor: Spawn + Send + Sync + 'static,
 	{
@@ -417,7 +433,7 @@ where
 		if let Some( fuel ) = self.initial_fuel { store.set_fuel( fuel )?; }
 		if let Some( limiter ) = self.memory_limiter { store.limiter( limiter ); }
 		let instance = linker.instantiate_async( &mut store, &self.component ).await?;
-		Ok( PluginInstanceAsync::new(
+		Ok( concurrent::PluginInstance::new(
 			store,
 			instance,
 			self.interface_remaps,
@@ -427,6 +443,198 @@ where
 		))
 	}
 
+}
+
+/// A plugin declaration whose runtime is selected by its instance type.
+#[must_use = "call .instantiate() or .link() to create a plugin instance"]
+pub struct RuntimePlugin<Ctx: 'static, Instance>(
+	Plugin<Ctx>,
+	std::marker::PhantomData<fn() -> Instance>,
+);
+
+impl<Ctx, Instance> RuntimePlugin<Ctx, Instance>
+where
+	Ctx: PluginContext + 'static,
+{
+	/// Creates a plugin declaration.
+	pub fn new( component: Component, context: Ctx ) -> Self {
+		Self( Plugin::new( component, context ), std::marker::PhantomData )
+	}
+
+	/// Sets the fuel available during instantiation.
+	pub fn with_initial_fuel( mut self, fuel: u64 ) -> Self {
+		self.0 = self.0.with_initial_fuel( fuel );
+		self
+	}
+
+	/// Installs a Wasmtime memory/table limiter from the context.
+	pub fn with_memory_limiter(
+		mut self,
+		limiter: impl (FnMut( &mut Ctx ) -> &mut dyn wasmtime::ResourceLimiter) + Send + Sync + 'static,
+	) -> Self {
+		self.0 = self.0.with_memory_limiter( limiter );
+		self
+	}
+
+	/// Remaps requested interfaces to component exports.
+	pub fn remap_interfaces( mut self, remaps: HashMap<String, Remap> ) -> Self {
+		self.0 = self.0.remap_interfaces( remaps );
+		self
+	}
+}
+
+impl<Ctx> RuntimePlugin<Ctx, sync::PluginInstance<Ctx>>
+where
+	Ctx: PluginContext + 'static,
+{
+	/// Sets the per-call fuel limiter.
+	pub fn with_fuel_limiter(
+		mut self,
+		mut limiter: impl FnMut( &mut Store<Ctx>, &str, &str, &crate::sync::Function ) -> u64 + Send + 'static,
+	) -> Self {
+		self.0 = self.0.with_fuel_limiter( move | store, interface, name, function | {
+			limiter( store, interface, name, &crate::sync::Function::from_metadata( function ))
+		});
+		self
+	}
+
+	/// Sets the per-call epoch deadline limiter.
+	pub fn with_epoch_limiter(
+		mut self,
+		mut limiter: impl FnMut( &mut Store<Ctx>, &str, &str, &crate::sync::Function ) -> u64 + Send + 'static,
+	) -> Self {
+		self.0 = self.0.with_epoch_limiter( move | store, interface, name, function | {
+			limiter( store, interface, name, &crate::sync::Function::from_metadata( function ))
+		});
+		self
+	}
+
+	/// Links socket bindings and instantiates the plugin.
+	///
+	/// # Errors
+	///
+	/// Returns an error when linking, validation, or instantiation fails.
+	pub fn link<Id, Sockets>(
+		self,
+		engine: &Engine,
+		linker: Linker<Ctx>,
+		sockets: Sockets,
+	) -> Result<sync::PluginInstance<Ctx>, wasmtime::Error>
+	where
+		Id: Eq + std::hash::Hash + Clone + std::fmt::Debug + Send + Sync + Into<Val> + 'static,
+		Sockets: IntoIterator,
+		Sockets::Item: Into<BindingAny<Id, Ctx>>,
+	{
+		self.0.ensure_synchronous( engine )?;
+		self.0.link( engine, linker, sockets )
+	}
+
+	/// Instantiates a plugin with no socket bindings.
+	///
+	/// # Errors
+	///
+	/// Returns an error when synchronous instantiation fails.
+	pub fn instantiate(
+		self,
+		engine: &Engine,
+		linker: &Linker<Ctx>,
+	) -> Result<sync::PluginInstance<Ctx>, wasmtime::Error> {
+		self.0.ensure_synchronous( engine )?;
+		self.0.instantiate( engine, linker )
+	}
+}
+
+impl<Ctx> RuntimePlugin<Ctx, concurrent::PluginInstance<Ctx>>
+where
+	Ctx: PluginContext + 'static,
+{
+	/// Sets the per-call fuel limiter.
+	pub fn with_fuel_limiter(
+		mut self,
+		mut limiter: impl FnMut( &mut Store<Ctx>, &str, &str, &crate::concurrent::Function ) -> u64 + Send + 'static,
+	) -> Self {
+		self.0 = self.0.with_fuel_limiter( move | store, interface, name, function | {
+			limiter( store, interface, name, &crate::concurrent::Function::from_metadata( function ))
+		});
+		self
+	}
+
+	/// Sets the per-call epoch deadline limiter.
+	pub fn with_epoch_limiter(
+		mut self,
+		mut limiter: impl FnMut( &mut Store<Ctx>, &str, &str, &crate::concurrent::Function ) -> u64 + Send + 'static,
+	) -> Self {
+		self.0 = self.0.with_epoch_limiter( move | store, interface, name, function | {
+			limiter( store, interface, name, &crate::concurrent::Function::from_metadata( function ))
+		});
+		self
+	}
+
+	/// Links socket bindings and instantiates the plugin.
+	///
+	/// # Errors
+	///
+	/// Returns an error when linking, validation, or instantiation fails.
+	pub async fn link<Id, Sockets, Executor>(
+		self,
+		engine: &Engine,
+		linker: Linker<Ctx>,
+		sockets: Sockets,
+		executor: Executor,
+	) -> Result<concurrent::PluginInstance<Ctx>, wasmtime::Error>
+	where
+		Id: Eq + std::hash::Hash + Clone + std::fmt::Debug + Send + Sync + Into<Val> + 'static,
+		Sockets: IntoIterator,
+		Sockets::Item: Into<BindingAny<Id, Ctx, concurrent::PluginInstance<Ctx>>>,
+		Executor: Spawn + Send + Sync + 'static,
+	{
+		self.0.link_async( engine, linker, sockets, executor ).await
+	}
+
+	/// Instantiates a plugin with no socket bindings.
+	///
+	/// # Errors
+	///
+	/// Returns an error when asynchronous instantiation fails.
+	pub async fn instantiate<Executor>(
+		self,
+		engine: &Engine,
+		linker: &Linker<Ctx>,
+		executor: Executor,
+	) -> Result<concurrent::PluginInstance<Ctx>, wasmtime::Error>
+	where
+		Executor: Spawn + Send + Sync + 'static,
+	{
+		self.0.instantiate_async( engine, linker, executor ).await
+	}
+}
+
+impl<Ctx: std::fmt::Debug + 'static, Instance> std::fmt::Debug for RuntimePlugin<Ctx, Instance> {
+	fn fmt( &self, formatter: &mut std::fmt::Formatter<'_> ) -> std::fmt::Result {
+		self.0.fmt( formatter )
+	}
+}
+
+fn component_contains_async( engine: &Engine, component: &ComponentType ) -> bool {
+	component.imports( engine ).any(|( _, item )| item_contains_async( engine, item.ty ))
+		|| component.exports( engine ).any(|( _, item )| item_contains_async( engine, item.ty ))
+}
+
+fn instance_contains_async( engine: &Engine, instance: &ComponentInstance ) -> bool {
+	instance.exports( engine ).any(|( _, item )| item_contains_async( engine, item.ty ))
+}
+
+fn item_contains_async( engine: &Engine, item: ComponentItem ) -> bool {
+	// Wasmtime currently rejects component-valued imports and exports, but recurse here so
+	// synchronous validation remains correct if support is added upstream.
+	match item { ComponentItem::Component( component ) => component_contains_async( engine, &component ),
+		ComponentItem::ComponentFunc( function ) => function.async_(),
+		ComponentItem::ComponentInstance( instance ) => instance_contains_async( engine, &instance ),
+		ComponentItem::CoreFunc( _ )
+		| ComponentItem::Module( _ )
+		| ComponentItem::Type( _ )
+		| ComponentItem::Resource( _ ) => false,
+	}
 }
 
 impl<Ctx: std::fmt::Debug + 'static> std::fmt::Debug for Plugin<Ctx> {

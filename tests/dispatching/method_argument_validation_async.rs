@@ -1,6 +1,6 @@
 use std::collections::{ HashMap, HashSet };
 
-use wasm_link::{ Binding, Engine, Function, FunctionKind, Interface, Linker, ReturnKind, Val };
+use wasm_link::{ concurrent::Binding, Engine, concurrent::Function, FunctionKind, concurrent::Interface, Linker, ReturnKind, Val };
 use wasm_link::cardinality::ExactlyOne ;
 
 fixtures! {
@@ -14,10 +14,10 @@ fn native_async_method_metadata_rejects_calls_without_resource_argument() -> Res
 		let engine = Engine::default();
 		let linker = Linker::new( &engine );
 		let executor = futures::executor::ThreadPool::new()?;
-		let plugins = fixtures::plugins( &engine );
-		let bindings = fixtures::bindings();
+		let plugins = fixtures::concurrent_plugins( &engine );
+		let bindings = fixtures::concurrent_bindings();
 		let child = plugins.child.plugin
-			.instantiate_async( &engine, &linker, executor.clone() ).await?;
+			.instantiate( &engine, &linker, executor.clone() ).await?;
 		let dependency = Binding::new(
 			bindings.dependency.package,
 			HashMap::from([(
@@ -32,7 +32,7 @@ fn native_async_method_metadata_rejects_calls_without_resource_argument() -> Res
 			)]),
 			ExactlyOne( "child".to_string(), child ),
 		);
-		let startup = plugins.startup.plugin.link_async(
+		let startup = plugins.startup.plugin.link(
 			&engine,
 			linker,
 			vec![ dependency ],
@@ -44,7 +44,7 @@ fn native_async_method_metadata_rejects_calls_without_resource_argument() -> Res
 			ExactlyOne( "startup".to_string(), startup ),
 		);
 
-		let result = root.dispatch_async( "root", "get-primitive", &[] ).await?;
+		let result = root.dispatch( "root", "get-primitive", &[] ).await?;
 		assert!( matches!(
 			result,
 			ExactlyOne( _, Ok( Val::Result( Err( None ))))
