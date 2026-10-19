@@ -1,12 +1,15 @@
 use std::collections::HashSet ;
 
 use wasm_link::{
-	Component, DispatchError, Engine, ResourceCreationError, ResourceReceiveError, Val,
+	Component, CallError, SyncCallError, Engine, ResourceCreationError, ResourceReceiveError, Val,
 };
 use wasmtime::Store ;
 use wit_component::{ ComponentEncoder, StringEncoding, dummy_module, embed_component_metadata };
 use wit_parser::{ ManglingAndAbi, Resolve, TypeDefKind, WorldItem };
 
+#[derive( Debug, thiserror::Error )]
+#[error( "trap" )]
+struct TestRuntimeError;
 
 
 #[test]
@@ -14,7 +17,7 @@ fn dispatch_errors_cover_the_provided_wit_contract() -> Result<(), Box<dyn std::
 	let (resolve, world) = load_contract()?;
 	let contract_case_count = dispatch_error_case_count( &resolve, world )?;
 	let mut module = dummy_module( &resolve, world, ManglingAndAbi::Standard32 );
-	embed_component_metadata( &mut module, &resolve, world, StringEncoding::UTF8 )?;
+	embed_component_metadata( &mut module, &resolve, world, StringEncoding::UTF8, false )?;
 	let component = ComponentEncoder::default().module( &module )?.encode()?;
 
 	let engine = Engine::default();
@@ -75,17 +78,15 @@ fn variant_case_count(
 
 fn dispatch_error_values() -> Vec<Val> {
 	vec![
-		DispatchError::LockRejected.into(),
-		DispatchError::InvalidInterfacePath( "package/interface".to_string() ).into(),
-		DispatchError::InvalidFunction( "function".to_string() ).into(),
-		DispatchError::MissingResponse.into(),
-		DispatchError::RuntimeException( wasmtime::Error::msg( "trap" )).into(),
-		DispatchError::InvalidArgumentList.into(),
-		DispatchError::UnsupportedType( "future".to_string() ).into(),
-		DispatchError::ExecutorUnavailable.into(),
-		DispatchError::ResourceCreationError( ResourceCreationError::ResourceTableFull ).into(),
-		DispatchError::ResourceCreationError( ResourceCreationError::ResourceHandleConversionFailed ).into(),
-		DispatchError::ResourceReceiveError( ResourceReceiveError::InvalidHandle ).into(),
+		SyncCallError::PluginBusy.into(),
+		CallError::InvalidInterfacePath( "package/interface".to_string() ).into(),
+		CallError::InvalidFunction( "function".to_string() ).into(),
+		CallError::RuntimeException( TestRuntimeError.into() ).into(),
+		Val::Variant("invalid-argument-list".into(), None),
+		CallError::UnsupportedType( "future".to_string() ).into(),
+		ResourceCreationError::ResourceTableFull.into(),
+		ResourceCreationError::ResourceHandleConversionFailed.into(),
+		ResourceReceiveError::InvalidHandle.into(),
 	]
 }
 

@@ -13,7 +13,7 @@
     <a href="https://crates.io/crates/wasm-link"><img src="https://img.shields.io/crates/v/wasm-link" alt="crates.io version" /></a>
     <a href="https://docs.rs/wasm-link/latest/wasm_link"><img src="https://img.shields.io/docsrs/wasm-link" alt="documentation status" /></a>
     <a href="https://github.com/forder7935/wasm-link/actions/workflows/ci.yml"><img src="https://github.com/forder7935/wasm-link/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
-    <img src="https://img.shields.io/badge/rustc-1.94%2B-green.svg" alt="rustc 1.94+" />
+    <img src="https://img.shields.io/badge/rustc-1.96%2B-green.svg" alt="rustc 1.96+" />
   </p>
 </div>
 
@@ -22,6 +22,7 @@
 - Unlimited plugin composition with no architectural restrictions
 - Performant language-agnostic plugin system
 - Component Model async functions
+- Synchronous applications keep a fully synchronous dispatch API
 
 NOTE: Cross-plugin support for `future`, `stream`, `error-context`, and threads is waiting for Wasmtime's implementations to be ready.
 
@@ -40,6 +41,7 @@ on Wasmtime and the Component Model specification.
 - [Contents](#contents)
 - [Project Philosophy](#project-philosophy)
 - [Quick Start](#quick-start)
+- [Async Plugin Graphs](#async-plugin-graphs)
 - [Plugin Error ABI](#plugin-error-abi)
 - [Goals](#goals)
 - [License](#license)
@@ -120,8 +122,7 @@ let root_binding = Binding::new(
 	"my:package",
 	HashMap::from([( "example".to_string(), Interface::new(
 		HashMap::from([( "get-value".into(), Function::new(
-			FunctionKind::Freestanding,
-			ReturnKind::MayContainResources,
+			FunctionKind::Freestanding, ReturnKind::MayContainResources,
 		))]),
 		HashSet::new(),
 	))]),
@@ -136,6 +137,14 @@ match result {
 	ExactlyOne( _id, Err( err )) => panic!( "dispatch error: {}", err ),
 }
 ```
+
+## Async Plugin Graphs
+
+Use `Plugin::instantiate_async` or `Plugin::link_async` and await
+`binding.dispatch(...)`. Async trees accept synchronous dependencies and wait
+when they are busy. No executor argument is required. See the
+[runtime documentation](https://docs.rs/wasm-link/latest/wasm_link/runtime/)
+for queue behavior, cancellation, ownership, and limiter semantics.
 
 ## Plugin Error ABI
 

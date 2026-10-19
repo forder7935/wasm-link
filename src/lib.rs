@@ -130,6 +130,13 @@
 //! # }
 //! ```
 //!
+//! # Async Dispatch
+//!
+//! Use [`Plugin::instantiate_async`] or [`Plugin::link_async`] and await
+//! `binding.dispatch(...)`. Async trees accept synchronous dependencies and wait
+//! when they are busy. No executor argument is required. See [`runtime`] for
+//! queue behavior, cancellation, ownership, and limiter semantics.
+//!
 //! # Shared Dependencies
 //!
 //! Sometimes multiple plugins need to depend on the same binding. Since `Binding`
@@ -356,12 +363,18 @@
 //! # }
 //! ```
 
+/// Execution, queueing, cooperative cancellation, resource ownership, and limits.
+#[doc = include_str!("runtime.md")]
+pub mod runtime {}
+
+mod errors;
 mod binding ;
 mod interface ;
 mod plugin ;
 mod plugin_instance ;
 mod remap ;
 pub mod cardinality ;
+mod ready_queue;
 #[cfg(test)] mod cardinality_tests ;
 #[cfg(test)] mod interface_tests ;
 mod linker ;
@@ -374,10 +387,11 @@ pub use wasmtime::component::{ Component, Linker, ResourceTable, Val };
 #[doc( no_inline )]
 pub use nonempty_collections::{ NEMap, nem };
 
+pub use errors::{DispatchError, CallError, SyncCallError, ResourceReleaseError};
 pub use binding::Binding ;
 pub use interface::{ Interface, Function, FunctionKind, ReturnKind };
 pub use plugin::{ PluginContext, Plugin };
-pub use plugin_instance::{ PluginInstanceAsync, PluginInstanceSync, DispatchError };
+pub use plugin_instance::{ PluginInstanceAsync, PluginInstanceSync };
 pub use remap::{ ItemResolutionTable, Remap };
-pub use binding::BindingAny ;
+pub use binding::{ BindingAny, BindingAnyAsync };
 pub use resource_wrapper::{ ResourceCreationError, ResourceReceiveError };

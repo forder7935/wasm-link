@@ -12,7 +12,7 @@
 	)
 	)
 	(core instance $i (instantiate $m))
-	(func $f (export "get-composite") (result (tuple u32 u32)) (canon lift (core func $i "get-composite") (memory $i "memory")))
+	(func $f (export "get-composite") (result (tuple u32 u32)) (canon lift (core func $i "get-composite") (memory (core memory $i "memory"))))
 	(instance $inst
 	(export "get-composite" (func $f))
 	)

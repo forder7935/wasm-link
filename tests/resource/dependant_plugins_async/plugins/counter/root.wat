@@ -12,7 +12,7 @@
 	(core instance $shim_inst (instantiate $shim_module))
 	(alias core export $shim_inst "dtor" (core func $dtor_indirect))
 
-	(type $counter (resource (rep i32) (dtor (func $dtor_indirect))))
+	(type $counter (resource (rep i32) (dtor (core func $dtor_indirect))))
 	(core func $resource_new (canon resource.new $counter))
 	(core func $resource_drop (canon resource.drop $counter))
 

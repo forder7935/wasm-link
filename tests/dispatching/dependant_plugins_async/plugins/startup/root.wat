@@ -1,14 +1,12 @@
 (component
 	(type $child-interface (instance
 		(type $dispatch-error' (variant
-			(case "lock-rejected")
+			(case "plugin-busy")
 			(case "invalid-interface-path" string)
 			(case "invalid-function" string)
-			(case "missing-response")
 			(case "runtime-exception" string)
 			(case "invalid-argument-list")
 			(case "unsupported-type" string)
-			(case "executor-unavailable")
 			(case "resource-table-full")
 			(case "resource-handle-conversion-failed")
 			(case "invalid-resource-handle")
@@ -18,7 +16,7 @@
 		(type $get-value (func async (result (tuple string $dispatch-result))))
 		(export "get-value" (func (type $get-value)))
 	))
-	(import "test:async-child/root" (instance $child (type $child-interface)))
+	(import "child" (implements "test:async-child/root@0.1.0") (instance $child (type $child-interface)))
 
 	(alias export $child "get-value" (func $get_value))
 

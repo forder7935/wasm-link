@@ -14,7 +14,7 @@
 	(alias core export $shim_inst "dtor" (core func $dtor_indirect))
 	
 	;; Define resource type with destructor
-	(type $counter (resource (rep i32) (dtor (func $dtor_indirect))))
+	(type $counter (resource (rep i32) (dtor (core func $dtor_indirect))))
 	
 	;; Resource canonical functions
 	(core func $resource_new (canon resource.new $counter))

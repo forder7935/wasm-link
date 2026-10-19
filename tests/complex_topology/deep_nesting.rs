@@ -15,31 +15,31 @@ fn complex_topology_deep_nesting() {
 	let plugins = fixtures::plugins( &engine );
 	let bindings = fixtures::bindings();
 
-	let plugin_c_instance = plugins.plugin_c.plugin
+	let deepest_instance = plugins.plugin_c.plugin
 		.instantiate( &engine, &linker )
 		.expect( "Failed to instantiate plugin-c" );
 	let binding_c = Binding::new(
 		bindings.level_c.package,
 		HashMap::from([( bindings.level_c.name, bindings.level_c.spec )]),
-		ExactlyOne( "_".to_string(), plugin_c_instance ),
+		ExactlyOne( "_".to_string(), deepest_instance ),
 	);
 
-	let plugin_b_instance = plugins.plugin_b.plugin
+	let middle_instance = plugins.plugin_b.plugin
 		.link( &engine, linker.clone(), vec![ binding_c ])
 		.expect( "Failed to link plugin-b" );
 	let binding_b = Binding::new(
 		bindings.level_b.package,
 		HashMap::from([( bindings.level_b.name, bindings.level_b.spec )]),
-		ExactlyOne( "_".to_string(), plugin_b_instance ),
+		ExactlyOne( "_".to_string(), middle_instance ),
 	);
 
-	let plugin_a_instance = plugins.plugin_a.plugin
+	let root_instance = plugins.plugin_a.plugin
 		.link( &engine, linker.clone(), vec![ binding_b ])
 		.expect( "Failed to link plugin-a" );
 	let binding_root = Binding::new(
 		bindings.root.package,
 		HashMap::from([( bindings.root.name, bindings.root.spec )]),
-		ExactlyOne( "_".to_string(), plugin_a_instance ),
+		ExactlyOne( "_".to_string(), root_instance ),
 	);
 
 	match binding_root.dispatch( "root", "get-value", &[] ) {

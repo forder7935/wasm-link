@@ -1,17 +1,27 @@
-package wasm-link:runtime@0.4.0;
+package wasm-link:runtime@0.5.0;
 
 interface errors {
 	variant dispatch-error {
-		lock-rejected,
+		plugin-busy,
 		invalid-interface-path(string),
 		invalid-function(string),
-		missing-response,
 		runtime-exception(string),
 		invalid-argument-list,
 		unsupported-type(string),
-		executor-unavailable,
 		resource-table-full,
 		resource-handle-conversion-failed,
 		invalid-resource-handle,
 	}
+}
+
+/// Optional cooperative cancellation imports. These do not change application
+/// export signatures. Cancellation is a request, not permission for another call
+/// to reclaim memory still referenced by this invocation.
+interface calls {
+    type call-id = u64;
+    /// Opaque invocation identifier. Only valid for the lifetime of this invocation.
+    current-call: func() -> call-id;
+    /// True after the top-level dispatch future is dropped. Checking this does
+    /// not suspend or wake the invocation; guest code chooses how to stop safely.
+    cancellation-requested: func() -> bool;
 }

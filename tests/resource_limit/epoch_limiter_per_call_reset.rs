@@ -1,7 +1,7 @@
 use std::collections::{ HashMap, HashSet };
 use std::sync::{ Arc, atomic::{ AtomicBool, AtomicUsize, Ordering }};
 use std::thread;
-use wasm_link::{ Binding, Engine, Function, FunctionKind, Interface, Linker, ReturnKind, Val, DispatchError };
+use wasm_link::{ Binding, Engine, Function, FunctionKind, Interface, Linker, ReturnKind, Val };
 use wasm_link::cardinality::ExactlyOne ;
 use wasmtime::Config;
 
@@ -81,7 +81,7 @@ fn closure_is_called_per_dispatch_and_deadline_is_reset() {
 
 	assert_eq!( dispatch_call_count.load( Ordering::Relaxed ), 1, "limiter should be called exactly once per dispatch" );
 	match result {
-		Ok( ExactlyOne( _, Err( DispatchError::RuntimeException( _ )))) => {}
+		Ok( ExactlyOne( _, Err( wasm_link::SyncCallError::Call( wasm_link::CallError::RuntimeException( _ ))))) => {}
 		other => panic!( "Expected RuntimeException on second dispatch, got: {:#?}", other ),
 	}
 }

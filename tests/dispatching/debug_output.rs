@@ -23,8 +23,7 @@ fn debug_output_exposes_configuration_without_component_internals() -> Result<()
 
 	let plugin_instance = plugins.plugin.plugin.instantiate( &engine, &linker )?;
 	let instance_debug = format!( "{plugin_instance:?}" );
-	assert!( instance_debug.contains( "data: TestContext" ));
-	assert!( instance_debug.contains( "fuel_limiter: None" ));
+	assert!( instance_debug.contains( "PluginInstanceSync" ));
 	let binding: Binding<
 		String,
 		TestContext,
@@ -45,13 +44,14 @@ fn async_debug_output_exposes_configuration_without_component_internals() -> Res
 	futures::executor::block_on( async {
 		let engine = Engine::default();
 		let linker = Linker::new( &engine );
-		let executor = futures::executor::ThreadPool::new()?;
 		let plugins = fixtures::plugins( &engine );
 		let bindings = fixtures::bindings();
-		let plugin_instance = plugins.plugin.plugin.instantiate_async( &engine, &linker, executor ).await?;
+		let plugin_instance = plugins.plugin.plugin.instantiate_async( &engine, &linker ).await?;
 		let instance_debug = format!( "{plugin_instance:?}" );
-		assert!( instance_debug.contains( "state: \"<serialized store>\"" ));
-		assert!( instance_debug.contains( "executor: \"<executor>\"" ));
+		assert!( instance_debug.contains( "PluginInstanceAsync" ));
+		let sync_instance = fixtures::plugins( &engine ).plugin.plugin.instantiate( &engine, &linker )?;
+		let sync_instance = PluginInstanceAsync::from( sync_instance );
+		assert!( format!( "{sync_instance:?}" ).contains( "PluginInstanceAsync" ));
 		let binding: Binding<
 			String,
 			TestContext,

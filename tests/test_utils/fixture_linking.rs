@@ -177,19 +177,20 @@ mod fixture_linking {
 				let kind = match function.kind {
 					wit_parser::FunctionKind::Freestanding
 					| wit_parser::FunctionKind::AsyncFreestanding
+					| wit_parser::FunctionKind::Getter
+					| wit_parser::FunctionKind::Setter
 					| wit_parser::FunctionKind::Static( _ )
 					| wit_parser::FunctionKind::AsyncStatic( _ )
+					| wit_parser::FunctionKind::StaticGetter( _ )
+					| wit_parser::FunctionKind::StaticSetter( _ )
 					| wit_parser::FunctionKind::Constructor( _ ) => FunctionKind::Freestanding,
 					wit_parser::FunctionKind::Method( _ )
-					| wit_parser::FunctionKind::AsyncMethod( _ ) => FunctionKind::Method,
+					| wit_parser::FunctionKind::AsyncMethod( _ )
+					| wit_parser::FunctionKind::MethodGetter( _ )
+					| wit_parser::FunctionKind::MethodSetter( _ ) => FunctionKind::Method,
 				};
 				let return_kind = parse_return_kind( &resolve, function.result )?;
-				let metadata = match function.kind {
-					wit_parser::FunctionKind::AsyncFreestanding
-					| wit_parser::FunctionKind::AsyncStatic( _ )
-					| wit_parser::FunctionKind::AsyncMethod( _ ) => Function::new_async( kind, return_kind ),
-					_ => Function::new( kind, return_kind ),
-				};
+				let metadata = Function::new( kind, return_kind );
 				Ok(( function.name.clone(), metadata ))
 			})
 			.collect::<Result<HashMap<_, _>,FixtureError>>()?;
@@ -220,7 +221,7 @@ mod fixture_linking {
 	fn has_resource( resolve: &wit_parser::Resolve, wit_type: wit_parser::Type ) -> Result<bool, FixtureError> {
 		Ok( match wit_type {
 			wit_parser::Type::Id( id ) => match &resolve.types.get( id )
-				.ok_or_else(|| FixtureError::UndeclaredType( id ))?
+				.ok_or( FixtureError::UndeclaredType( id ))?
 				.kind
 			{
 				wit_parser::TypeDefKind::Resource

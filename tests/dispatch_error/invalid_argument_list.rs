@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use wasm_link::{ Binding, Engine, Linker, DispatchError };
+use wasm_link::{ Binding, Engine, Linker };
 use wasm_link::cardinality::ExactlyOne ;
 
 fixtures! {
@@ -25,7 +25,7 @@ fn dispatch_error_wrong_argument_count() {
 	);
 
 	match binding.dispatch( "root", "add", &[] ) {
-		Ok( ExactlyOne( _, Err( DispatchError::RuntimeException( err )))) if err.to_string().contains( "expected 2 argument" ) => {}
+		Ok( ExactlyOne( _, Err( wasm_link::SyncCallError::Call( wasm_link::CallError::RuntimeException( err ))))) if err.to_string().contains( "expected 2 argument" ) => {}
 		value => panic!( "Expected RuntimeException about argument count, found: {:#?}", value ),
 	}
 

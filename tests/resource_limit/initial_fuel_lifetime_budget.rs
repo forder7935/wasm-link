@@ -8,7 +8,7 @@ fixtures! {
 	plugins  = { startup: "startup" };
 }
 
-fn dispatch_with_initial_fuel( fuel: u64 ) -> Result<ExactlyOne<String, Result<Val, wasm_link::DispatchError>>, wasm_link::DispatchError> {
+fn dispatch_with_initial_fuel( fuel: u64 ) -> Result<ExactlyOne<String, Result<Val, wasm_link::SyncCallError>>, wasm_link::DispatchError> {
 	let mut config = Config::new();
 	config.consume_fuel( true );
 	let engine = Engine::new( &config ).expect( "failed to create engine" );
@@ -30,7 +30,7 @@ fn dispatch_with_initial_fuel( fuel: u64 ) -> Result<ExactlyOne<String, Result<V
 #[test]
 fn calls_exhaust_the_initial_fuel_remainder_without_a_limiter() {
 	match dispatch_with_initial_fuel( 100 ) {
-		Ok( ExactlyOne( _, Err( wasm_link::DispatchError::RuntimeException( _ )))) => {}
+		Ok( ExactlyOne( _, Err( wasm_link::SyncCallError::Call( wasm_link::CallError::RuntimeException( _ ))))) => {}
 		other => panic!( "Expected RuntimeException from lifetime fuel exhaustion, got: {:#?}", other ),
 	}
 }
